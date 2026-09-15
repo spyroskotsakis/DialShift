@@ -64,6 +64,7 @@ curated:
   genre: Hip-hop / Urban
   leaning: State
   notes: Radio France youth station
+  freq: '92.1'
 - match:
   - rfi
   - rfi monde
@@ -75,6 +76,7 @@ curated:
   language: Multilingual
   leaning: State
   notes: Radio France Internationale
+  freq: '89.0'
 - match:
   - rtl
   name_local: RTL
@@ -108,13 +110,14 @@ curated:
   city: Paris
   type: Music
   genre: Pop / Rock (adult)
-  freq: '101.9'
+  freq: '105.9'
 - match:
   - fun radio
   name_local: Fun Radio
   city: Paris
   type: Music
   genre: Dance / Hits
+  freq: '101.9'
 - match:
   - nrj
   - nrj france
@@ -125,6 +128,7 @@ curated:
   genre: Pop / Hits
   freq: '100.3'
   notes: France's biggest music network
+  url: https://streaming.nrjaudio.fm/ousrnpm4z85f
 - match:
   - skyrock
   name_local: Skyrock
@@ -159,6 +163,7 @@ curated:
   city: Paris
   type: Music
   genre: Comedy / Chanson
+  freq: '97.4'
 - match:
   - virgin radio
   name_local: Virgin Radio
@@ -179,6 +184,7 @@ curated:
   type: News & Talk
   genre: Business news
   notes: Altice group; business & finance news
+  freq: '96.4'
 - match:
   - sud radio
   name_local: Sud Radio
@@ -186,7 +192,8 @@ curated:
   type: News & Talk
   genre: News & Talk
   leaning: Right
-  notes: Generalist based in Toulouse; right-leaning
+  notes: Generalist based in Toulouse; right-leaning (Paris 99.9, Toulouse 101.4)
+  freq: '101.4'
 - match:
   - latina
   name_local: Latina
@@ -214,6 +221,7 @@ curated:
   city: Paris
   type: Music
   genre: Rock
+  freq: '102.3'
 - match:
   - generations
   name_local: Générations
@@ -236,5 +244,425 @@ curated:
   genre: Arabic / Maghreb
   language: Multilingual
   notes: Community radio for the Maghreb community
+  freq: '106.7'
+- match:
+  - toulouse fm
+  name_local: Toulouse FM
+  city: Toulouse
+  type: Music
+  genre: Pop / Local
+  focus: Toulouse
+  notes: Toulouse local music & talk station
+  freq: '92.6'
+- match:
+  - 100 radio toulouse
+  name_local: 100% Radio Toulouse
+  city: Toulouse
+  type: Music
+  genre: Pop / Hits
+  focus: Toulouse
+  notes: 'Toulouse outlet of the 100% Radio south-west network; Aude: Carcassonne 98.0, Castelnaudary
+    98.5'
+  freq: '90.5'
+- match:
+  - europe 2
+  name_local: Europe 2
+  city: Paris
+  type: Music
+  genre: Pop / Rock
+  freq: '103.5'
+  focus: Paris
+- match:
+  - chante france
+  name_local: Chante France
+  city: Paris
+  type: Music
+  genre: French chanson
+  freq: '90.9'
+  focus: Paris
+- match:
+  - voltage
+  name_local: Voltage
+  city: Paris
+  type: Music
+  genre: Pop / Hits
+  freq: '96.9'
+  focus: Paris
+- match:
+  - ado
+  - ado fm
+  name_local: Ado FM
+  city: Paris
+  type: Music
+  genre: Youth pop / Urban
+  freq: '97.8'
+  focus: Paris
+  no_auto_stream: true
+- match:
+  - m radio
+  name_local: M Radio
+  city: Paris
+  type: Music
+  genre: French pop / Chanson
+  freq: '102.7'
+  focus: Paris
+- match:
+  - france bleu paris
+  - ici paris ile-de-france
+  name: Ici Paris Île-de-France
+  name_local: ici Paris Île-de-France
+  city: Paris
+  type: Public
+  genre: Regional news & culture
+  language: French
+  leaning: State
+  freq: '107.1'
+  focus: Paris
+  notes: Regional public service for Paris/Île-de-France
+- match:
+  - africa radio
+  name_local: Africa Radio
+  city: Paris
+  type: Music
+  genre: African music & news
+  language: Multilingual
+  freq: '107.5'
+  focus: Paris
+  notes: Pan-African station based in Paris
+  no_auto_stream: true
+- match:
+  - radio soleil
+  name_local: Radio Soleil
+  city: Paris
+  type: Other
+  genre: Multilingual / Arabic community
+  language: Multilingual
+  freq: '88.6'
+  focus: Paris
+  no_auto_stream: true
+- match:
+  - radio libertaire
+  name_local: Radio Libertaire
+  city: Paris
+  type: Political
+  genre: Community / Libertarian talk
+  leaning: Left
+  freq: '89.4'
+  focus: Paris
+  notes: Long-running anarchist/community radio
+- match:
+  - tropiques fm
+  - tropiques
+  name_local: Tropiques FM
+  city: Paris
+  type: Music
+  genre: Caribbean / Tropical
+  freq: '92.6'
+  focus: Paris
+- match:
+  - aligre fm
+  - aligre
+  name_local: Aligre FM
+  city: Paris
+  type: Other
+  genre: Community / Local
+  freq: '93.1'
+  focus: Paris
+  no_auto_stream: true
+- match:
+  - radio campus paris
+  name_local: Radio Campus Paris
+  city: Paris
+  type: Other
+  genre: Student / Community
+  freq: '93.9'
+  focus: Paris
+- match:
+  - radio orient
+  name_local: Radio Orient
+  city: Paris
+  type: Other
+  genre: Arabic community
+  language: Multilingual
+  freq: '94.3'
+  focus: Paris
+- match:
+  - radio shalom
+  name_local: Radio Shalom
+  city: Paris
+  type: Other
+  genre: Jewish community
+  freq: '94.8'
+  focus: Paris
+  no_auto_stream: true
+- match:
+  - rcj
+  name_local: RCJ
+  city: Paris
+  type: Other
+  genre: Jewish community
+  freq: '94.8'
+  focus: Paris
+- match:
+  - radio neo
+  name_local: Radio Néo
+  city: Paris
+  type: Music
+  genre: Independent / Local
+  freq: '95.2'
+  focus: Paris
+- match:
+  - radio courtoisie
+  name: Radio Courtoisie
+  name_local: Radio Courtoisie
+  city: Paris
+  type: News & Talk
+  genre: Talk / Commentary
+  leaning: Right
+  freq: '95.6'
+  focus: Paris
+  notes: Conservative talk radio
+- match:
+  - radio alfa
+  name_local: Radio Alfa
+  city: Paris
+  type: Other
+  genre: Portuguese community
+  language: Portuguese
+  freq: '98.6'
+  focus: Paris
+  url: https://n16a-eu.rcs.revma.com/amrbkhqtkm0uv
+- match:
+  - france maghreb
+  name_local: France Maghreb
+  city: Paris
+  type: Other
+  genre: Maghrebi community
+  language: Multilingual
+  freq: '99.5'
+  focus: Paris
+  no_auto_stream: true
+- match:
+  - notre dame
+  name: Radio Notre Dame
+  name_local: Radio Notre Dame
+  city: Paris
+  type: Religious
+  genre: Catholic
+  freq: '100.7'
+  focus: Paris
+  no_auto_stream: true
+- match:
+  - frequence paris plurielle
+  - fpp
+  name_local: Fréquence Paris Plurielle
+  city: Paris
+  type: Other
+  genre: Community / Multicultural
+  freq: '106.3'
+  focus: Paris
+  url: https://direct.rfpp.net/fpp.mp3
+- match:
+  - sanef
+  name_local: SANEF 107.7
+  city: Paris
+  type: Other
+  genre: Traffic information
+  freq: '107.7'
+  focus: Paris
+  url: http://sanef.ice.infomaniak.ch/sanef1077-idf.mp3
+- match:
+  - canal sud
+  name_local: Canal Sud
+  city: Toulouse
+  type: Other
+  genre: Community / Independent
+  freq: '92.2'
+  focus: Toulouse
+- match:
+  - mon pais
+  - radio mon pais
+  name_local: Radio Mon Païs
+  city: Toulouse
+  type: Other
+  genre: Occitan culture
+  freq: '90.1'
+  focus: Toulouse
+  no_auto_stream: true
+- match:
+  - radio occitania
+  name: Ràdio Occitània
+  name_local: Ràdio Occitània
+  city: Toulouse
+  type: Other
+  genre: Occitan language & culture
+  freq: '98.3'
+  focus: Toulouse
+  no_auto_stream: true
+- match:
+  - campus fm toulouse
+  name: Campus FM Toulouse
+  name_local: Campus FM Toulouse
+  city: Toulouse
+  type: Other
+  genre: Student / Local
+  freq: '94.0'
+  focus: Toulouse
+- match:
+  - radio fmr
+  name: Radio FMR
+  name_local: Radio FMR
+  city: Toulouse
+  type: Other
+  genre: Community / Independent
+  freq: '89.1'
+  focus: Toulouse
+- match:
+  - radio presence
+  name: Radio Présence
+  name_local: Radio Présence
+  city: Toulouse
+  type: Religious
+  genre: Catholic
+  freq: '97.9'
+  focus: Toulouse
+- match:
+  - kol aviv
+  name_local: Radio Kol Aviv
+  city: Toulouse
+  type: Other
+  genre: Jewish community
+  freq: '101.0'
+  focus: Toulouse
+  no_auto_stream: true
+- match:
+  - radio radio
+  name_local: Radio Radio
+  city: Toulouse
+  type: Other
+  genre: Local / Alternative
+  freq: '106.8'
+  focus: Toulouse
+- match:
+  - altitude fm
+  name_local: Altitude FM
+  city: Toulouse
+  type: Other
+  genre: Local / Community
+  freq: '93.5'
+  focus: Toulouse
+  no_auto_stream: true
+- match:
+  - vinci
+  name_local: Radio VINCI Autoroutes 107.7
+  city: Toulouse
+  type: Other
+  genre: Traffic information
+  freq: '107.7'
+  focus: Toulouse
+  no_auto_stream: true
+- match:
+  - neo toulouse
+  name: Radio Néo Toulouse
+  name_local: Radio Néo Toulouse
+  city: Toulouse
+  type: Music
+  genre: Independent / Local
+  freq: '94.8'
+  focus: Toulouse
+  url: https://ice.creacast.com/radio-neo-paris
+  notes: Toulouse outlet of the Néo network
+- match:
+  - grand sud fm
+  name_local: Grand Sud FM
+  city: Carcassonne
+  region: Occitanie
+  type: News & Talk
+  genre: Regional news & music
+  freq: '95.3'
+  focus: Aude
+  notes: Main Aude regional station (Carcassonne 95.3, Narbonne 92.5)
+  no_auto_stream: true
+- match:
+  - france bleu occitanie
+  - ici occitanie
+  name: Ici Occitanie
+  name_local: ici Occitanie
+  city: Toulouse
+  region: Occitanie
+  type: Public
+  genre: Regional news & culture
+  language: French
+  leaning: State
+  freq: '103.8'
+  focus: Aude
+  notes: Regional public service for Occitanie (Carcassonne 103.8, Castelnaudary 106.1, Limoux 90.4)
+- match:
+  - rcf pays daude
+  - rcf pays d aude
+  name_local: RCF Pays d'Aude
+  city: Carcassonne
+  region: Occitanie
+  type: Religious
+  genre: Catholic / Local
+  freq: '103.0'
+  focus: Aude
+  notes: Local Catholic radio (Carcassonne 103.0, Narbonne 98.2)
+- match:
+  - pyrenees fm
+  name: Pyrénées FM
+  name_local: Pyrénées FM
+  city: Quillan
+  region: Occitanie
+  type: Music
+  genre: Regional pop & local info
+  freq: '107.5'
+  focus: Aude
+  notes: Upper Aude / Pyrenees regional station (Quillan 107.5, Axat 94.4)
+- match:
+  - contact fm occitanie
+  name_local: Contact FM Occitanie
+  city: Carcassonne
+  region: Occitanie
+  type: Music
+  genre: Regional hits
+  freq: '88.8'
+  focus: Aude
+  no_auto_stream: true
+- match:
+  - radio marseillette
+  name_local: Radio Marseillette
+  city: Carcassonne
+  region: Occitanie
+  type: Music
+  genre: Local programming
+  freq: '101.3'
+  focus: Aude
+- match:
+  - radio ballade
+  name_local: Radio Ballade
+  city: Limoux
+  region: Occitanie
+  type: Music
+  genre: Local / Community
+  focus: Aude
+  no_auto_stream: true
+- match:
+  - radio lenga doc
+  - radio lenga d oc
+  name_local: Radio Lenga d'Òc
+  city: Carcassonne
+  region: Occitanie
+  type: Other
+  genre: Occitan language & culture
+  focus: Aude
 notes: Curated identities only; streams are resolved at build time from radio-browser (highest-voted working
   URL), so links never rot inside this file.
+focus_areas:
+- city: Paris
+  label: Paris
+- city: Toulouse
+  label: Toulouse
+- city: Carcassonne
+  region: Aude
+  label: Aude

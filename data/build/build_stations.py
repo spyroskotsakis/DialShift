@@ -31,6 +31,11 @@ RAW_DIR = DATA_DIR / 'raw'
 def load_country(path):
     with open(path, encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
+    # focus areas: 'focus_areas:' list (city- or region-based), or the older
+    # 'focus_cities:' / single 'focus:' block (kept working for compatibility)
+    cfg['focus_areas'] = cfg.get('focus_areas') or cfg.get('focus_cities') \
+        or ([cfg['focus']] if cfg.get('focus') else [])
+    cfg['focus_area_labels'] = {a['label'] for a in cfg['focus_areas']}
     # two lookup forms per match key: frequency-preserving first (exact
     # identities like '104.6 rtl'), then normalized (broad matching)
     cfg['curated_by_match_freq'] = {}
@@ -179,7 +184,7 @@ def build_country(cfg, force_refresh=False):
             pinned = None
         url = pinned or (stream or {}).get('url_resolved', '')
         ok = 1 if pinned else (stream or {}).get('lastcheckok', 0)
-        focus_city = (cfg.get('focus') or {}).get('city', '')
+        focus_areas = cfg.get('focus_areas', [])
         row = dict(country=code,
                    name=entry.get('name', wname), name_local=entry.get('name_local', ''),
                    city=ccity, region=region,
@@ -194,8 +199,24 @@ def build_country(cfg, force_refresh=False):
                    stream_status='Working' if ok else ('Down' if stream else 'No stream found'),
                    votes=0 if pinned else (stream or {}).get('votes', 0),
                    notes=entry.get('notes', desc), source=source)
-        if entry.get('focus') or (focus_city and norm_city(ccity, code) == focus_city):
-            row['focus'] = True
+        # focus membership: explicit entry flag (true = first focus area, or a
+        # label/city/region name), or a terrestrial row in a focus city/region
+        fc = entry.get('focus')
+        if fc is True and focus_areas:
+            row['focus_area'] = focus_areas[0]['label']
+        elif isinstance(fc, str):
+            for a in focus_areas:
+                if fc in (a.get('label'), a.get('city'), a.get('region')):
+                    row['focus_area'] = a['label']
+                    break
+        elif internet_only == 'No':
+            for a in focus_areas:
+                if a.get('city') and ccity == a['city']:
+                    row['focus_area'] = a['label']
+                    break
+                if a.get('region') and region == a['region']:
+                    row['focus_area'] = a['label']
+                    break
         return row
 
     def curated_for(name_n):

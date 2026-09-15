@@ -91,13 +91,18 @@ The SAME pipeline (`build/build_stations.py`) runs for every country, driven by 
    curated overlay, extras filtering, and a final dedupe on (name + city + stream URL).
    Same-name stations in different cities stay separate (matching is by name + state).
 
-## Munich focus (Germany)
+## Focus areas (Munich, Paris, Toulouse, Aude)
 
-- Curated `focus: true` entries (BR24, Bayern 1-3, BR-Klassik, PULS, Antenne Bayern, Rock Antenne,
-  Radio Gong 96.3, Charivari 95.5, Energy München, Radio Arabella, egoFM, M94.5, Radio 2Day)
-  + terrestrial stations whose city is Munich build the `Munich` tab.
-- Every Munich row also appears in the `Germany` tab.
-- PULS has no working public direct stream (DAB+/web only) — kept for reference with `no_auto_stream`.
+- Each country YAML can declare `focus_areas` — city-based (`{city: Paris, label: Paris}`)
+  or region-based (`{city: Carcassonne, region: Aude, label: Aude}`) — each becomes a tab.
+- Curated entries opt in with `focus: <label>` (or `focus: true` for the first area);
+  terrestrial rows in a focus city are included automatically.
+- Focus tabs include reference rows (`no_auto_stream: true`) for local stations whose
+  stream isn't in radio-browser (e.g. Munich DAB+ 11C locals, Paris community radios),
+  so the tab reflects the whole local dial.
+- Munich FM presets (per city directories): BR24 90.0, Bayern 1 91.3, Bayern 3 97.3,
+  egoFM 100.8, Antenne Bayern 101.3, Rock Antenne 94.5, Arabella 105.2, 2DAY 89.0,
+  Charivari 95.5, Gong 96.3, Energy 93.3, TOP FM 106.4, community on 92.4.
 
 ## Greece special notes (implemented)
 

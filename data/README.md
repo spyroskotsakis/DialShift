@@ -20,8 +20,12 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 - **Import Ready** — every station with a working stream, all countries, most popular first.
   This is the tab you pick stations from.
 - **Greece / France / Germany** — full lists, including stations without a stream.
-- **Munich** — your Germany shortlist: Munich FM stations + Munich-based networks (Antenne Bayern,
-  Bayern 1-3, BR24, BR-Klassik, Radio Gong 96.3, 95.5 Charivari, egoFM, M94.5…).
+- **Focus tabs — Munich, Paris, Toulouse, Aude** — local shortlists: the FM landscape of each
+  place plus the networks based there (Munich: Bayern 1-3, BR24, Antenne Bayern, Gong 96.3,
+  Charivari, egoFM…; Paris: the national networks + community stations like Libertaire, Courtoisie,
+  Chante France; Toulouse: Sud Radio, Toulouse FM, Canal Sud, Ràdio Occitània…; Aude: Grand Sud FM,
+  Pyrénées FM, RCF Pays d'Aude, Ici Occitanie…). Stations with no public stream still appear
+  (marked *No stream found*) so you see the whole local dial.
 - **Summary** — counts by country/type and top cities.
 
 ## Adding a station to the DialShift app
@@ -67,7 +71,10 @@ notes · source`
 ### Adding a new country
 
 1. Copy a YAML, fill in: `code`, `name`, `language_default`, `city_aliases`, `curated` entries.
-2. Optional: `wiki.url` for a Wikipedia FM list, `focus` for a city shortlist tab.
+2. Optional: `wiki.url` for a Wikipedia FM list, and `focus_areas` for local shortlist tabs
+   (a focus area is a city — `{city: Paris, label: Paris}` — or a region —
+   `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;
+   terrestrial rows in a focus city are added automatically.
 3. Run the build. Done — no Python changes.
 
 ## Refreshing the data

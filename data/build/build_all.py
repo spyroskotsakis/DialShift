@@ -124,12 +124,17 @@ def main():
     line('')
 
     section_row('Tabs in this workbook')
-    for title, desc in [
+    tab_descs = [
         ('Import Ready', 'every station with a working stream, all countries — the tab to pick stations from'),
         ('Greece / France / Germany', 'full per-country lists, including stations without a working stream'),
-        ('Munich', 'your local shortlist for Germany: Munich FM stations + Munich-based networks'),
-        ('Summary', 'counts per country and type, top cities'),
-    ]:
+    ]
+    for cfg in countries:
+        for farea in cfg.get('focus_areas', []):
+            place = farea.get('city') or farea.get('region')
+            tab_descs.append((farea['label'],
+                              f"your local shortlist for {cfg['name']}: {place} stations"))
+    tab_descs.append(('Summary', 'counts per country and type, top cities'))
+    for title, desc in tab_descs:
         line(f'  •  {title}:  {desc}')
     line('')
 
@@ -163,17 +168,18 @@ def main():
          'DialShift connects directly to each provider; this catalog is unaffiliated.', font=italic)
 
     # ---- Summary tab ----
-    summary = [['Country', 'Stations', 'Working streams', 'Internet-only', 'Munich focus']]
+    summary = [['Country', 'Stations', 'Working streams', 'Internet-only', 'Focus tabs']]
     for cfg in countries:
         rows = per_country[cfg['code']]
-        focus = (cfg.get('focus') or {}).get('label')
-        if focus:
-            summary.append([cfg['name'], len(rows), sum(1 for r in rows if r['stream_status'] == 'Working'),
-                            sum(1 for r in rows if r['internet_only'] == 'Yes'),
-                            sum(1 for r in rows if r.get('focus'))])
-        else:
-            summary.append([cfg['name'], len(rows), sum(1 for r in rows if r['stream_status'] == 'Working'),
-                            sum(1 for r in rows if r['internet_only'] == 'Yes'), ''])
+        labels = ', '.join(f['label'] for f in cfg.get('focus_areas', []))
+        summary.append([cfg['name'], len(rows), sum(1 for r in rows if r['stream_status'] == 'Working'),
+                        sum(1 for r in rows if r['internet_only'] == 'Yes'), labels])
+    summary.append([])
+    summary.append(['Focus tabs detail'])
+    for cfg in countries:
+        for farea in cfg.get('focus_areas', []):
+            n = sum(1 for r in per_country[cfg['code']] if r.get('focus_area') == farea['label'])
+            summary.append([f"{cfg['name']} · {farea['label']}", n])
     summary.append([])
     summary.append(['By type (all countries)'])
     for t, n in Counter(r['type'] for r in all_rows).most_common():
@@ -209,30 +215,27 @@ def main():
                     widths=[32, 24, 20, 16, 10, 13, 20, 11, 16, 11, 55, 7, 8, 13, 8, 40, 16],
                     tab_color='9DC3E6')
 
-    # ---- focus tab (Munich) ----
-    focus_cfgs = [cfg for cfg in countries if cfg.get('focus')]
-    for cfg in focus_cfgs:
-        label = cfg['focus']['label']
-        # curated focus stations + terrestrial stations in the focus city
-        # (internet-only stations that merely registered in the city stay out)
-        focus_rows = [r for r in per_country[cfg['code']]
-                      if r.get('focus')
-                      or (r['city'] == cfg['focus']['city'] and r['internet_only'] == 'No')]
-        # dedupe by (name, url)
-        seen = set()
-        unique = []
-        for r in focus_rows:
-            k = (r['name'].lower(), r['stream_url'])
-            if k not in seen:
-                seen.add(k)
-                unique.append(r)
-        data = [[r['name'], app_tag(r), r['stream_url'], r['city'], r['frequency_fm'], r['type'],
-                 r['language'], r['stream_status'], r['votes'] or '', r['notes'][:160]]
-                for r in sorted(unique, key=lambda x: (x['stream_url'] == '', -x['votes'], x['name'].lower()))]
-        write_sheet(wb, label, ['Station Name', 'Description / Genre', 'Stream URL', 'City', 'Frequency FM',
-                                'Type', 'Language', 'Stream Status', 'Votes', 'Notes'],
-                    data, widths=[34, 30, 58, 20, 10, 14, 11, 13, 9, 40], tab_color='F4B183')
-        print(f"{label} tab: {len(data)} stations")
+    # ---- focus tabs (Munich, Paris, Toulouse, Aude, …) ----
+    for cfg in countries:
+        for farea in cfg.get('focus_areas', []):
+            label = farea['label']
+            # curated focus stations + terrestrial stations in the focus city/region
+            focus_rows = [r for r in per_country[cfg['code']] if r.get('focus_area') == label]
+            # dedupe by (name, url)
+            seen = set()
+            unique = []
+            for r in focus_rows:
+                k = (r['name'].lower(), r['stream_url'])
+                if k not in seen:
+                    seen.add(k)
+                    unique.append(r)
+            data = [[r['name'], app_tag(r), r['stream_url'], r['city'], r['frequency_fm'], r['type'],
+                     r['language'], r['stream_status'], r['votes'] or '', r['notes'][:160]]
+                    for r in sorted(unique, key=lambda x: (x['stream_url'] == '', -x['votes'], x['name'].lower()))]
+            write_sheet(wb, label, ['Station Name', 'Description / Genre', 'Stream URL', 'City', 'Frequency FM',
+                                    'Type', 'Language', 'Stream Status', 'Votes', 'Notes'],
+                        data, widths=[34, 30, 58, 20, 10, 14, 11, 13, 9, 40], tab_color='F4B183')
+            print(f"{label} tab: {len(data)} stations")
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     xlsx = OUTPUT / 'dialshift-radio-catalog.xlsx'

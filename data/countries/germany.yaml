@@ -26,6 +26,7 @@ curated:
   focus: true
   notes: Bayerischer Rundfunk news radio
   url: https://dispatcher.rndfnk.com/br/br24/live/mp3/mid
+  freq: '90.0'
 - match:
   - bayern 1
   name_local: Bayern 1
@@ -36,6 +37,8 @@ curated:
   leaning: State
   focus: true
   url: https://dispatcher.rndfnk.com/br/br1/schwaben/mp3/mid
+  freq: '91.3'
+  notes: 'Oberbayern FM 91.3 in Munich (stream: Schwaben variant, same programme)'
 - match:
   - bayern 2
   name_local: Bayern 2
@@ -56,6 +59,7 @@ curated:
   leaning: State
   focus: true
   url: https://dispatcher.rndfnk.com/br/br3/live/mp3/mid
+  freq: '97.3'
 - match:
   - br-klassik
   name_local: BR-Klassik
@@ -85,6 +89,7 @@ curated:
   genre: News & Talk
   leaning: State
   notes: National public news radio (DAB+/web)
+  freq: '101.7'
 - match:
   - deutschlandfunk kultur
   name_local: Deutschlandfunk Kultur
@@ -111,6 +116,7 @@ curated:
   leaning: None
   focus: true
   notes: Bavaria's biggest private station (HQ Ismaning, Munich area)
+  freq: '101.3'
 - match:
   - rock antenne
   name_local: Rock Antenne
@@ -120,6 +126,7 @@ curated:
   genre: Rock
   leaning: None
   focus: true
+  freq: '94.5'
 - match:
   - radio gong 96.3 munchen
   - radio gong munchen 96.3
@@ -141,6 +148,7 @@ curated:
   genre: Pop / Oldies
   leaning: None
   focus: true
+  freq: '105.2'
 - match:
   - charivari munchens hitradio
   name_local: 95.5 Charivari
@@ -182,6 +190,7 @@ curated:
   leaning: None
   focus: true
   notes: Munich alternative station (FM/DAB+/web)
+  freq: '100.8'
 - match:
   - m94.5
   name_local: M94.5
@@ -191,8 +200,8 @@ curated:
   genre: Student / Alternative
   leaning: None
   focus: true
-  freq: '94.5'
-  notes: Munich student radio
+  freq: ''
+  notes: Munich student radio (DAB+ 11C, no FM)
 - match:
   - radio horeb
   name_local: Radio Horeb
@@ -342,5 +351,102 @@ curated:
   region: Berlin
   type: Music
   genre: Hip-hop / R&B
+- match:
+  - radio 106.4 top fm
+  - top fm munchen
+  name_local: 106.4 TOP FM
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Pop / Local
+  freq: '106.4'
+  focus: Munich
+  notes: Local news & music for Munich west/north + Oberland
+- match:
+  - radio munchen
+  name_local: Radio München
+  city: Munich
+  region: Bavaria
+  type: Other
+  genre: Local / Community
+  focus: Munich
+  notes: Independent local station (DAB+ 11C); city issues, culture, talk, music
+- match:
+  - radio feierwerk
+  - feierwerk
+  name_local: Radio Feierwerk
+  city: Munich
+  region: Bavaria
+  type: Other
+  genre: Children / Youth
+  freq: '92.4'
+  focus: Munich
+  notes: Children & youth station from Feierwerk (92.4 shared)
+- match:
+  - munchner kirchenradio
+  - mkr
+  name_local: Münchner Kirchenradio
+  city: Munich
+  region: Bavaria
+  type: Religious
+  genre: Christian / Community
+  freq: '92.4'
+  focus: Munich
+  notes: Church & social programming (92.4 shared)
+  url: https://mkr-hd-radio.baltic-broadcast.de/mkr-hd-radio
+- match:
+  - lora munchen
+  - radio lora munchen
+  name_local: LORA München
+  city: Munich
+  region: Bavaria
+  type: Other
+  genre: Community / Citizens radio
+  freq: '92.4'
+  focus: Munich
+  leaning: Left
+  notes: Non-commercial citizens radio (92.4 shared); politics, culture, multilingual
+  no_auto_stream: true
+- match:
+  - 089kult
+  name_local: 089Kult
+  city: Munich
+  region: Bavaria
+  type: Other
+  genre: Culture
+  focus: Munich
+  notes: Munich cultural programming (DAB+ 11C)
+  no_auto_stream: true
+- match:
+  - digital classix
+  name_local: Digital Classix
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Classical
+  focus: Munich
+  notes: Classical music (DAB+ 11C)
+  no_auto_stream: true
+- match:
+  - radio galaxy munchen
+  - galaxy munchen
+  name_local: Radio Galaxy München
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Pop / Hits
+  focus: Munich
+  notes: Young-audience CHR (DAB+ 11C)
+  no_auto_stream: true
+- match:
+  - megaradiomix
+  name_local: MEGARADIOmix
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Mix
+  focus: Munich
+  notes: Local digital music offering (DAB+ 11C)
+  no_auto_stream: true
 notes: 'Munich focus: the `focus` list above + city aliases build the Munich tab. Curated identities only;
   streams resolve dynamically at build time.'
