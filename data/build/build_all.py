@@ -22,7 +22,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from build_stations import all_countries, build_country
+from build_stations import all_collections, all_countries, build_collection, build_country
 
 DATA_DIR = Path(__file__).resolve().parent.parent
 CANONICAL = DATA_DIR / 'canonical'
@@ -82,6 +82,19 @@ def main():
                 wr.writerow({k: r.get(k, '') for k in CANON_COLS})
         print(f"{cfg['code']} {cfg['name']}: {len(rows)} rows -> {csv_path.name}")
 
+    collections = all_collections()
+    per_collection = {}
+    for cfg in collections:
+        rows = build_collection(cfg)
+        per_collection[cfg['name']] = rows
+        csv_path = CANONICAL / f"collection-{cfg['code'].lower()}.csv"
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
+            wr = csv.DictWriter(f, fieldnames=CANON_COLS, extrasaction='ignore')
+            wr.writeheader()
+            for r in rows:
+                wr.writerow({k: r.get(k, '') for k in CANON_COLS})
+        print(f"[collection] {cfg['name']}: {len(rows)} rows -> {csv_path.name}")
+
     all_rows = [r for rows in per_country.values() for r in rows]
     working = [r for r in all_rows if r['stream_status'] == 'Working' and r['stream_url']]
 
@@ -133,6 +146,8 @@ def main():
             place = farea.get('city') or farea.get('region')
             tab_descs.append((farea['label'],
                               f"your local shortlist for {cfg['name']}: {place} stations"))
+    for cfg in collections:
+        tab_descs.append((cfg['name'], cfg.get('description', '').replace('\n', ' ')))
     tab_descs.append(('Summary', 'counts per country and type, top cities'))
     for title, desc in tab_descs:
         line(f'  •  {title}:  {desc}')
@@ -180,6 +195,12 @@ def main():
         for farea in cfg.get('focus_areas', []):
             n = sum(1 for r in per_country[cfg['code']] if r.get('focus_area') == farea['label'])
             summary.append([f"{cfg['name']} · {farea['label']}", n])
+    summary.append([])
+    summary.append(['Collections (internet radio)'])
+    for cfg in collections:
+        rows = per_collection[cfg['name']]
+        summary.append([cfg['name'], len(rows), sum(1 for r in rows if r['stream_status'] == 'Working'),
+                        'Yes (all)', ''])
     summary.append([])
     summary.append(['By type (all countries)'])
     for t, n in Counter(r['type'] for r in all_rows).most_common():
@@ -236,6 +257,18 @@ def main():
                                     'Type', 'Language', 'Stream Status', 'Votes', 'Notes'],
                         data, widths=[34, 30, 58, 20, 10, 14, 11, 13, 9, 40], tab_color='F4B183')
             print(f"{label} tab: {len(data)} stations")
+
+    # ---- collection tabs (genre folders) ----
+    for cfg in collections:
+        rows = per_collection[cfg['name']]
+        data = [[r['name'], r['genre'], r['stream_url'], r['language'],
+                 r['stream_status'], r['votes'] or '', r['notes'][:160]]
+                for r in rows]
+        write_sheet(wb, cfg['name'],
+                    ['Station Name', 'Description / Genre', 'Stream URL', 'Language', 'Stream Status',
+                     'Votes', 'Notes'],
+                    data, widths=[30, 34, 58, 13, 13, 9, 40], tab_color='C9AED6')
+        print(f"{cfg['name']} tab: {len(data)} stations")
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     xlsx = OUTPUT / 'dialshift-radio-catalog.xlsx'

@@ -11,6 +11,7 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 | **Multi-tab XLSX** | `output/dialshift-radio-catalog.xlsx` | the deliverable. Opens nicely in macOS Numbers |
 | **Per-country CSVs** | `canonical/<country>-stations.csv` | clean, one row per station |
 | **Country data files** | `countries/<name>.yaml` | THE source of truth for curated station facts |
+| **Collection data files** | `collections/<name>.yaml` | curated genre folders of internet radio (Ambient & Chill) |
 | **Build scripts** | `build/` | one generic pipeline + the XLSX writer |
 | **Raw caches** | `raw/<CC>/` | downloaded sources; disposable, auto-regenerated, **not in git** |
 
@@ -27,6 +28,9 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
   Pyrénées FM, RCF Pays d'Aude, Ici Occitanie…). Stations with no public stream still appear
   (marked *No stream found*) so you see the whole local dial.
 - **Summary** — counts by country/type and top cities.
+- **Collections** — curated genre folders of internet radio (e.g. **Ambient & Chill**: the
+  SomaFM ambient family around the app's default stations + the best ambient/downtempo/chillout
+  streams worldwide). Each collection is one YAML in `collections/` and becomes one tab.
 
 ## Adding a station to the DialShift app
 
@@ -76,6 +80,14 @@ notes · source`
    `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;
    terrestrial rows in a focus city are added automatically.
 3. Run the build. Done — no Python changes.
+
+### Adding a collection (genre folder)
+
+Drop a YAML in `data/collections/` with `code`, `name`, `description` (the tab's README text),
+and a `stations:` list — each entry: `name`, `match` (radio-browser search keys), `genre`
+(the app's Description/Genre tag, e.g. `SomaFM · Ambient / downtempo`), optional pinned `url`,
+`language`, `notes`. Unpinned entries resolve their stream from radio-browser at build time.
+Collections become their own tab + `canonical/collection-<code>.csv`.
 
 ## Refreshing the data
 

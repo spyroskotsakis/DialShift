@@ -14,8 +14,12 @@ Pipeline (same for every country):
   5. unmatched radio-browser extras (internet-only / unlisted)
   6. sort + return canonical rows
 """
+import json
 import re
+import ssl
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -24,7 +28,9 @@ from common import (DATA_DIR, classify, clean_name, dedupe_rb, fetch_radio_brows
                     fetch_text, norm, norm_city, norm_freq)
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
+COLLECTIONS_DIR = DATA_DIR / 'collections'
 RAW_DIR = DATA_DIR / 'raw'
+SSL_CTX = ssl._create_unverified_context()
 
 # ---------------------------------------------------------------- country config
 
@@ -359,7 +365,69 @@ def _row_score(r):
             r.get('votes') or 0)
 
 
+# ---------------------------------------------------------------- collections
+# Genre collections are the SAME schema as countries but with country='Internet':
+# hand-curated lists of internet-radio stations (e.g. the Ambient & Chill family
+# around DialShift's SomaFM defaults). Streams resolve dynamically from
+# radio-browser by name unless the YAML pins a verified URL.
+
+def all_collections():
+    if not COLLECTIONS_DIR.is_dir():
+        return []
+    return [load_country(p) for p in sorted(COLLECTIONS_DIR.glob('*.yaml'))]
+
+
+def rb_search(name, limit=8):
+    """Search radio-browser by name (any country), best votes first."""
+    q = urllib.parse.quote(name)
+    req = urllib.request.Request(
+        f'https://de1.api.radio-browser.info/json/stations/search'
+        f'?name={q}&hidebroken=true&order=votes&reverse=true&limit={limit}',
+        headers={'User-Agent': 'DialShift/1.0'})
+    with urllib.request.urlopen(req, timeout=25, context=SSL_CTX) as r:
+        return json.load(r)
+
+
+def build_collection(cfg):
+    rows = []
+    cache = {}
+    for e in cfg.get('stations', []):
+        pinned = e.get('url')
+        s = None
+        if not pinned:
+            keys = e.get('match') or [e.get('name', '')]
+            for key in keys:
+                if key not in cache:
+                    try:
+                        cache[key] = rb_search(key)
+                    except Exception:
+                        cache[key] = []
+                for h in cache[key]:
+                    if any(norm(k) in norm(h['name']) for k in keys):
+                        s = h
+                        break
+                if s:
+                    break
+        url = pinned or (s or {}).get('url_resolved', '')
+        rows.append(dict(country='Internet', name=e.get('name') or (e.get('match') or [''])[0],
+                         name_local='', city='—', region='Internet radio',
+                         frequency_fm='', type=e.get('type', 'Music'),
+                         genre=e.get('genre', ''), language=e.get('language', 'Instrumental'),
+                         political_leaning='None', internet_only='Yes',
+                         stream_url=url, codec=(s or {}).get('codec', ''),
+                         bitrate=(s or {}).get('bitrate', 0),
+                         stream_status='Working' if url else 'No stream found',
+                         votes=(s or {}).get('votes') or 0,
+                         notes=e.get('notes', ''), source='curated', focus_area=''))
+    rows.sort(key=lambda r: r['name'].lower())
+    return rows
+
+
 if __name__ == '__main__':
     for cfg in all_countries():
         rows, stats = build_country(cfg, force_refresh='--refresh' in sys.argv)
         print(f"{cfg['code']} {cfg['name']}: {len(rows)} rows, {stats['extras']} extras")
+    for cfg in all_collections():
+        rows = build_collection(cfg)
+        print(f"[collection] {cfg['name']}: {len(rows)} rows, "
+              f"{sum(1 for r in rows if r['stream_status'] == 'Working')} working")

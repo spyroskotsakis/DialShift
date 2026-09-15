@@ -134,6 +134,15 @@ data/schedules/
 4. XLSX opens: read back with openpyxl; tabs match the design; no exotic features that break Numbers.
 5. Munich tab non-empty; Greece contains the user's requested majors list.
 
+## Collections (genre folders)
+
+- `data/collections/*.yaml` — curated internet-radio folders with the SAME schema but
+  `country='Internet'`; each becomes its own XLSX tab + `canonical/collection-<code>.csv`.
+- `Ambient & Chill` (implemented): the SomaFM ambient family around the app defaults
+  (Groove Salad / Drone Zone / Secret Agent) + best ambient/downtempo/chillout worldwide;
+  every pinned URL verified with an audio response; genre doubles as the app Tag
+  (`SomaFM · Ambient / downtempo`).
+
 ## Out of scope (explicitly)
 
 - No streaming licenses/legal checks — all URLs come from public directories or official sites.
