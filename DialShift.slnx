@@ -2,4 +2,5 @@
   <Project Path="DialShift.Core/DialShift.Core.csproj" />
   <Project Path="DialShift.Tests/DialShift.Tests.csproj" />
   <Project Path="DialShift/DialShift.csproj" />
+  <Project Path="DialShift.Mac/DialShift.Mac.csproj" />
 </Solution>

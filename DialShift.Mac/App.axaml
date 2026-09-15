@@ -1,0 +1,56 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DialShift.App"
+             RequestedThemeVariant="Dark">
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <Style Selector="Window">
+      <Setter Property="Background" Value="#10191B"/>
+      <Setter Property="Foreground" Value="#EFF6F0"/>
+      <Setter Property="FontSize" Value="14"/>
+    </Style>
+
+    <Style Selector="Button">
+      <Setter Property="Background" Value="#293638"/>
+      <Setter Property="Foreground" Value="#EFF6F0"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="16,10"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <Style Selector="TextBox">
+      <Setter Property="Background" Value="#243134"/>
+      <Setter Property="Foreground" Value="#EFF6F0"/>
+      <Setter Property="BorderBrush" Value="#4C6264"/>
+      <Setter Property="Padding" Value="10,8"/>
+      <Setter Property="Margin" Value="0,5,0,14"/>
+      <Setter Property="FontSize" Value="14"/>
+    </Style>
+
+    <Style Selector="ComboBox">
+      <Setter Property="Foreground" Value="#EFF6F0"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="Padding" Value="8"/>
+      <Setter Property="Margin" Value="0,5,0,14"/>
+      <Setter Property="MinHeight" Value="36"/>
+    </Style>
+
+    <Style Selector="CheckBox">
+      <Setter Property="Foreground" Value="#EFF6F0"/>
+      <Setter Property="Margin" Value="0,8,14,8"/>
+    </Style>
+
+    <Style Selector="ScrollViewer">
+      <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+    </Style>
+  </Application.Styles>
+
+  <Application.Resources>
+    <SolidColorBrush x:Key="AccentBrush" Color="#C2F278"/>
+    <SolidColorBrush x:Key="AccentInkBrush" Color="#172216"/>
+  </Application.Resources>
+</Application>

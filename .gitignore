@@ -4,3 +4,6 @@
 artifacts/
 *.user
 .vs/
+# macOS build output (the assembled .app and publish artifacts)
+dist/
+publish/
