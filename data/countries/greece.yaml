@@ -1,0 +1,1068 @@
+code: GR
+name: Greece
+language_default: Greek
+wiki:
+  url: https://en.wikipedia.org/wiki/List_of_radio_stations_in_Greece
+  cache: wiki-greece.md
+city_aliases:
+  in athens: Athens
+  athens greece: Athens
+  attiki: Athens
+  attica: Athens
+  attica, athens: Athens
+  patra: Patras
+  larisa: Larissa
+  heraclion: Heraklion
+  heraklion crete: Heraklion
+  kreta: Crete
+  thessaloniki-notia macedonia: Thessaloniki
+  piraeus: Piraeus
+  chalkida: Chalkida
+national_programmes:
+- id: first programme
+  match_names:
+  - first programme
+  - ert news
+  desc_must_contain: state radio
+  name: ERT News Radio (First Programme)
+  name_local: Πρώτο Πρόγραμμα (ΕΡΤ Ειδήσεις)
+  city: Athens
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '91.6'
+  url: https://radiostreaming.ert.gr/ert-proto
+  notes: National public radio; news & current affairs (relays nationwide)
+- id: second programme
+  match_names:
+  - second programme
+  desc_must_contain: state radio
+  name: Second Programme
+  name_local: Δεύτερο Πρόγραμμα
+  city: Athens
+  type: Public
+  genre: Greek music
+  language: Greek
+  leaning: State
+  freq: '103.7'
+  url: https://radiostreaming.ert.gr/ert-deftero
+  notes: National public radio; Greek music (relays nationwide)
+- id: third programme
+  match_names:
+  - third programme
+  desc_must_contain: state radio
+  name: Third Programme
+  name_local: Τρίτο Πρόγραμμα
+  city: Athens
+  type: Public
+  genre: Classical
+  language: Greek
+  leaning: State
+  freq: '90.9'
+  url: https://radiostreaming.ert.gr/ert-trito
+  notes: National public radio; classical music & culture
+- id: era sport
+  match_names:
+  - era sport
+  desc_must_contain: state radio
+  name: ERA Sport
+  name_local: ΕΡΑ Σπορ
+  city: Athens
+  type: Sports
+  genre: Sports
+  language: Greek
+  leaning: State
+  freq: '101.8'
+  url: https://radiostreaming.ert.gr/ert-erasport
+  notes: National public sports radio
+- id: kosmos 93.6
+  match_names:
+  - kosmos
+  desc_must_contain: state radio
+  name: Kosmos 93.6
+  name_local: Kosmos 93.6
+  city: Athens
+  type: Public
+  genre: World music
+  language: Greek
+  leaning: State
+  freq: '93.6'
+  url: https://radiostreaming.ert.gr/ert-kosmos
+  notes: National public radio; world music
+- id: zeppelin
+  match_names:
+  - zeppelin
+  desc_must_contain: state radio
+  name: Zeppelin 106.7
+  name_local: Zeppelin 106.7
+  city: Thessaloniki
+  type: Public
+  genre: Rock / Heavy metal
+  language: Greek
+  leaning: State
+  freq: '106.7'
+  url: https://radiostreaming.ert.gr/ert-zeppelin
+  notes: ERT3 rock/metal station (studio in Thessaloniki)
+- id: voice of greece
+  match_names:
+  - voice of greece
+  desc_must_contain: state radio
+  name: Voice of Greece
+  name_local: Η Φωνή της Ελλάδας
+  city: Athens
+  type: Public
+  genre: News & Culture (diaspora)
+  language: Multilingual
+  leaning: State
+  freq: Shortwave
+  url: https://radiostreaming.ert.gr/ert-voiceofgreece
+  notes: International public service for the Greek diaspora
+- id: macedonia 102 fm
+  match_names:
+  - macedonia 102
+  desc_must_contain: state radio
+  name: Macedonia 102 FM (ERT3)
+  name_local: 102 FM (ΕΡΤ3)
+  city: Thessaloniki
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '102.0'
+  url: https://radiostreaming.ert.gr/ert-102fm
+  notes: ERT3 first programme from Thessaloniki
+- id: macedonia 95.8 fm
+  match_names:
+  - macedonia 95.8
+  - macedonia 95,8
+  desc_must_contain: state radio
+  name: 95.8 FM (ERT3)
+  name_local: 95.8 FM (ΕΡΤ3)
+  city: Thessaloniki
+  type: Public
+  genre: Culture
+  language: Greek
+  leaning: State
+  freq: '95.8'
+  url: https://radiostreaming.ert.gr/ert-958fm
+  notes: ERT3 culture station from Thessaloniki
+- id: ert open
+  match_names:
+  - ert open
+  desc_must_contain: state radio
+  name: ERT Open
+  name_local: ERT Open
+  city: Athens
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  notes: Web radio of ERT (no stable public stream)
+curated:
+- match:
+  - ''
+  name_local: FM 100
+  city: Thessaloniki
+  type: Municipal
+  genre: Mixed (music & talk)
+  leaning: Municipal
+  notes: Thessaloniki municipal radio; relays Athens 9.84
+- match:
+  - 1055 rock
+  name_local: 1055 Rock
+  city: Thessaloniki
+  type: Music
+  genre: Rock / Heavy metal
+  leaning: None
+- match:
+  - 904 left on fm
+  name_local: 904 Αριστερά στα FM
+  city: Thessaloniki
+  type: Political
+  genre: News & Talk
+  leaning: Left
+  notes: Radio of the Communist Party of Greece (KKE)
+- match:
+  - akrites tou pontou
+  name_local: Ακρίτες του Πόντου 102.3
+  city: Thessaloniki
+  type: Music
+  genre: Pontic traditional
+  leaning: None
+- match:
+  - alpha
+  name_local: Alpha 98.9
+  city: Athens
+  type: News & Talk
+  genre: News & Talk
+  leaning: Center
+  url: https://stream.radiojar.com/xcdg6yggzfeuv
+  notes: Alpha Media Group
+- match:
+  - alpha radio
+  name_local: Alpha 98.9
+  city: Athens
+  type: News & Talk
+  genre: News & Talk
+  leaning: Center
+  url: https://stream.radiojar.com/xcdg6yggzfeuv
+  notes: Alpha Media Group
+- match:
+  - athens
+  name_local: Αθήνα 9.84
+  city: Athens
+  type: Municipal
+  genre: Mixed (music & talk)
+  leaning: Municipal
+  notes: City of Athens municipal radio
+- match:
+  - athens deejay
+  name_local: Athens DeeJay 95.2
+  city: Athens
+  type: Music
+  genre: Pop / Hip-hop
+  leaning: None
+  url: https://netradio.live24.gr/athensdeejay
+- match:
+  - athletic metropolis
+  name_local: Metropolis 95.5
+  city: Thessaloniki
+  type: Sports
+  genre: Sports
+  leaning: None
+- match:
+  - athletiko fm
+  name_local: Αθλητικό FM 88.3
+  city: Athens
+  type: Sports
+  genre: Sports
+  leaning: None
+- match:
+  - athlitikos libero
+  name_local: Libero 107.4
+  city: Thessaloniki
+  type: Sports
+  genre: Sports
+  leaning: None
+- match:
+  - best
+  name_local: Best 92.6
+  city: Athens
+  type: Music
+  genre: Alternative rock
+  leaning: None
+  url: https://best.live24.gr/best1222
+- match:
+  - bwin sport fm
+  name_local: ΣΠΟΡ FM 94.6 (bwin)
+  city: Athens
+  type: Sports
+  genre: Sports
+  leaning: None
+  url: https://netradio.live24.gr/sportfm7712
+  notes: Leading sports radio (sponsored name bwin ΣΠΟΡ FM)
+- match:
+  - city radio
+  name_local: City 106.1
+  city: Thessaloniki
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+- match:
+  - cosmoradio
+  name_local: Cosmoradio 95.1
+  city: Thessaloniki
+  type: Music
+  genre: Greek pop
+  leaning: None
+- match:
+  - derti
+  name_local: Δέρτι 98.6
+  city: Athens
+  type: Music
+  genre: Greek laïkó
+  leaning: None
+  url: https://derti.live24.gr/derty1000
+  notes: Greek laïkó
+- match:
+  - diesi
+  name_local: Δίεση 101.3
+  city: Athens
+  type: Music
+  genre: Éntekhno / Greek pop
+  leaning: None
+  url: https://n05a-eu.rcs.revma.com/gkfwrhqxbfhvv
+  notes: Greek music
+- match:
+  - diesi fm
+  name_local: Δίεση 101.3
+  city: Athens
+  type: Music
+  genre: Éntekhno / Greek pop
+  leaning: None
+  url: https://n05a-eu.rcs.revma.com/gkfwrhqxbfhvv
+  notes: Greek music
+- match:
+  - dirla fm
+  name_local: Ντίρλα 91.4
+  city: Athens
+  type: Music
+  genre: Greek laïkó
+  leaning: None
+- match:
+  - dromos
+  name_local: Δρόμος 89.8
+  city: Athens
+  type: Music
+  genre: Greek & foreign pop
+  leaning: None
+  url: https://netradio.live24.gr/dromos2
+  notes: Contemporary Greek music
+- match:
+  - dromos radio
+  name_local: Δρόμος 89.8
+  city: Athens
+  type: Music
+  genre: Greek & foreign pop
+  leaning: None
+  url: https://netradio.live24.gr/dromos2
+  notes: Contemporary Greek music
+- match:
+  - easy
+  name_local: Easy 97.2
+  city: Athens
+  type: Music
+  genre: Foreign pop
+  leaning: None
+- match:
+  - ecclesia tis ellados
+  name_local: Εκκλησία της Ελλάδος 89.5
+  city: Athens
+  type: Religious
+  genre: Orthodox religious
+  leaning: None
+  notes: Radio of the Church of Greece; national
+- match:
+  - ellinikos fm
+  name_local: Ελληνικός 93.2
+  city: Athens
+  type: Music
+  genre: Éntekhno
+  leaning: None
+- match:
+  - en lefko
+  name_local: Εν Λευκώ 87.7
+  city: Athens
+  type: Music
+  genre: Electronic / Alternative
+  leaning: None
+  url: https://stream.radiojar.com/enlefko877
+  notes: Electronic, alternative, chill
+- match:
+  - epikoinonia fm
+  name_local: Επικοινωνία 94.0
+  city: Athens
+  type: Municipal
+  genre: News, Talk & Greek music
+  leaning: Municipal
+  notes: Municipal radio of Neo Irakleio
+- match:
+  - eroticos fm
+  name_local: Eroticos 94.8
+  city: Thessaloniki
+  type: Music
+  genre: Éntekhno
+  leaning: None
+- match:
+  - ert aegean
+  name: ERT Aegean
+  name_local: ΕΡΤ Αιγαίου
+  city: Mytilini (Lesbos)
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '96.5'
+  url: https://radiostreaming.ert.gr/ert-aigaiou
+  relay_pin: true
+- match:
+  - ert chania
+  name: ERT Chania
+  name_local: ΕΡΤ Χανίων
+  city: Chania
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '100.6'
+  url: https://radiostreaming.ert.gr/ert-chania
+  relay_pin: true
+- match:
+  - ert corfu
+  name: ERT Corfu
+  name_local: ΕΡΤ Κέρκυρας
+  city: Corfu
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '99.3'
+  url: https://radiostreaming.ert.gr/ert-kerkyra
+  relay_pin: true
+- match:
+  - ert florina
+  name: ERT Florina
+  name_local: ΕΡΤ Φλώρινας
+  city: Florina
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '96.6'
+  url: https://radiostreaming.ert.gr/ert-florina
+  relay_pin: true
+- match:
+  - ert heraklion
+  name: ERT Heraklion
+  name_local: ΕΡΤ Ηρακλείου
+  city: Heraklion
+  type: Public
+  genre: News, Talk & Greek music
+  language: Greek
+  leaning: State
+  freq: '97.5'
+  url: https://radiostreaming.ert.gr/ert-heraklio
+  relay_pin: true
+- match:
+  - ert ioannina
+  name: ERT Ioannina
+  name_local: ΕΡΤ Ιωαννίνων
+  city: Ioannina
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '88.2'
+  url: https://radiostreaming.ert.gr/ert-ioannina
+  relay_pin: true
+- match:
+  - ert kalamata
+  name: ERT Kalamata
+  name_local: ΕΡΤ Καλαμάτας
+  city: Kalamata
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '104.4'
+  url: https://radiostreaming.ert.gr/ert-kalamata
+  relay_pin: true
+- match:
+  - ert kavalas
+  name: ERT Kavala
+  name_local: ΕΡΤ Καβάλας
+  city: Kavala
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '96.3'
+  url: https://radiostreaming.ert.gr/ert-kavala
+  relay_pin: true
+- match:
+  - ert komotini
+  name: ERT Komotini
+  name_local: ΕΡΤ Κομοτηνής
+  city: Komotini
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '98.1'
+  url: https://radiostreaming.ert.gr/ert-komotini
+  relay_pin: true
+- match:
+  - ert kozani
+  name: ERT Kozani
+  name_local: ΕΡΤ Κοζάνης
+  city: Kozani
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '100.2'
+  url: https://radiostreaming.ert.gr/ert-kozani
+  relay_pin: true
+- match:
+  - ert larissa
+  name: ERT Larissa
+  name_local: ΕΡΤ Λάρισας
+  city: Larissa
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '98.3'
+  url: https://radiostreaming.ert.gr/ert-larisa
+  relay_pin: true
+- match:
+  - ert orestiada
+  name: ERT Orestiada
+  name_local: ΕΡΤ Ορεστιάδας
+  city: Orestiada
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '101.0'
+  url: https://radiostreaming.ert.gr/ert-orestiada
+  relay_pin: true
+- match:
+  - ert patras
+  name: ERT Patras
+  name_local: ΕΡΤ Πάτρας
+  city: Patras
+  type: Public
+  genre: News, Talk & Music
+  language: Greek
+  leaning: State
+  freq: '92.5'
+  url: https://radiostreaming.ert.gr/ert-patra
+  relay_pin: true
+- match:
+  - ert pyrgos
+  name: ERT Pyrgos
+  name_local: ΕΡΤ Πύργου
+  city: Pyrgos
+  type: Public
+  genre: News & Culture
+  language: Greek
+  leaning: State
+  freq: '102.5'
+  url: https://radiostreaming.ert.gr/ert-pyrgos
+  relay_pin: true
+- match:
+  - ert rhodes
+  name: ERT Rhodes
+  name_local: ΕΡΤ Ρόδου
+  city: Rhodes
+  type: Public
+  genre: News & Culture
+  language: Greek
+  leaning: State
+  freq: '92.7'
+  url: https://radiostreaming.ert.gr/ert-rodos
+  relay_pin: true
+- match:
+  - ert serres
+  name: ERT Serres
+  name_local: ΕΡΤ Σερρών
+  city: Serres
+  type: Public
+  genre: News, Talk & Culture
+  language: Greek
+  leaning: State
+  freq: '101.5'
+  url: https://radiostreaming.ert.gr/ert-serres
+  relay_pin: true
+- match:
+  - ert tripolis
+  name: ERT Tripolis
+  name_local: ΕΡΤ Τρίπολης
+  city: Tripoli
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '101.5'
+  url: https://radiostreaming.ert.gr/ert-tripoli
+  relay_pin: true
+- match:
+  - ert volos
+  name: ERT Volos
+  name_local: ΕΡΤ Βόλου
+  city: Volos
+  type: Public
+  genre: News & Talk
+  language: Greek
+  leaning: State
+  freq: '100.7'
+  url: https://radiostreaming.ert.gr/ert-volos
+  relay_pin: true
+- match:
+  - ert zakynthos
+  name: ERT Zakynthos
+  name_local: ΕΡΤ Ζακύνθου
+  city: Zakynthos
+  type: Public
+  genre: News & Culture
+  language: Greek
+  leaning: State
+  freq: '95.2'
+  url: https://radiostreaming.ert.gr/ert-zakynthos
+  relay_pin: true
+- match:
+  - flash
+  name_local: Flash 99.4
+  city: Thessaloniki
+  type: News & Talk
+  genre: News & Talk + Greek pop
+  leaning: None
+- match:
+  - fly 104 salonica
+  name_local: FLY 104
+  city: Thessaloniki
+  type: Music
+  genre: Dance
+  leaning: None
+- match:
+  - fm
+  name_local: FM 100.6
+  city: Thessaloniki
+  type: Municipal
+  genre: Entertainment & Culture
+  leaning: Municipal
+  notes: Thessaloniki municipal radio network
+- match:
+  - focus fm
+  name_local: Focus 103.6
+  city: Thessaloniki
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+- match:
+  - galaxy
+  name_local: Galaxy 92
+  city: Athens
+  type: Music
+  genre: Alternative rock / Easy listening
+  leaning: None
+- match:
+  - hit radio
+  name_local: HiT 88.9
+  city: Athens
+  type: Music
+  genre: Foreign pop / rock
+  leaning: None
+- match:
+  - imagine fm
+  name_local: Imagine 89.7
+  city: Thessaloniki
+  type: Music
+  genre: Soul / Funk / Pop
+  leaning: None
+- match:
+  - interwetten sports
+  name_local: Interwetten Sports 94.3
+  city: Athens
+  type: Sports
+  genre: Sports
+  leaning: None
+  notes: Sports/talk; self-managed radio
+- match:
+  - kanali 1 piraeus
+  name_local: Κανάλι 1 Πειραιά
+  city: Piraeus
+  type: Municipal
+  genre: News & Talk
+  leaning: Municipal
+  notes: Municipal radio of Piraeus
+- match:
+  - kidsradio
+  name_local: Kids Radio 88.6
+  city: Athens
+  type: Music
+  genre: Children
+  leaning: None
+- match:
+  - kidsradiocom
+  name_local: Kids Radio 88.6
+  city: Athens
+  type: Music
+  genre: Children
+  leaning: None
+- match:
+  - kiss fm
+  name_local: Kiss FM 92.9
+  city: Athens
+  type: Music
+  genre: Foreign pop / rock
+  leaning: None
+  url: https://netradio.live24.gr/kissfmathens
+- match:
+  - kriti fm
+  name_local: Κρήτη FM 87.5
+  city: Athens
+  type: Music
+  genre: Cretan music
+  leaning: None
+  notes: Cretan music station broadcasting in Athens
+- match:
+  - laikos fm
+  name_local: Λαϊκός 87.6
+  city: Thessaloniki
+  type: Music
+  genre: Greek laïkó
+  leaning: None
+- match:
+  - lampsi
+  name_local: Λάμψη 92.3
+  city: Athens
+  type: Music
+  genre: Greek pop / rock
+  leaning: None
+  url: https://az11.yesstreaming.net:8140/radio.mp3
+  notes: Greek hits
+- match:
+  - lelevose pontos
+  name_local: Λελέβοσε Πόντος 101.3
+  city: Thessaloniki
+  type: Music
+  genre: Pontic traditional
+  leaning: None
+- match:
+  - lydia philippisia
+  name_local: Λυδία η Φιλιππησία 94.2
+  city: Thessaloniki
+  type: Religious
+  genre: Orthodox religious
+  leaning: None
+- match:
+  - mad radio
+  name_local: MAD Radio 106.2
+  city: Athens
+  type: Music
+  genre: Pop / Dance
+  leaning: None
+  url: http://mediaserver.mad.tv/stream
+  notes: Pop & dance (MAD TV group)
+- match:
+  - makedonia 88miso
+  name_local: Makedonia 88Miso
+  city: Thessaloniki
+  type: Music
+  genre: Soul / Jazz / Pop
+  leaning: None
+- match:
+  - melodia
+  name_local: Μελωδία 98 (Θεσ/νίκη)
+  city: Thessaloniki
+  type: Music
+  genre: Greek music
+  leaning: None
+  notes: Relays Melodia 99.2 Athens
+- match:
+  - melodia fm
+  name_local: Μελωδία 99.2
+  city: Athens
+  type: Music
+  genre: Éntekhno / Greek pop
+  leaning: None
+  url: https://stream.radiojar.com/melodia992
+  notes: Greek éntekhno / singer-songwriter
+- match:
+  - menta
+  name_local: Μέντα 88
+  city: Athens
+  type: Music
+  genre: Éntekhno
+  leaning: None
+  url: https://netradio.live24.gr/menta88ath
+  notes: Greek music
+- match:
+  - music radio
+  name_local: Music 89.2
+  city: Athens
+  type: Music
+  genre: Foreign pop
+  leaning: None
+- match:
+  - nitro
+  name_local: Nitro 102.5
+  city: Athens
+  type: Music
+  genre: Electronic / Dance
+  leaning: None
+  url: https://politismedia-sec.live24.gr/streameenitro
+  notes: Dance & mainstream
+- match:
+  - nitro radio
+  name_local: Nitro 102.5
+  city: Athens
+  type: Music
+  genre: Electronic / Dance
+  leaning: None
+  url: https://politismedia-sec.live24.gr/streameenitro
+  notes: Dance & mainstream
+- match:
+  - nostos
+  name_local: Nostos 100.6
+  city: Athens
+  type: Music
+  genre: Alternative / Indie rock
+  leaning: None
+  url: https://neos.win:37878/stream
+  notes: Athens indie/alternative station with DJ shows
+- match:
+  - orthodox presence
+  name_local: Ορθόδοξη Παρουσία 106.8
+  city: Thessaloniki
+  type: Religious
+  genre: Orthodox religious
+  leaning: None
+  notes: Relays Ecclesia FM 89.5 Athens
+- match:
+  - palmos
+  name_local: Παλμός 93.4
+  city: Athens
+  type: Music
+  genre: Greek music
+  leaning: None
+- match:
+  - parapolitika
+  name_local: Παραπολιτικά 90.1
+  city: Athens
+  type: Political
+  genre: News & Talk
+  leaning: Right
+  url: https://netradio.live24.gr/athinaradio
+  notes: Parapolitika Media Group; conservative/right-leaning
+- match:
+  - peiraiki ecclesia
+  name_local: Πειραϊκή Εκκλησία 91.2
+  city: Piraeus
+  type: Religious
+  genre: Orthodox religious
+  leaning: None
+  notes: Radio of the Church of Piraeus
+- match:
+  - pepper
+  name_local: Pepper 96.6
+  city: Athens
+  type: Music
+  genre: Alternative / Indie rock
+  leaning: None
+  url: https://pepper966.live24.gr/pepper9660
+- match:
+  - plus radio
+  name_local: Plus 102.6
+  city: Thessaloniki
+  type: Music
+  genre: Foreign pop
+  leaning: None
+- match:
+  - praktoreio fm
+  name_local: Πρακτορείο 104.9
+  city: Thessaloniki
+  type: News & Talk
+  genre: News (APE-MPE)
+  leaning: None
+  notes: Run by Athens-Macedonian News Agency + TIF
+- match:
+  - radio agapi
+  name_local: Ράδιο Αγάπη 88.3
+  city: Thessaloniki
+  type: Music
+  genre: Greek laïkó / Rebetiko
+  leaning: None
+- match:
+  - radio kriti
+  name_local: Ράδιο Κρήτη
+  city: Heraklion
+  type: News & Talk
+  genre: News, Talk & Cretan music
+  leaning: None
+- match:
+  - radio paidaki
+  name_local: Ράδιο Παιδάκι 97.5
+  city: Thessaloniki
+  type: Music
+  genre: Children
+  leaning: None
+- match:
+  - radio thema
+  name_local: ΘΕΜΑ 104.6
+  city: Athens
+  type: News & Talk
+  genre: News & Talk
+  leaning: Center-Right
+  notes: Proto Thema media group
+- match:
+  - radio thessaloniki
+  name_local: Radio Θεσσαλονίκη 94.5
+  city: Thessaloniki
+  type: News & Talk
+  genre: News & Talk
+  leaning: Right
+  notes: Rebroadcasts Real FM 97.8 Athens
+- match:
+  - real fm
+  name_local: Real FM 97.8
+  city: Athens
+  type: News & Talk
+  genre: News & Talk
+  leaning: Right
+  url: https://netradio.live24.gr/realfm
+  notes: Real Group; pro-New Democracy editorial line
+- match:
+  - red
+  name_local: Red 96.3
+  city: Athens
+  type: Music
+  genre: Rock
+  leaning: None
+  url: https://netradio.live24.gr/red9630
+  notes: Rock
+- match:
+  - rhythm
+  name_local: Ρυθμός 94.9
+  city: Athens
+  type: Music
+  genre: Greek pop
+  leaning: None
+  url: https://stream.radiojar.com/aw1w2xfx1vduv
+  notes: Greek mainstream music
+- match:
+  - rock fm
+  name_local: Rock FM 96.9
+  city: Athens
+  type: Music
+  genre: Rock
+  leaning: None
+  url: https://az10.yesstreaming.net:8060/radio.mp3
+  notes: Rock
+- match:
+  - rock radio
+  name_local: Rock Radio 104.7
+  city: Thessaloniki
+  type: Music
+  genre: Rock
+  leaning: None
+- match:
+  - rythmos
+  name_local: Ρυθμός 94.9
+  city: Athens
+  type: Music
+  genre: Greek pop
+  leaning: None
+  url: https://stream.radiojar.com/aw1w2xfx1vduv
+  notes: Greek mainstream music
+- match:
+  - rythmos fm
+  name_local: Ρυθμός 94.9
+  city: Athens
+  type: Music
+  genre: Greek pop
+  leaning: None
+  url: https://stream.radiojar.com/aw1w2xfx1vduv
+  notes: Greek mainstream music
+- match:
+  - sfera
+  name_local: Σφαίρα 102.2
+  city: Athens
+  type: Music
+  genre: Greek pop
+  leaning: None
+  url: https://sfera.live24.gr/sfera4132
+  notes: Main Athens Greek-hits station; relays across Greece
+- match:
+  - skai
+  name_local: ΣΚΑΪ 100.3
+  city: Athens
+  type: News & Talk
+  genre: News & Talk
+  leaning: Center-Right
+  url: https://netradio.live24.gr/skai1003
+  notes: Skai Group; among the most-listened news radios in Greece
+- match:
+  - sport fm
+  name_local: ΣΠΟΡ FM 94.6 (bwin)
+  city: Athens
+  type: Sports
+  genre: Sports
+  leaning: None
+  url: https://netradio.live24.gr/sportfm7712
+  notes: Leading sports radio (sponsored name bwin ΣΠΟΡ FM)
+- match:
+  - status fm
+  name_local: Status 107.7
+  city: Thessaloniki
+  type: News & Talk
+  genre: News & Talk
+  leaning: Center-Right
+  notes: Rebroadcasts Skai 100.3 Athens
+- match:
+  - sto kokkino
+  name_local: 91.4 Στο Κόκκινο (Θεσ/νίκη)
+  city: Thessaloniki
+  type: Political
+  genre: News & Talk
+  leaning: Left
+  notes: Thessaloniki relay of 105.5 Sto Kokkino (left-wing)
+- match:
+  - super fm
+  name_local: Super FM
+  city: Patras
+  type: Music
+  genre: Greek pop
+  leaning: None
+- match:
+  - yellow radio
+  name_local: Yellow 101.7
+  city: Thessaloniki
+  type: Sports
+  genre: Sports & Talk
+  leaning: None
+- match:
+  - zoo radio
+  name_local: ZOO 90.8
+  city: Thessaloniki
+  type: Music
+  genre: Foreign pop / rock
+  leaning: None
+- match:
+  - red fm
+  name_local: Red 96.3
+  city: Athens
+  type: Music
+  genre: Rock
+  leaning: None
+  url: https://netradio.live24.gr/red9630
+  notes: Rock
+- match:
+  - derti fm
+  name_local: Δέρτι 98.6
+  city: Athens
+  type: Music
+  genre: Greek laïkó
+  leaning: None
+  url: https://derti.live24.gr/derty1000
+  notes: Greek laïkó
+- match:
+  - sfera fm
+  name_local: Σφαίρα 102.2
+  city: Athens
+  type: Music
+  genre: Greek pop
+  leaning: None
+  url: https://sfera.live24.gr/sfera4132
+  notes: Main Athens Greek-hits station; relays across Greece
+- match:
+  - pepper fm
+  name_local: Pepper 96.6
+  city: Athens
+  type: Music
+  genre: Alternative / Indie rock
+  leaning: None
+  url: https://pepper966.live24.gr/pepper9660
+notes: ERT streams pinned from radiostreaming.ert.gr (verified); major private stations use live24.gr
+  streams.
+prefecture_prefix: Prefecture of
+region_city_map:
+  Radio stations in Attica: Athens
+  Radio stations in Thessaloniki: Thessaloniki
+  In Athens: Athens
+  In Macedonia: Thessaloniki
+  The rest of Greece: Greece
+  Medium Wave (MW band): Greece

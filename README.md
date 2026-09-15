@@ -32,6 +32,17 @@ macOS 11+ on Intel or Apple Silicon. Copy `dist/DialShift.app` into `/Applicatio
 
 Preferences live at `%LOCALAPPDATA%\DialShift\settings.json` on Windows and `~/Library/Application Support/DialShift/settings.json` on macOS, with atomic writes. An unreadable file is preserved as `settings.json.unreadable-*` before defaults are used. Back up this folder to move stations and schedules. Diagnostic errors go to `dialshift.log` in the same folder. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
+## Radio station catalog
+
+A curated catalog of **8,700+ radio stations** (Greece, France, Germany — Munich included) lives in [`data/`](data/):
+
+- `data/output/dialshift-radio-catalog.xlsx` — multi-tab workbook (Numbers-friendly): an **Import Ready** tab with every working stream plus the exact three fields the app's *Add a frequency* dialog needs, per-country tabs, a **Munich** shortlist, and a README tab with instructions.
+- `data/canonical/*.csv` — clean per-country lists.
+- `data/countries/*.yaml` — the single source of truth for curated station facts (names, cities, genres, political leanings, verified stream URLs). Station data never lives in code.
+- `data/build/` — one generic pipeline + XLSX writer; adding a country means dropping in one YAML.
+
+See [`data/README.md`](data/README.md) for the full guide (schema, refresh command, how to import stations). The catalog is regenerated with `data/.venv/bin/python data/build/build_all.py --refresh`.
+
 ## Dependencies
 
 Everything the app needs to build and to run, per platform.

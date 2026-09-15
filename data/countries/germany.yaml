@@ -1,0 +1,346 @@
+code: DE
+name: Germany
+language_default: German
+city_aliases:
+  munchen: Munich
+  muenchen: Munich
+  ismaning: Ismaning (Munich)
+  unterfohring: Unterföhring (Munich)
+  koln: Cologne
+  koeln: Cologne
+  frankfurt am main: Frankfurt
+  dusseldorf: Düsseldorf
+  nuernberg: Nuremberg
+focus:
+  city: Munich
+  label: Munich
+curated:
+- match:
+  - br24
+  name_local: BR24
+  city: Munich
+  region: Bavaria
+  type: Public
+  genre: News
+  leaning: State
+  focus: true
+  notes: Bayerischer Rundfunk news radio
+  url: https://dispatcher.rndfnk.com/br/br24/live/mp3/mid
+- match:
+  - bayern 1
+  name_local: Bayern 1
+  city: Munich
+  region: Bavaria
+  type: Public
+  genre: Schlager / Oldies
+  leaning: State
+  focus: true
+  url: https://dispatcher.rndfnk.com/br/br1/schwaben/mp3/mid
+- match:
+  - bayern 2
+  name_local: Bayern 2
+  city: Munich
+  region: Bavaria
+  type: Public
+  genre: Culture / Talk
+  leaning: State
+  focus: true
+  url: https://dispatcher.rndfnk.com/br/br2/live/mp3/mid
+- match:
+  - bayern 3
+  name_local: Bayern 3
+  city: Munich
+  region: Bavaria
+  type: Public
+  genre: Pop / Hits
+  leaning: State
+  focus: true
+  url: https://dispatcher.rndfnk.com/br/br3/live/mp3/mid
+- match:
+  - br-klassik
+  name_local: BR-Klassik
+  city: Munich
+  region: Bavaria
+  type: Public
+  genre: Classical
+  leaning: State
+  focus: true
+- match:
+  - puls
+  name_local: PULS
+  city: Munich
+  region: Bavaria
+  type: Public
+  genre: Youth / Alternative
+  leaning: State
+  focus: true
+  notes: BR youth station; DAB+/web only (no working public stream)
+  no_auto_stream: true
+- match:
+  - deutschlandfunk
+  name_local: Deutschlandfunk
+  city: Cologne
+  region: National
+  type: Public
+  genre: News & Talk
+  leaning: State
+  notes: National public news radio (DAB+/web)
+- match:
+  - deutschlandfunk kultur
+  name_local: Deutschlandfunk Kultur
+  city: Berlin
+  region: National
+  type: Public
+  genre: Culture / Talk
+  leaning: State
+- match:
+  - deutschlandfunk nova
+  name_local: Deutschlandfunk Nova
+  city: Cologne
+  region: National
+  type: Public
+  genre: Youth / Pop
+  leaning: State
+- match:
+  - antenne bayern
+  name_local: Antenne Bayern
+  city: Ismaning (Munich)
+  region: Bavaria
+  type: Music
+  genre: Pop / Schlager
+  leaning: None
+  focus: true
+  notes: Bavaria's biggest private station (HQ Ismaning, Munich area)
+- match:
+  - rock antenne
+  name_local: Rock Antenne
+  city: Ismaning (Munich)
+  region: Bavaria
+  type: Music
+  genre: Rock
+  leaning: None
+  focus: true
+- match:
+  - radio gong 96.3 munchen
+  - radio gong munchen 96.3
+  name_local: Radio Gong 96.3
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  focus: true
+  freq: '96.3'
+- match:
+  - radio arabella
+  - arabella bayern
+  name_local: Radio Arabella
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Pop / Oldies
+  leaning: None
+  focus: true
+- match:
+  - charivari munchens hitradio
+  name_local: 95.5 Charivari
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  focus: true
+  freq: '95.5'
+  url: https://live.stream.charivari.de/955charivari-webradio/stream/mp3
+- match:
+  - energy munchen
+  name_local: Energy München
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  focus: true
+  freq: '93.3'
+- match:
+  - radio 2day
+  name_local: Radio 2Day
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  focus: true
+  freq: '89.0'
+- match:
+  - egofm
+  name_local: egoFM
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Alternative / Indie
+  leaning: None
+  focus: true
+  notes: Munich alternative station (FM/DAB+/web)
+- match:
+  - m94.5
+  name_local: M94.5
+  city: Munich
+  region: Bavaria
+  type: Music
+  genre: Student / Alternative
+  leaning: None
+  focus: true
+  freq: '94.5'
+  notes: Munich student radio
+- match:
+  - radio horeb
+  name_local: Radio Horeb
+  city: Balderschwang
+  region: Bavaria
+  type: Religious
+  genre: Catholic religious
+  leaning: None
+  notes: Catholic radio from the Bavarian Alps
+- match:
+  - klassik radio
+  name_local: Klassik Radio
+  city: Augsburg
+  region: Bavaria
+  type: Music
+  genre: Classical
+  leaning: None
+  notes: National classical network (HQ Augsburg)
+  url: https://stream.klassikradio.de/klassikradio/mp3-192/
+- match:
+  - radio bob
+  name_local: Radio BOB!
+  city: Kassel
+  region: Hesse
+  type: Music
+  genre: Rock
+- match:
+  - big fm
+  name_local: bigFM
+  city: Stuttgart
+  region: Baden-Württemberg
+  type: Music
+  genre: Pop / Hip-hop
+- match:
+  - 1live
+  name_local: 1LIVE
+  city: Cologne
+  region: North Rhine-Westphalia
+  type: Public
+  genre: Youth / Pop
+  leaning: State
+  notes: WDR youth station
+- match:
+  - wdr 2
+  name_local: WDR 2
+  city: Cologne
+  region: North Rhine-Westphalia
+  type: Public
+  genre: News & Pop
+  leaning: State
+- match:
+  - ndr 2
+  name_local: NDR 2
+  city: Hamburg
+  region: Hamburg
+  type: Public
+  genre: News & Pop
+  leaning: State
+- match:
+  - swr3
+  name_local: SWR3
+  city: Baden-Baden
+  region: Baden-Württemberg
+  type: Public
+  genre: Pop / Hits
+  leaning: State
+- match:
+  - hr3
+  name_local: hr3
+  city: Frankfurt
+  region: Hesse
+  type: Public
+  genre: Pop / Hits
+  leaning: State
+- match:
+  - mdr aktuell
+  name_local: MDR Aktuell
+  city: Halle
+  region: Saxony-Anhalt
+  type: Public
+  genre: News
+  leaning: State
+- match:
+  - radioeins
+  name_local: radioeins
+  city: Potsdam
+  region: Brandenburg
+  type: Public
+  genre: Adult alternative
+  leaning: State
+  notes: rbb station for Berlin/Brandenburg
+- match:
+  - fritz
+  name_local: Fritz
+  city: Potsdam
+  region: Brandenburg
+  type: Public
+  genre: Youth / Alternative
+  leaning: State
+  notes: rbb youth station
+- match:
+  - absolut relax
+  name_local: Absolut relax
+  city: Nuremberg
+  region: Bavaria
+  type: Music
+  genre: Relax / Chill
+- match:
+  - sunshine live
+  name_local: sunshine live
+  city: Mannheim
+  region: Baden-Württemberg
+  type: Music
+  genre: Electronic / Dance
+- match:
+  - radio saw
+  name_local: Radio SAW
+  city: Magdeburg
+  region: Saxony-Anhalt
+  type: Music
+  genre: Pop
+- match:
+  - ffh
+  name_local: Hit Radio FFH
+  city: Bad Vilbel
+  region: Hesse
+  type: Music
+  genre: Pop / Hits
+- match:
+  - radio hamburg
+  name_local: Radio Hamburg
+  city: Hamburg
+  region: Hamburg
+  type: Music
+  genre: Pop / Hits
+- match:
+  - 104.6 rtl
+  name_local: 104.6 RTL
+  city: Berlin
+  region: Berlin
+  type: Music
+  genre: Pop / Hits
+- match:
+  - jam fm
+  name_local: JAM FM
+  city: Berlin
+  region: Berlin
+  type: Music
+  genre: Hip-hop / R&B
+notes: 'Munich focus: the `focus` list above + city aliases build the Munich tab. Curated identities only;
+  streams resolve dynamically at build time.'

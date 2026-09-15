@@ -1,0 +1,240 @@
+code: FR
+name: France
+language_default: French
+city_aliases:
+  ile-de-france: Paris
+  île-de-france: Paris
+  auvergne-rhone-alpes: Lyon
+curated:
+- match:
+  - france inter
+  name_local: France Inter
+  city: Paris
+  region: National
+  type: Public
+  genre: News & Talk
+  leaning: State
+  freq: '87.8'
+  notes: Radio France's flagship generalist; most-listened radio in France
+- match:
+  - france info
+  - franceinfo
+  name_local: franceinfo
+  city: Paris
+  region: National
+  type: Public
+  genre: News
+  leaning: State
+  freq: '105.5'
+  notes: Radio France 24/7 news channel
+- match:
+  - france culture
+  name_local: France Culture
+  city: Paris
+  region: National
+  type: Public
+  genre: Culture / Talk
+  leaning: State
+  freq: '93.5'
+- match:
+  - france musique
+  name_local: France Musique
+  city: Paris
+  region: National
+  type: Public
+  genre: Classical / Jazz
+  leaning: State
+  freq: '91.7'
+- match:
+  - fip
+  name_local: FIP
+  city: Paris
+  region: National
+  type: Public
+  genre: Eclectic / World
+  leaning: State
+  freq: '105.1'
+  notes: Eclectic music, minimal talk
+- match:
+  - mouv
+  name_local: Mouv'
+  city: Paris
+  region: National
+  type: Public
+  genre: Hip-hop / Urban
+  leaning: State
+  notes: Radio France youth station
+- match:
+  - rfi
+  - rfi monde
+  name_local: RFI
+  city: Paris
+  region: National
+  type: Public
+  genre: International news
+  language: Multilingual
+  leaning: State
+  notes: Radio France Internationale
+- match:
+  - rtl
+  name_local: RTL
+  city: Paris
+  type: News & Talk
+  genre: News & Talk
+  leaning: Center-Right
+  freq: '104.3'
+  notes: M6 Group generalist
+- match:
+  - europe 1
+  name_local: Europe 1
+  city: Paris
+  type: News & Talk
+  genre: News & Talk
+  leaning: Right
+  freq: '104.7'
+  notes: Vivendi/Bolloré group; editorial line shifted right
+- match:
+  - rmc
+  name_local: RMC
+  city: Paris
+  type: Sports
+  genre: Sports & Talk
+  leaning: Right
+  freq: '103.1'
+  notes: Altice group; sports + opinion talk
+- match:
+  - rtl2
+  name_local: RTL2
+  city: Paris
+  type: Music
+  genre: Pop / Rock (adult)
+  freq: '101.9'
+- match:
+  - fun radio
+  name_local: Fun Radio
+  city: Paris
+  type: Music
+  genre: Dance / Hits
+- match:
+  - nrj
+  - nrj france
+  - nrj national
+  name_local: NRJ
+  city: Paris
+  type: Music
+  genre: Pop / Hits
+  freq: '100.3'
+  notes: France's biggest music network
+- match:
+  - skyrock
+  name_local: Skyrock
+  city: Paris
+  type: Music
+  genre: Hip-hop / Rap
+  freq: '96.0'
+- match:
+  - rfm
+  name_local: RFM
+  city: Paris
+  type: Music
+  genre: Pop / Rock (80s-00s)
+  freq: '103.9'
+- match:
+  - nostalgie
+  name_local: Nostalgie
+  city: Paris
+  type: Music
+  genre: Oldies
+  freq: '90.4'
+- match:
+  - cherie fm
+  name_local: Chérie FM
+  city: Paris
+  type: Music
+  genre: Pop / Soft
+  freq: '91.3'
+- match:
+  - rire et chansons
+  name_local: Rire & Chansons
+  city: Paris
+  type: Music
+  genre: Comedy / Chanson
+- match:
+  - virgin radio
+  name_local: Virgin Radio
+  city: Paris
+  type: Music
+  genre: Pop / Rock
+- match:
+  - radio classique
+  name_local: Radio Classique
+  city: Paris
+  type: Music
+  genre: Classical
+  freq: '101.1'
+- match:
+  - bfm business
+  name_local: BFM Business
+  city: Paris
+  type: News & Talk
+  genre: Business news
+  notes: Altice group; business & finance news
+- match:
+  - sud radio
+  name_local: Sud Radio
+  city: Toulouse
+  type: News & Talk
+  genre: News & Talk
+  leaning: Right
+  notes: Generalist based in Toulouse; right-leaning
+- match:
+  - latina
+  name_local: Latina
+  city: Paris
+  type: Music
+  genre: Latin
+  freq: '99.0'
+- match:
+  - tsf jazz
+  name_local: TSF Jazz
+  city: Paris
+  type: Music
+  genre: Jazz
+  freq: '89.9'
+- match:
+  - radio nova
+  name_local: Radio Nova
+  city: Paris
+  type: Music
+  genre: Eclectic / Electronic
+  freq: '101.5'
+- match:
+  - oui fm
+  name_local: OUI FM
+  city: Paris
+  type: Music
+  genre: Rock
+- match:
+  - generations
+  name_local: Générations
+  city: Paris
+  type: Music
+  genre: Hip-hop / Urban
+  freq: '88.2'
+- match:
+  - radio fg
+  name_local: Radio FG
+  city: Paris
+  type: Music
+  genre: Electronic / Dance
+  freq: '98.2'
+- match:
+  - beur fm
+  name_local: Beur FM
+  city: Paris
+  type: Music
+  genre: Arabic / Maghreb
+  language: Multilingual
+  notes: Community radio for the Maghreb community
+notes: Curated identities only; streams are resolved at build time from radio-browser (highest-voted working
+  URL), so links never rot inside this file.
