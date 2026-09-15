@@ -1,165 +1,195 @@
-# DialShift collection: Ambient & Chill
-# The family of the app's DEFAULT stations (SomaFM Groove Salad / Drone Zone /
-# Secret Agent). Internet-only, listener-supported, music-first — no talk, no news.
-#
-# Research criteria used to pick stations (kept for future additions):
-#   - genre: ambient, drone, space music, downtempo, cinematic grooves, chillout
-#   - internet-only, quality streams (128k+ where available)
-#   - listener-supported / ad-free where possible (SomaFM, Stereoscenic, Frisky…)
-#   - verified: every pinned URL below returned audio when checked (2026-09)
-#   - language: mostly instrumental; English announcements where noted
-#
-# The genre field doubles as the app Tag: "Network · Genre" (same convention as
-# the DialShift defaults). Edits here flow into the "Ambient & Chill" XLSX tab.
-
 code: CHILL
 name: Ambient & Chill
-description: |
-  Internet-only ambient, atmospheric, drone, space music, downtempo, cinematic
-  grooves and chillout — the family of DialShift's default SomaFM stations.
+description: 'Internet-only ambient, atmospheric, drone, space music, downtempo, cinematic
+
+  grooves and chillout — the family of DialShift''s default SomaFM stations.
+
   Listener-supported, music-first streams; no news, no talk, no ads.
+
+  '
 stations:
-  # ---------------- SomaFM (the default network — all URLs verified 2026-09)
-  - name: Groove Salad
-    match: [groove salad]
-    genre: SomaFM · Ambient / downtempo
-    url: https://ice5.somafm.com/groovesalad-128-aac
-    language: Instrumental
-    notes: DialShift default station
-  - name: Drone Zone
-    match: [drone zone]
-    genre: SomaFM · Atmospheric
-    url: https://ice5.somafm.com/dronezone-128-aac
-    language: Instrumental
-    notes: DialShift default station
-  - name: Secret Agent
-    match: [secret agent]
-    genre: SomaFM · Cinematic grooves
-    url: https://ice5.somafm.com/secretagent-128-aac
-    language: Instrumental
-    notes: DialShift default station
-  - name: Space Station Soma
-    match: [space station soma]
-    genre: SomaFM · Ambient / electronic space music
-    url: https://ice5.somafm.com/spacestation-128-aac
-    language: Instrumental
-    notes: Mid-tempo ambient; the SomaFM classic
-  - name: Deep Space One
-    match: [deep space one]
-    genre: SomaFM · Deep ambient electronic
-    url: https://ice5.somafm.com/deepspaceone-128-aac
-    language: Instrumental
-  - name: Mission Control
-    match: [mission control]
-    genre: SomaFM · Ambient / space
-    url: https://ice5.somafm.com/missioncontrol-128-aac
-    language: Instrumental
-    notes: Celebrating NASA & space exploration, with mission audio
-  - name: Fluid
-    match: [fluid]
-    genre: SomaFM · Chill instrumental beats
-    url: https://ice5.somafm.com/fluid-128-aac
-    language: Instrumental
-  - name: Lush
-    match: [lush]
-    genre: SomaFM · Chill vocal electronica
-    url: https://ice5.somafm.com/lush-128-aac
-    language: English
-  - name: Synphaera Radio
-    match: [synphaera]
-    genre: SomaFM · Space ambient
-    url: https://ice5.somafm.com/synphaera-128-aac
-    language: Instrumental
-    notes: With Exosphere label artists
-  - name: n5MD Radio
-    match: [n5md]
-    genre: SomaFM · Ambient / electronica
-    url: https://ice5.somafm.com/n5md-128-aac
-    language: Instrumental
-    notes: n5MD label channel
-  - name: SF 10-33
-    match: [sf 10-33]
-    genre: SomaFM · Ambient / experimental
-    url: https://ice5.somafm.com/sf1033-128-aac
-    language: Instrumental
-  - name: Groove Salad Classic
-    match: [groove salad classic]
-    genre: SomaFM · Classic chillout
-    url: https://ice5.somafm.com/gsclassic-128-aac
-    language: Instrumental
-    notes: Classic-era Groove Salad playlist
-  # ---------------- other quality networks
-  - name: Ambient Sleeping Pill
-    match: [ambient sleeping pill]
-    genre: AmbientSleepingPill.com · Ambient / sleep
-    url: http://radio.stereoscenic.com/asp-h
-    language: English
-    notes: Stereoscenic network; ad-free, listener-supported
-  - name: Ambient Modern
-    match: [ambient modern]
-    genre: Stereoscenic · Modern ambient
-    url: http://radio.stereoscenic.com/mod-h
-    language: English
-    notes: Stereoscenic network
-  - name: Cryosleep
-    match: [cryosleep]
-    genre: Echoes of Bluemars · Ambient / sleep
-    url: http://streams.echoesofbluemars.org:8000/cryosleep
-    language: Instrumental
-  - name: Chilltrax
-    match: [chilltrax]
-    genre: Chilltrax · Electronic chillout
-    url: https://streamssl.chilltrax.com/
-    language: English
-    notes: Popular US chill-out brand
-  - name: Smooth Chill
-    match: [smooth chill]
-    genre: Global · Chill / ambient
-    url: https://media-ssl.musicradio.com/ChillMP3
-    language: English
-    notes: Global (UK), Smooth Radio's chill brand
-  - name: Café del Mar
-    match: [cafe del mar]
-    genre: Café del Mar · Ibiza chillout
-    url: https://streams.radio.co/se1a320b47/listen
-    language: Instrumental
-    notes: The famous Ibiza sunset bar brand
-  - name: Costa del Mar Chillout
-    match: [costa del mar chillout]
-    genre: Costa del Mar · Ibiza chillout
-    url: http://stream.cdm-chillout.com:8020/stream-AAC-Chill
-    language: Instrumental
-  - name: 1.FM Chillout Lounge
-    match: [1.fm chillout lounge]
-    genre: 1.FM · Chillout lounge
-    url: http://strm112.1.fm/chilloutlounge_mobile_mp3
-    language: Instrumental
-  - name: Frisky Chill
-    match: [frisky chill]
-    genre: Frisky · Progressive chill
-    url: http://chill.friskyradio.com/friskychill_mp3_high
-    language: Instrumental
-    notes: Frisky Radio network
-  - name: RadiOzora Chill
-    match: [radiozora chill]
-    genre: RadiOzora · Psy chill
-    url: http://chill.out.airtime.pro:8000/chill_a
-    language: Instrumental
-    notes: Ozora Festival network
-  - name: Lounge.FM
-    match: [lounge.fm]
-    genre: Lounge.FM · Lounge / relax
-    url: https://s35.derstream.net/100austria.mp3
-    language: Instrumental
-    notes: Vienna lounge network
-  - name: Antenne Bayern Chillout
-    match: [antenne bayern chillout]
-    genre: Antenne Bayern · Chillout
-    url: http://mp3channels.webradio.antenne.de/chillout
-    language: Instrumental
-    notes: Chill channel of Bavaria's biggest private station
-notes: |
-  Curated 2026-09: radio-browser tag research (ambient/downtempo/chillout/drone,
+- name: Groove Salad
+  match:
+  - groove salad
+  genre: SomaFM · Ambient / downtempo
+  url: https://ice5.somafm.com/groovesalad-128-aac
+  language: Instrumental
+  notes: DialShift default station
+  logo: https://somafm.com/logos/256/groovesalad256.png
+- name: Drone Zone
+  match:
+  - drone zone
+  genre: SomaFM · Atmospheric
+  url: https://ice5.somafm.com/dronezone-128-aac
+  language: Instrumental
+  notes: DialShift default station
+  logo: https://somafm.com/logos/256/dronezone256.png
+- name: Secret Agent
+  match:
+  - secret agent
+  genre: SomaFM · Cinematic grooves
+  url: https://ice5.somafm.com/secretagent-128-aac
+  language: Instrumental
+  notes: DialShift default station
+  logo: https://somafm.com/logos/256/secretagent256.png
+- name: Space Station Soma
+  match:
+  - space station soma
+  genre: SomaFM · Ambient / electronic space music
+  url: https://ice5.somafm.com/spacestation-128-aac
+  language: Instrumental
+  notes: Mid-tempo ambient; the SomaFM classic
+  logo: https://somafm.com/logos/256/spacestation256.png
+- name: Deep Space One
+  match:
+  - deep space one
+  genre: SomaFM · Deep ambient electronic
+  url: https://ice5.somafm.com/deepspaceone-128-aac
+  language: Instrumental
+  logo: https://somafm.com/logos/256/deepspaceone256.png
+- name: Mission Control
+  match:
+  - mission control
+  genre: SomaFM · Ambient / space
+  url: https://ice5.somafm.com/missioncontrol-128-aac
+  language: Instrumental
+  notes: Celebrating NASA & space exploration, with mission audio
+  logo: https://somafm.com/logos/256/missioncontrol256.png
+- name: Fluid
+  match:
+  - fluid
+  genre: SomaFM · Chill instrumental beats
+  url: https://ice5.somafm.com/fluid-128-aac
+  language: Instrumental
+- name: Lush
+  match:
+  - lush
+  genre: SomaFM · Chill vocal electronica
+  url: https://ice5.somafm.com/lush-128-aac
+  language: English
+- name: Synphaera Radio
+  match:
+  - synphaera
+  genre: SomaFM · Space ambient
+  url: https://ice5.somafm.com/synphaera-128-aac
+  language: Instrumental
+  notes: With Exosphere label artists
+- name: n5MD Radio
+  match:
+  - n5md
+  genre: SomaFM · Ambient / electronica
+  url: https://ice5.somafm.com/n5md-128-aac
+  language: Instrumental
+  notes: n5MD label channel
+  logo: https://somafm.com/logos/256/n5md256.png
+- name: SF 10-33
+  match:
+  - sf 10-33
+  genre: SomaFM · Ambient / experimental
+  url: https://ice5.somafm.com/sf1033-128-aac
+  language: Instrumental
+  logo: https://somafm.com/logos/256/sf1033256.png
+- name: Groove Salad Classic
+  match:
+  - groove salad classic
+  genre: SomaFM · Classic chillout
+  url: https://ice5.somafm.com/gsclassic-128-aac
+  language: Instrumental
+  notes: Classic-era Groove Salad playlist
+- name: Ambient Sleeping Pill
+  match:
+  - ambient sleeping pill
+  genre: AmbientSleepingPill.com · Ambient / sleep
+  url: http://radio.stereoscenic.com/asp-h
+  language: English
+  notes: Stereoscenic network; ad-free, listener-supported
+  logo: https://ambientsleepingpill.com/wp-content/uploads/cropped-asp-small-logo.png
+- name: Ambient Modern
+  match:
+  - ambient modern
+  genre: Stereoscenic · Modern ambient
+  url: http://radio.stereoscenic.com/mod-h
+  language: English
+  notes: Stereoscenic network
+- name: Cryosleep
+  match:
+  - cryosleep
+  genre: Echoes of Bluemars · Ambient / sleep
+  url: http://streams.echoesofbluemars.org:8000/cryosleep
+  language: Instrumental
+  logo: http://www.echoesofbluemars.org/images/favicon.ico
+- name: Chilltrax
+  match:
+  - chilltrax
+  genre: Chilltrax · Electronic chillout
+  url: https://streamssl.chilltrax.com/
+  language: English
+  notes: Popular US chill-out brand
+  logo: https://www.chilltrax.com/images/apple-icon-120x120.png
+- name: Smooth Chill
+  match:
+  - smooth chill
+  genre: Global · Chill / ambient
+  url: https://media-ssl.musicradio.com/ChillMP3
+  language: English
+  notes: Global (UK), Smooth Radio's chill brand
+  logo: https://www.smoothradio.com/assets_v4r/smooth/img/favicon-196x196.png
+- name: Café del Mar
+  match:
+  - cafe del mar
+  genre: Café del Mar · Ibiza chillout
+  url: https://streams.radio.co/se1a320b47/listen
+  language: Instrumental
+  notes: The famous Ibiza sunset bar brand
+  logo: https://cafedelmar.com/apple-touch-icon.png
+- name: Costa del Mar Chillout
+  match:
+  - costa del mar chillout
+  genre: Costa del Mar · Ibiza chillout
+  url: http://stream.cdm-chillout.com:8020/stream-AAC-Chill
+  language: Instrumental
+  logo: http://www.costadelmar-radio.com/favicon.ico
+- name: 1.FM Chillout Lounge
+  match:
+  - 1.fm chillout lounge
+  genre: 1.FM · Chillout lounge
+  url: http://strm112.1.fm/chilloutlounge_mobile_mp3
+  language: Instrumental
+- name: Frisky Chill
+  match:
+  - frisky chill
+  genre: Frisky · Progressive chill
+  url: http://chill.friskyradio.com/friskychill_mp3_high
+  language: Instrumental
+  notes: Frisky Radio network
+- name: RadiOzora Chill
+  match:
+  - radiozora chill
+  genre: RadiOzora · Psy chill
+  url: http://chill.out.airtime.pro:8000/chill_a
+  language: Instrumental
+  notes: Ozora Festival network
+- name: Lounge.FM
+  match:
+  - lounge.fm
+  genre: Lounge.FM · Lounge / relax
+  url: https://s35.derstream.net/100austria.mp3
+  language: Instrumental
+  notes: Vienna lounge network
+  logo: https://www.lounge.fm/wp-content/uploads/2014/06/loungefm_logo_colour2.png
+- name: Antenne Bayern Chillout
+  match:
+  - antenne bayern chillout
+  genre: Antenne Bayern · Chillout
+  url: http://mp3channels.webradio.antenne.de/chillout
+  language: Instrumental
+  notes: Chill channel of Bavaria's biggest private station
+notes: 'Curated 2026-09: radio-browser tag research (ambient/downtempo/chillout/drone,
+
   ordered by votes) + the SomaFM channel catalog; every pinned URL verified
+
   with an audio response. The three DialShift defaults are included so the
+
   collection is a complete reference for this genre.
+
+  '

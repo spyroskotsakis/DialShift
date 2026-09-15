@@ -14,11 +14,16 @@ The XLSX is deliberately plain (openpyxl basics only: freeze panes, auto-filter,
 column widths) so it opens cleanly in macOS Numbers.
 """
 import csv
+import hashlib
+import ssl
 import sys
+import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -27,13 +32,15 @@ from build_stations import all_collections, all_countries, build_collection, bui
 DATA_DIR = Path(__file__).resolve().parent.parent
 CANONICAL = DATA_DIR / 'canonical'
 OUTPUT = DATA_DIR / 'output'
+FAVICON_DIR = DATA_DIR / 'raw' / 'favicons'     # gitignored cache
 
 CANON_COLS = ['country', 'name', 'name_local', 'city', 'region', 'frequency_fm', 'type', 'genre',
               'language', 'political_leaning', 'internet_only', 'stream_url', 'codec', 'bitrate',
-              'stream_status', 'votes', 'notes', 'source']
+              'stream_status', 'votes', 'logo', 'notes', 'source']
 
 IMPORT_COLS = ['Station Name', 'Description / Genre', 'Stream URL', 'Country', 'City', 'Type',
-               'Language', 'Political Leaning', 'Internet Only', 'Frequency FM', 'Votes', 'Notes']
+               'Language', 'Political Leaning', 'Internet Only', 'Frequency FM', 'Votes', 'Notes',
+               'Logo URL']
 
 HEADER_FILL = PatternFill('solid', fgColor='2F5B8C')
 HEADER_FONT = Font(bold=True, color='FFFFFF')
@@ -64,6 +71,72 @@ def write_sheet(wb, title, header, rows, widths=None, tab_color=None):
     if tab_color:
         ws.sheet_properties.tabColor = tab_color
     return ws
+
+
+_SSL_CTX = ssl._create_unverified_context()
+_UA = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+
+
+def _dl(url, timeout=6):
+    req = urllib.request.Request(url, headers={**_UA, 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8',
+                                               'Referer': 'https://www.google.com/'})
+    with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as r:
+        return r.read(128 * 1024)
+
+
+def fetch_logo(url, size=36):
+    """Download a station logo, normalized to a small PNG (cached under raw/favicons/).
+    Returns a local PNG path or None."""
+    if not url:
+        return None
+    try:
+        h = hashlib.md5(url.encode()).hexdigest()
+        png = FAVICON_DIR / f'{h}.png'
+        if png.exists():
+            return png
+        candidates = [url]
+        # Wikimedia serves SVG thumbnails; the same path with '.png' appended is
+        # the rasterized render (Pillow cannot decode SVG).
+        if 'wikimedia' in url.lower() and url.lower().rstrip().endswith('.svg'):
+            candidates.append(url + '.png')
+        if url.startswith('http://'):
+            candidates.append('https://' + url[7:])
+        elif url.startswith('https://'):
+            candidates.append('http://' + url[8:])
+        data = None
+        for c in candidates:
+            try:
+                data = _dl(c)
+                break
+            except Exception:
+                continue
+        if not data:
+            return None
+        from io import BytesIO
+        from PIL import Image
+        img = Image.open(BytesIO(data))
+        img = img.convert('RGBA')
+        img.thumbnail((size, size), Image.Resampling.LANCZOS)
+        FAVICON_DIR.mkdir(parents=True, exist_ok=True)
+        img.save(png, 'PNG')
+        return png
+    except Exception:
+        return None
+
+
+def embed_logos(ws, logo_col, logo_paths):
+    """Embed 18px logo images into the given column, one per data row.
+    logo_paths: list of (row_number, png_path). Rows without a logo stay text-only."""
+    from openpyxl.drawing.image import Image as _Img
+    for r, path in logo_paths:
+        try:
+            img = _Img(str(path))
+            img.width = 18
+            img.height = 18
+            ws.add_image(img, f'{logo_col}{r}')
+            ws.row_dimensions[r].height = 19
+        except Exception:
+            continue
 
 
 def main():
@@ -171,6 +244,7 @@ def main():
         ('internet_only', 'Yes = web-only · No = terrestrial (FM/AM/DAB) · Unknown = not listed in an official FM directory'),
         ('frequency_fm', 'FM frequency where known (blank for internet-only)'),
         ('votes', 'popularity signal from radio-browser.info — higher means more listeners there'),
+        ('logo / Logo URL', 'station logo: focus tabs and collections show the image; Logo URL is the source link'),
         ('notes', 'description from Wikipedia or curated notes'),
         ('source', 'where the row came from: curated facts, Wikipedia, radio-browser'),
     ]
@@ -217,23 +291,25 @@ def main():
         imp.append([r['name'], app_tag(r), r['stream_url'],
                     {'GR': 'Greece', 'FR': 'France', 'DE': 'Germany'}.get(r['country'], r['country']),
                     r['city'], r['type'], r['language'], r['political_leaning'],
-                    r['internet_only'], r['frequency_fm'], r['votes'] or '', r['notes'][:180]])
+                    r['internet_only'], r['frequency_fm'], r['votes'] or '', r['notes'][:180],
+                    r.get('logo', '')])
     write_sheet(wb, 'Import Ready', IMPORT_COLS, imp,
-                widths=[34, 30, 58, 10, 20, 14, 12, 16, 12, 10, 9, 40], tab_color='90EE90')
+                widths=[34, 30, 58, 10, 20, 14, 12, 16, 12, 10, 9, 40, 40], tab_color='90EE90')
 
     # ---- per-country tabs ----
     COUNTRY_TITLES = {'GR': 'Greece', 'FR': 'France', 'DE': 'Germany'}
     XLS_COLS = ['Name', 'Name (local)', 'City', 'Region', 'Frequency FM', 'Type', 'Genre', 'Language',
                 'Political Leaning', 'Internet Only', 'Stream URL', 'Codec', 'Bitrate', 'Stream Status',
-                'Votes', 'Notes', 'Source']
+                'Votes', 'Notes', 'Source', 'Logo URL']
     for cfg in countries:
         rows = per_country[cfg['code']]
         data = [[r['name'], r['name_local'], r['city'], r['region'], r['frequency_fm'], r['type'],
                  r['genre'], r['language'], r['political_leaning'], r['internet_only'], r['stream_url'],
-                 r['codec'], r['bitrate'], r['stream_status'], r['votes'] or '', r['notes'][:200], r['source']]
+                 r['codec'], r['bitrate'], r['stream_status'], r['votes'] or '', r['notes'][:200],
+                 r['source'], r.get('logo', '')]
                 for r in rows]
         write_sheet(wb, COUNTRY_TITLES[cfg['code']], XLS_COLS, data,
-                    widths=[32, 24, 20, 16, 10, 13, 20, 11, 16, 11, 55, 7, 8, 13, 8, 40, 16],
+                    widths=[32, 24, 20, 16, 10, 13, 20, 11, 16, 11, 55, 7, 8, 13, 8, 40, 16, 40],
                     tab_color='9DC3E6')
 
     # ---- focus tabs (Munich, Paris, Toulouse, Aude, …) ----
@@ -250,13 +326,27 @@ def main():
                 if k not in seen:
                     seen.add(k)
                     unique.append(r)
+            unique = sorted(unique, key=lambda x: (x['stream_url'] == '', -x['votes'], x['name'].lower()))
             data = [[r['name'], app_tag(r), r['stream_url'], r['city'], r['frequency_fm'], r['type'],
                      r['language'], r['stream_status'], r['votes'] or '', r['notes'][:160]]
-                    for r in sorted(unique, key=lambda x: (x['stream_url'] == '', -x['votes'], x['name'].lower()))]
-            write_sheet(wb, label, ['Station Name', 'Description / Genre', 'Stream URL', 'City', 'Frequency FM',
-                                    'Type', 'Language', 'Stream Status', 'Votes', 'Notes'],
-                        data, widths=[34, 30, 58, 20, 10, 14, 11, 13, 9, 40], tab_color='F4B183')
-            print(f"{label} tab: {len(data)} stations")
+                    for r in unique]
+            ws = write_sheet(wb, label,
+                             ['Station Name', 'Logo', 'Description / Genre', 'Stream URL', 'City',
+                              'Frequency FM', 'Type', 'Language', 'Stream Status', 'Votes', 'Notes',
+                              'Logo URL'],
+                             [[row[0], '', row[1], row[2], row[3], row[4], row[5], row[6], row[7],
+                               row[8], row[9], ''] for row in data],
+                             widths=[34, 5, 30, 58, 20, 10, 14, 11, 13, 9, 40, 40], tab_color='F4B183')
+            # download + embed logos for this tab (threaded)
+            logo_urls = [r.get('logo', '') for r in unique]
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                paths = list(ex.map(fetch_logo, logo_urls))
+            embed_logos(ws, 'B', [(i + 2, p) for i, p in enumerate(paths) if p])
+            # Logo URL column
+            for i, r in enumerate(unique):
+                ws.cell(row=i + 2, column=12).value = r.get('logo', '')
+            print(f"{label} tab: {len(data)} stations, "
+                  f"{sum(1 for p in paths if p)} logos embedded")
 
     # ---- collection tabs (genre folders) ----
     for cfg in collections:
@@ -264,11 +354,20 @@ def main():
         data = [[r['name'], r['genre'], r['stream_url'], r['language'],
                  r['stream_status'], r['votes'] or '', r['notes'][:160]]
                 for r in rows]
-        write_sheet(wb, cfg['name'],
-                    ['Station Name', 'Description / Genre', 'Stream URL', 'Language', 'Stream Status',
-                     'Votes', 'Notes'],
-                    data, widths=[30, 34, 58, 13, 13, 9, 40], tab_color='C9AED6')
-        print(f"{cfg['name']} tab: {len(data)} stations")
+        ws = write_sheet(wb, cfg['name'],
+                         ['Station Name', 'Logo', 'Description / Genre', 'Stream URL', 'Language',
+                          'Stream Status', 'Votes', 'Notes', 'Logo URL'],
+                         [[row[0], '', row[1], row[2], row[3], row[4], row[5], row[6], '']
+                          for row in data],
+                         widths=[30, 5, 34, 58, 13, 13, 9, 40, 40], tab_color='C9AED6')
+        logo_urls = [r.get('logo', '') for r in rows]
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            paths = list(ex.map(fetch_logo, logo_urls))
+        embed_logos(ws, 'B', [(i + 2, p) for i, p in enumerate(paths) if p])
+        for i, r in enumerate(rows):
+            ws.cell(row=i + 2, column=9).value = r.get('logo', '')
+        print(f"{cfg['name']} tab: {len(data)} stations, "
+              f"{sum(1 for p in paths if p)} logos embedded")
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     xlsx = OUTPUT / 'dialshift-radio-catalog.xlsx'

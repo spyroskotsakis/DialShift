@@ -36,6 +36,7 @@ curated:
   genre: Culture / Talk
   leaning: State
   freq: '93.5'
+  logo: https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/France_Culture_logo_2021.svg/120px-France_Culture_logo_2021.svg.png
 - match:
   - france musique
   name_local: France Musique
@@ -55,6 +56,7 @@ curated:
   leaning: State
   freq: '105.1'
   notes: Eclectic music, minimal talk
+  logo: https://upload.wikimedia.org/wikipedia/fr/thumb/d/d5/FIP_logo_2005.svg/120px-FIP_logo_2005.svg.png
 - match:
   - mouv
   name_local: Mouv'
@@ -95,6 +97,7 @@ curated:
   leaning: Right
   freq: '104.7'
   notes: Vivendi/Bolloré group; editorial line shifted right
+  logo: https://www.europe1.fr/favicon.ico
 - match:
   - rmc
   name_local: RMC
@@ -136,6 +139,7 @@ curated:
   type: Music
   genre: Hip-hop / Rap
   freq: '96.0'
+  logo: https://www.skyrock.fm/favicon.ico
 - match:
   - rfm
   name_local: RFM
@@ -330,6 +334,7 @@ curated:
   focus: Paris
   notes: Pan-African station based in Paris
   no_auto_stream: true
+  logo: https://www.africaradio.com/favicon.ico
 - match:
   - radio soleil
   name_local: Radio Soleil
@@ -386,6 +391,7 @@ curated:
   language: Multilingual
   freq: '94.3'
   focus: Paris
+  logo: https://upload.wikimedia.org/wikipedia/commons/4/4e/Orientalcx12.gif
 - match:
   - radio shalom
   name_local: Radio Shalom
@@ -479,6 +485,7 @@ curated:
   genre: Community / Independent
   freq: '92.2'
   focus: Toulouse
+  logo: http://www.canalsud.net/squelettes2/favicon.ico
 - match:
   - mon pais
   - radio mon pais
@@ -489,6 +496,7 @@ curated:
   freq: '90.1'
   focus: Toulouse
   no_auto_stream: true
+  logo: https://radiomonpais.fr/favicon.ico
 - match:
   - radio occitania
   name: Ràdio Occitània
@@ -499,6 +507,7 @@ curated:
   freq: '98.3'
   focus: Toulouse
   no_auto_stream: true
+  logo: https://www.radio-occitania.com/favicon.ico
 - match:
   - campus fm toulouse
   name: Campus FM Toulouse
@@ -526,6 +535,7 @@ curated:
   genre: Catholic
   freq: '97.9'
   focus: Toulouse
+  logo: http://direct.radiopresence.com/presence.png
 - match:
   - kol aviv
   name_local: Radio Kol Aviv
@@ -583,6 +593,7 @@ curated:
   focus: Aude
   notes: Main Aude regional station (Carcassonne 95.3, Narbonne 92.5)
   no_auto_stream: true
+  logo: https://www.grandsudfm.com/favicon.ico
 - match:
   - france bleu occitanie
   - ici occitanie
@@ -629,6 +640,7 @@ curated:
   freq: '88.8'
   focus: Aude
   no_auto_stream: true
+  logo: https://www.contactfm.fr/favicon.ico
 - match:
   - radio marseillette
   name_local: Radio Marseillette

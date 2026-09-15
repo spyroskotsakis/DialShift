@@ -90,6 +90,7 @@ curated:
   leaning: State
   notes: National public news radio (DAB+/web)
   freq: '101.7'
+  logo: https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-144x144.png
 - match:
   - deutschlandfunk kultur
   name_local: Deutschlandfunk Kultur
@@ -117,6 +118,7 @@ curated:
   focus: true
   notes: Bavaria's biggest private station (HQ Ismaning, Munich area)
   freq: '101.3'
+  logo: http://www.antenne.de/logos/station-antenne-bayern/apple-touch-icon.png
 - match:
   - rock antenne
   name_local: Rock Antenne
@@ -138,6 +140,7 @@ curated:
   leaning: None
   focus: true
   freq: '96.3'
+  logo: https://www.radiogong.de/x-beliebige/favicons/apple-touch-icon-144x144.png
 - match:
   - radio arabella
   - arabella bayern
@@ -160,6 +163,7 @@ curated:
   focus: true
   freq: '95.5'
   url: https://live.stream.charivari.de/955charivari-webradio/stream/mp3
+  logo: https://www.charivari.de/favicon.ico
 - match:
   - energy munchen
   name_local: Energy München
@@ -362,6 +366,7 @@ curated:
   freq: '106.4'
   focus: Munich
   notes: Local news & music for Munich west/north + Oberland
+  logo: https://topfm.imsueden.de/storage/thumbs/192x192/r:1677681996/1270.png
 - match:
   - radio munchen
   name_local: Radio München
@@ -382,6 +387,7 @@ curated:
   freq: '92.4'
   focus: Munich
   notes: Children & youth station from Feierwerk (92.4 shared)
+  logo: https://www.feierwerk.de/favicon.ico
 - match:
   - munchner kirchenradio
   - mkr
@@ -394,6 +400,7 @@ curated:
   focus: Munich
   notes: Church & social programming (92.4 shared)
   url: https://mkr-hd-radio.baltic-broadcast.de/mkr-hd-radio
+  logo: https://image.live365.com/download/a77f32ca-d813-4f36-a12d-ab8438421508.png
 - match:
   - lora munchen
   - radio lora munchen
@@ -407,6 +414,7 @@ curated:
   leaning: Left
   notes: Non-commercial citizens radio (92.4 shared); politics, culture, multilingual
   no_auto_stream: true
+  logo: https://lora924.de/favicon.ico
 - match:
   - 089kult
   name_local: 089Kult
@@ -448,5 +456,6 @@ curated:
   focus: Munich
   notes: Local digital music offering (DAB+ 11C)
   no_auto_stream: true
+  logo: https://megaradiomix.de/favicon.ico
 notes: 'Munich focus: the `focus` list above + city aliases build the Munich tab. Curated identities only;
   streams resolve dynamically at build time.'

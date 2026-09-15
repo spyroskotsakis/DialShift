@@ -204,6 +204,7 @@ def build_country(cfg, force_refresh=False):
                    bitrate='' if pinned else (stream or {}).get('bitrate', ''),
                    stream_status='Working' if ok else ('Down' if stream else 'No stream found'),
                    votes=0 if pinned else (stream or {}).get('votes', 0),
+                   logo=entry.get('logo') or (stream or {}).get('favicon', ''),
                    notes=entry.get('notes', desc), source=source)
         # focus membership: explicit entry flag (true = first focus area, or a
         # label/city/region name), or a terrestrial row in a focus city/region
@@ -343,6 +344,7 @@ def build_country(cfg, force_refresh=False):
                  stream_url=url,
                  codec=s.get('codec') or '', bitrate=s.get('bitrate') or '',
                  stream_status='Working', votes=s.get('votes') or 0,
+                 logo=s.get('favicon') or '',
                  notes=f"tags: {tags}", source='radio-browser'))
         extras += 1
 
@@ -394,20 +396,21 @@ def build_collection(cfg):
     for e in cfg.get('stations', []):
         pinned = e.get('url')
         s = None
-        if not pinned:
-            keys = e.get('match') or [e.get('name', '')]
-            for key in keys:
-                if key not in cache:
-                    try:
-                        cache[key] = rb_search(key)
-                    except Exception:
-                        cache[key] = []
-                for h in cache[key]:
-                    if any(norm(k) in norm(h['name']) for k in keys):
-                        s = h
-                        break
-                if s:
+        # search radio-browser even for pinned entries: favicon comes from there
+        # (unless the YAML pins a logo) and unpinned entries need the stream
+        keys = e.get('match') or [e.get('name', '')]
+        for key in keys:
+            if key not in cache:
+                try:
+                    cache[key] = rb_search(key)
+                except Exception:
+                    cache[key] = []
+            for h in cache[key]:
+                if any(norm(k) in norm(h['name']) for k in keys):
+                    s = h
                     break
+            if s:
+                break
         url = pinned or (s or {}).get('url_resolved', '')
         rows.append(dict(country='Internet', name=e.get('name') or (e.get('match') or [''])[0],
                          name_local='', city='—', region='Internet radio',
@@ -418,6 +421,7 @@ def build_collection(cfg):
                          bitrate=(s or {}).get('bitrate', 0),
                          stream_status='Working' if url else 'No stream found',
                          votes=(s or {}).get('votes') or 0,
+                         logo=e.get('logo') or (s or {}).get('favicon', ''),
                          notes=e.get('notes', ''), source='curated', focus_area=''))
     rows.sort(key=lambda r: r['name'].lower())
     return rows

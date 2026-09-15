@@ -31,6 +31,9 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 - **Collections** — curated genre folders of internet radio (e.g. **Ambient & Chill**: the
   SomaFM ambient family around the app's default stations + the best ambient/downtempo/chillout
   streams worldwide). Each collection is one YAML in `collections/` and becomes one tab.
+- **Logos** — every tab has a **Logo URL** column; the focus tabs (Munich, Paris, Toulouse,
+  Aude) and collections also show the actual logo image (from radio-browser favicons or
+  pinned `logo:` URLs in the YAMLs). Missing logos = the source has none.
 
 ## Adding a station to the DialShift app
 

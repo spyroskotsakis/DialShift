@@ -36,7 +36,7 @@ Preferences live at `%LOCALAPPDATA%\DialShift\settings.json` on Windows and `~/L
 
 A curated catalog of **8,700+ radio stations** (Greece, France, Germany — Munich included) lives in [`data/`](data/):
 
-- `data/output/dialshift-radio-catalog.xlsx` — multi-tab workbook (Numbers-friendly): an **Import Ready** tab with every working stream plus the exact three fields the app's *Add a frequency* dialog needs, per-country tabs, local **focus tabs (Munich, Paris, Toulouse, Aude)**, a curated **Ambient & Chill** collection tab (the SomaFM ambient family around the app's default stations + the best ambient/chillout streams worldwide), and a README tab with instructions.
+- `data/output/dialshift-radio-catalog.xlsx` — multi-tab workbook (Numbers-friendly): an **Import Ready** tab with every working stream plus the exact three fields the app's *Add a frequency* dialog needs, per-country tabs, local **focus tabs (Munich, Paris, Toulouse, Aude)**, a curated **Ambient & Chill** collection tab (the SomaFM ambient family around the app's default stations + the best ambient/chillout streams worldwide), **station logos** (embedded images on the focus/collection tabs, Logo URL everywhere), and a README tab with instructions.
 - `data/canonical/*.csv` — clean per-country lists.
 - `data/countries/*.yaml` — the single source of truth for curated station facts (names, cities, genres, political leanings, verified stream URLs). Station data never lives in code.
 - `data/build/` — one generic pipeline + XLSX writer; adding a country means dropping in one YAML.
