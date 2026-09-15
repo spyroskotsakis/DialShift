@@ -72,3 +72,7 @@ Writes `results.json` and UI renders, then exits. Live-stream checks require net
 Starter stations use SomaFM's published direct stream links: [Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html), [Drone Zone](https://somafm.com/dronezone/directstreamlinks.html), [Secret Agent](https://somafm.com/secretagent/directstreamlinks.html). Streams can change; edit a station to update its URL. Station names belong to their respective owners; DialShift is unaffiliated.
 
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled dependencies.
+
+## Roadmap
+
+The Windows (WPF) and macOS (Avalonia) front-ends currently duplicate the UI and playback layer. [docs/single-codebase-refactor.md](docs/single-codebase-refactor.md) captures the plan to converge them into a single Avalonia codebase — deferred, not yet started.
