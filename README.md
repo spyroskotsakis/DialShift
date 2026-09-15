@@ -32,6 +32,44 @@ macOS 11+ on Intel or Apple Silicon. Copy `dist/DialShift.app` into `/Applicatio
 
 Preferences live at `%LOCALAPPDATA%\DialShift\settings.json` on Windows and `~/Library/Application Support/DialShift/settings.json` on macOS, with atomic writes. An unreadable file is preserved as `settings.json.unreadable-*` before defaults are used. Back up this folder to move stations and schedules. Diagnostic errors go to `dialshift.log` in the same folder. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
+## Dependencies
+
+Everything the app needs to build and to run, per platform.
+
+### Build — what you install by hand
+
+| Requirement | Windows | macOS |
+|---|---|---|
+| **.NET 10 SDK** | ✅ required | ✅ required |
+| **Shell** | PowerShell 5.1+ | bash + `sh` |
+| **Rosetta 2** | — | Apple Silicon only |
+
+- **.NET 10 SDK** (tested with `10.0.401`) is the only build tool you install yourself. On Windows it can come from the installer, or the build script will use a local copy at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe`. On macOS the script looks for `dotnet` on `PATH` (including `~/.dotnet`).
+- **Rosetta 2** — macOS on **Apple Silicon only**. The bundled VLC native library (`libvlc.dylib`) ships x86_64-only, so the build and run use x64 under Rosetta. Install once with `softwareupdate --install-rosetta`; Intel Macs need nothing extra.
+
+### Build — NuGet packages (restored automatically)
+
+These are resolved by `dotnet restore`; you never download them by hand.
+
+| Package | Version | Used by |
+|---|---|---|
+| `Avalonia` / `Avalonia.Desktop` / `Avalonia.Themes.Fluent` | 11.3.22 | macOS UI toolkit |
+| `LibVLCSharp` | 3.10.1 | managed bindings over LibVLC (both platforms) |
+| `VideoLAN.LibVLC.Mac` | 3.1.3.1 | VLC native runtime for macOS (x86_64 `libvlc.dylib`) |
+| `VideoLAN.LibVLC.Windows` | 3.0.23.1 | VLC native runtime for Windows |
+| WPF + Windows Forms | in SDK | Windows-only UI frameworks (enabled via `UseWPF`/`UseWindowsForms`) |
+
+`DialShift.Core` and `DialShift.Tests` add no external packages — they are plain `net10.0` class libraries/console.
+
+### Run — what the end user needs
+
+- **Nothing to install.** Both builds are **self-contained**: the .NET runtime and VLC are bundled with the app.
+  - Windows: `DialShift.exe` bundles .NET + VLC. Windows 10/11, x64.
+  - macOS: `DialShift.app` bundles .NET + VLC. macOS 11+, Intel or Apple Silicon (Rosetta 2).
+- A **network connection** to reach each radio station's direct HTTP/HTTPS audio URL.
+
+Bundled third-party components and their licenses are tracked in [`licenses/`](licenses/) and summarized in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 ## Build and verify
 
 Requires a .NET 10 SDK. On Windows the build script also recognizes a local SDK at `%LOCALAPPDATA%\DialShift\sdk`.
