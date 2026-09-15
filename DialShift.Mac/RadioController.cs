@@ -21,6 +21,7 @@ public sealed class RadioController : IDisposable
     private readonly Stopwatch retryClock = new();
     private readonly ScheduleSession scheduleSession = new();
     private readonly Stopwatch stablePlayback = new();
+    private DateTime lastTick = DateTime.UtcNow;
     private int failures;
     private double retrySeconds;
     private bool disposed;
@@ -184,6 +185,11 @@ public sealed class RadioController : IDisposable
     private void Tick()
     {
         if (disposed) return;
+        var now = DateTime.UtcNow;
+        var gap = now - lastTick;
+        lastTick = now;
+        // The timer pauses while the Mac sleeps; a large gap means we just woke up.
+        if (gap.TotalSeconds >= 15) ResumeFromSleep();
         CheckSchedule();
         if (IsPlaying && !fallback && stablePlayback.Elapsed.TotalSeconds >= 60) failures = 0;
         if (retryClock.IsRunning && !IsPlaying) Status = $"Stream unavailable · retry in {Math.Max(0, Math.Ceiling(retrySeconds - retryClock.Elapsed.TotalSeconds)):0}s";

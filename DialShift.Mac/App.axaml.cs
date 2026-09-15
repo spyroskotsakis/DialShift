@@ -1,12 +1,16 @@
 using System;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using DialShift.Core;
 
 namespace DialShift;
@@ -18,8 +22,10 @@ public partial class App : Application
     public RadioController Radio { get; private set; } = null!;
     public MainWindow MainWindow { get; private set; } = null!;
 
+    private const string PipeName = "DialShift.App.Pipe";
     private TrayIcon? tray;
     private static FileStream? _lock;
+    private CancellationTokenSource? pipeCts;
     private IClassicDesktopStyleApplicationLifetime? desktop;
     private bool exiting;
     public static string[] StartupArgs = [];
@@ -47,6 +53,7 @@ public partial class App : Application
             if (startInTray) MainWindow.Hide();
 
             Radio.StartSchedule();
+            StartActivationListener();
             if (Store.Warning != null) _ = Message.Show(MainWindow, "DialShift · Settings recovered", Store.Warning);
         }
         base.OnFrameworkInitializationCompleted();
@@ -64,6 +71,41 @@ public partial class App : Application
         {
             return false;
         }
+    }
+
+    /// <summary>Ask an already-running instance to bring its window to the front.</summary>
+    public static void SignalExistingInstance()
+    {
+        try
+        {
+            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+            client.Connect(250);
+        }
+        catch (TimeoutException) { }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Listen for a second launch and, on receiving it, show the window instead of starting twice.</summary>
+    private void StartActivationListener()
+    {
+        pipeCts = new CancellationTokenSource();
+        var token = pipeCts.Token;
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    using var server = new NamedPipeServerStream(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    await server.WaitForConnectionAsync(token).ConfigureAwait(false);
+                    if (token.IsCancellationRequested) return;
+                    Dispatcher.UIThread.Post(ShowWindow);
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex) { Log(ex); return; }
+            }
+        }, token);
     }
 
     public void Save()
@@ -179,6 +221,8 @@ public partial class App : Application
         if (Settings != null && Store != null) Save();
         Radio?.Dispose();
         if (tray != null) tray.IsVisible = false;
+        pipeCts?.Cancel();
+        pipeCts?.Dispose();
         _lock?.Dispose();
         desktop?.Shutdown();
     }

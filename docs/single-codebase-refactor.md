@@ -123,15 +123,15 @@ Extract the four genuinely OS-specific behaviors into small interfaces + per-OS 
 
 2. **`Platform/Power.cs`** — sleep/resume:
    - Windows: subscribe to `SystemEvents.PowerModeChanged` → call `Radio.ResumeFromSleep()` on `PowerModes.Resume` (currently in `DialShift/App.xaml.cs`).
-   - macOS: **currently missing** — wire `NSWorkspace` sleep/wake notifications (e.g. `NSWorkspace.DidWakeNotification`) so macOS also reconnects after sleep. This closes a real gap in the current Mac port.
-   - **Note:** this requires a small native interop on macOS (no pure-managed Avalonia API); either a tiny `[DllImport]`/`NSWorkspace` observer or an Avalonia platform hook.
+   - macOS: **now implemented** — a pure-managed wake heuristic in `RadioController.Tick()`: the 1-second `DispatcherTimer` pauses during system sleep, so a tick gap ≥ 15s is treated as a wake and calls `ResumeFromSleep()`. No native interop needed. (`NSWorkspace.DidWakeNotification` remains an alternative if we ever want event-driven wake.)
 
 3. **`Platform/OpenFolder.cs`** — "Open settings folder":
    - Windows: `explorer.exe <path>`.
    - macOS: `open <path>` (already used in `DialShift.Mac/MainWindow.cs`).
 
-4. **Single-instance** — unify on one mechanism:
-   - The Mac port already uses a portable file-lock (`FileStream` with `FileShare.None` on `.single-instance.lock`) that works on Windows too. Replace the Windows named-`Mutex` + `EventWaitHandle` approach with this (or keep an OS-conditional pair if the Windows "activate existing window" behavior must be preserved).
+4. **Single-instance** — unify on one mechanism (now resolved on macOS):
+   - Portable file-lock for exclusivity (`FileStream` with `FileShare.None` on `.single-instance.lock`) — already used on macOS, works on Windows too, and the OS releases it on crash.
+   - "Activate existing window" via a **named pipe** (`NamedPipeServerStream` / `NamedPipeClientStream`) — implemented in the Mac port: a second launch connects, and the first instance brings its window to the front, matching Windows. Named pipes work on both OSes, so this replaces the Windows named-`Mutex` + `EventWaitHandle` pair (named `EventWaitHandle` is not supported on Unix).
 
 ### 6.4 Shared front-end files
 
@@ -170,7 +170,7 @@ Extract the four genuinely OS-specific behaviors into small interfaces + per-OS 
 |---|---|---|---|
 | Native VLC lib | `VideoLAN.LibVLC.Windows` | `VideoLAN.LibVLC.Mac` (x86_64, Rosetta 2 on Apple Silicon) | csproj (conditional) |
 | Launch at login | Registry `Run` key | LaunchAgent plist | `Platform/Startup.cs` |
-| Sleep/resume | `SystemEvents.PowerModeChanged` | `NSWorkspace` wake notification | `Platform/Power.cs` |
+| Sleep/resume | `SystemEvents.PowerModeChanged` | timer-gap wake heuristic (implemented) | `Platform/Power.cs` |
 | Reveal folder | `explorer.exe` | `open` | `Platform/OpenFolder.cs` |
 | Tray icon | Avalonia `TrayIcon` | Avalonia `TrayIcon` | shared (no split) |
 | UI + playback | Avalonia | Avalonia | shared (no split) |
@@ -181,8 +181,8 @@ Everything else — models, scheduler, settings persistence, UI, dialogs, playba
 
 - **Loss of WPF-native look** — the Windows app loses `NativeChrome.cs` and WPF styling; it will render with the Avalonia dark theme instead. Acceptable, but confirm this is desired.
 - **Rosetta / x86_64 libvlc on macOS** — unchanged; Apple Silicon still runs under Rosetta 2 because `VideoLAN.LibVLC.Mac` ships no arm64 `libvlc.dylib`.
-- **Sleep/resume on macOS is a real gap today** — the current Mac port never calls `ResumeFromSleep()`. The refactor should close this, but it needs native interop (`NSWorkspace`), which is the one non-trivial platform hook.
-- **Single-instance behavior** — the Windows app activates the existing window on a second launch; the file-lock approach just exits. Confirm whether "bring existing window to front" is worth preserving on Windows.
+- **Sleep/resume on macOS** — fixed with a pure-managed timer-gap heuristic (no native interop). The refactor just carries this over; Windows keeps `SystemEvents`.
+- **Single-instance behavior** — resolved: file-lock for exclusivity + named pipe for "activate existing window" on macOS, matching Windows. Carry this into `Platform/` when merging.
 - **Smoke test harness** — decide whether to port `SmokeChecks` to Avalonia or defer it; don't lose the Windows integration checks silently.
 - **App bundle** — keep the `build-mac-app.sh` assembly step (Info.plist + `LSUIElement=true`) for macOS; the Windows side may want a parallel packaging script.
 
@@ -190,7 +190,7 @@ Everything else — models, scheduler, settings persistence, UI, dialogs, playba
 
 1. Scaffold `DialShift.App/` from `DialShift.Mac/`, target both RIDs, add conditional VLC packages. Build for both.
 2. Add `Platform/` (Startup, Power, OpenFolder) and route the app through it.
-3. Wire macOS sleep/resume (`NSWorkspace`) and confirm Windows `SystemEvents` still works.
+3. Confirm macOS sleep/resume (already fixed with the timer-gap heuristic) and Windows `SystemEvents` still work after the merge.
 4. Unify single-instance; verify second-launch behavior on both OSes.
 5. Delete `DialShift/` (WPF) and `DialShift.Mac/`; update `DialShift.slnx`.
 6. Update `README.md` + `THIRD-PARTY-NOTICES.md`; refresh build scripts.
@@ -199,6 +199,5 @@ Everything else — models, scheduler, settings persistence, UI, dialogs, playba
 ## 10. Open questions to confirm before starting
 
 - Is losing the WPF-native window styling acceptable for the Windows build?
-- Should the Windows "activate existing instance on second launch" behavior be preserved?
 - Port `SmokeChecks.cs` to Avalonia, or defer it?
 - Add a proper macOS `.icns` app icon as part of this work, or later?

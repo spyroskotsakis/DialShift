@@ -10,7 +10,11 @@ internal static class Program
     public static void Main(string[] args)
     {
         App.StartupArgs = args;
-        if (!App.TryAcquireSingleInstance()) return; // another instance is already running
+        if (!App.TryAcquireSingleInstance())
+        {
+            App.SignalExistingInstance(); // bring the running instance to the front
+            return;
+        }
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
