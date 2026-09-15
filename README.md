@@ -125,3 +125,10 @@ See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled dependencies.
 ## Roadmap
 
 The Windows (WPF) and macOS (Avalonia) front-ends currently duplicate the UI and playback layer. [docs/single-codebase-refactor.md](docs/single-codebase-refactor.md) captures the plan to converge them into a single Avalonia codebase — deferred, not yet started.
+
+## Inspiration & related projects
+
+> *"Here's to the crazy ones. The rebels. The troublemakers… They push the human race forward."*
+> — Apple, *Think Different* campaign (1997).
+
+Saved-post research and the knowledge corpus (including the LinkedIn post that quotes the text above, corpus post #1173 by Charly Wargnier) live in a **separate** project: `~/Desktop/Coding-Agent-Research/`. It is deliberately not part of this repository — DialShift only contains the radio app and the station catalog in [`data/`](data/).
