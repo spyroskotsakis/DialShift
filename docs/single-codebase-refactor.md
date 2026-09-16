@@ -1,8 +1,8 @@
 # Single Codebase Refactor — Windows + macOS via Avalonia
 
-> **Status:** Deferred — not a priority yet. This document is a bootstrap: a ready-to-execute plan for when we want to collapse the two front-ends into one.
+> **Status: Deferred — not a priority yet. This document is a bootstrap: a ready-to-execute plan for when we want to collapse the two front-ends into one.**
 >
-> **Updated 2026-09-16** (3rd revision, post-audit): architecture research folded in, then refined after review — platform/process concerns kept out of the domain core, an explicit playback state machine + cancellation policy, honest .NET 10 pipe-permission wording, three early spikes (Apple Silicon AVPlayer migration, Windows `SystemEvents`, macOS wake notification), formal definition-of-done + acceptance matrix, dual-engine `IPlaybackEngine` contract (LibVLC on Windows / AVPlayer on macOS), Intel Mac policy, canonical data locations, and AVPlayer adapter acceptance criteria.
+> **Updated 2026-09-16 — final revision (frozen).** One Avalonia UI, one coordinator, two deliberately small playback adapters (LibVLC on Windows / AVPlayer on macOS), isolated OS capabilities; explicit state machine + cancellation + transition serialization; `IClock`/`IMonotonicClock` split; canonical data locations; AVPlayer adapter acceptance criteria; Intel Mac policy; media compatibility corpus; definition of done + acceptance matrix.
 
 ## 1. Context
 
@@ -36,12 +36,15 @@ One presentation layer, explicit **capability-based platform services**, and pla
 `dotnet publish` produces **two or three platform artifacts** (published application directories — *not* installers; the macOS `.app` script and a Windows packaging stage create the installable distributables, §8):
 
 ```bash
+# Consolidated default target, once the Apple Silicon AVPlayer spike passes
 dotnet publish DialShift.App -c Release -r win-x64
+dotnet publish DialShift.App -c Release -r osx-arm64
+
+# Optional only when Intel Mac support is explicitly retained and validated
 dotnet publish DialShift.App -c Release -r osx-x64
-# osx-arm64 becomes a routine publish target as soon as we adopt the AVPlayer
-# backend (§4.3 Option A — proven upstream); until then the honest macOS
-# artifact is a clearly labeled osx-x64 Rosetta build.
 ```
+
+*Transition note:* during the transition, the legacy `DialShift.Mac` application remains the **clearly labeled `osx-x64`/Rosetta artifact**. `DialShift.App` must **not** publish an `osx-x64` LibVLC build unless that transitional artifact is explicitly intended and tested.
 
 ## 3. What is already good (validated by research)
 
@@ -99,6 +102,22 @@ Tests call `OnTickAsync()` manually with a fake clock — a fake async timer abs
 - **Two time sources, two purposes:**
   - *Schedules / persisted timestamps:* `DateTimeOffset.UtcNow` (wall clock — NTP/timezone/DST changes are fine here).
   - *Wake/tick gaps / elapsed durations:* a **monotonic** source (`Stopwatch.GetTimestamp()` or a small monotonic abstraction). Wall-clock jumps would otherwise produce false "slept for 15 s" detections.
+- **Close the `IClock` gap explicitly** — the wall-clock interface alone cannot express monotonic comparisons, so the target is two narrow interfaces:
+
+```csharp
+public interface IClock
+{
+    DateTimeOffset UtcNow { get; }
+}
+
+public interface IMonotonicClock
+{
+    long GetTimestamp();
+    TimeSpan GetElapsedTime(long startingTimestamp, long endingTimestamp);
+}
+```
+
+Production wraps `Stopwatch.GetTimestamp()` / `Stopwatch.GetElapsedTime(...)`; tests provide a controllable monotonic clock. Wake-gap detection **must** use `IMonotonicClock`, never `UtcNow` — without this contract a future implementation will reach for wall time despite the rule.
 
 ### 4.2 Interfaces + dependency injection — not `OperatingSystem` scattered through files
 
@@ -265,7 +284,15 @@ long operationGeneration;
 
 Every `PlayAsync`, retry, or wake recovery captures the generation; if a delayed operation wakes up and its captured value no longer matches the current one, it exits harmlessly. This prevents old retry tasks from restarting radio playback after a newer user action.
 
-### 5.5 `IPlaybackEngine` — a genuine lowest-common-denominator contract
+### 5.5 State-transition serialization
+
+`PlaybackCoordinator` serializes all state transitions through **one private `SemaphoreSlim` async gate**. It **never holds that gate while awaiting** LibVLC, AVPlayer, timers, delays, UI dispatch, platform services, or native callbacks.
+
+Playback-engine callbacks may arrive on arbitrary threads (both LibVLC and AVPlayer raise them off the UI thread). They do **not** mutate coordinator state directly; instead they re-enter the coordinator through a **validated async event path** that checks the current operation generation before performing a transition.
+
+The single rule that makes this safe: *acquire gate → determine state change / capture work → release gate → await external work → re-enter only if generation is current.* UserStop, PlaybackError, WakeDetected, and a delayed retry can arrive nearly simultaneously; the gate plus generation checks make those races deterministic.
+
+### 5.6 `IPlaybackEngine` — a genuine lowest-common-denominator contract
 
 Windows LibVLC and macOS AVPlayer do **not** expose identical capabilities; the contract must describe only behavior guaranteed on **both** engines:
 
@@ -316,6 +343,7 @@ DialShift.Core/                      (domain — see purity rule below)
     Contracts/
       IPlaybackEngine.cs
       IClock.cs
+      IMonotonicClock.cs
       (IPeriodicTimer.cs — only if tests later require it, §4.1a)
 
 DialShift.App/
@@ -369,7 +397,7 @@ No code written here — what changes and where — so it can be executed direct
 ### 7.1 Project structure
 
 1. **Write a behavior inventory first** (§12 step 1); it becomes the living acceptance matrix (§11).
-2. **Create `DialShift.App/`** from `DialShift.Mac/` sources (rename + relocate); keep it Mac-only initially and verify it behaves exactly like the existing Mac app.
+2. **Create `DialShift.App/`** from `DialShift.Mac/` sources (rename + relocate); keep the new project **behaviorally equivalent to the existing Mac application** initially and verify that it behaves identically.
 3. **Retire `DialShift/`** (WPF) only after Windows behavior is ported and demonstrated (§12 steps 7–9).
 4. **Update `DialShift.slnx`** → `DialShift.Core`, `DialShift.Tests`, `DialShift.App`.
 5. **Delete `DialShift.Mac/`** once its contents live in `DialShift.App/`.
@@ -436,7 +464,8 @@ Note: AVPlayer works on Intel macOS too — supporting `osx-x64` with AVPlayer (
 
 - **`App.axaml(.cs)`** — single lifecycle; Avalonia `TrayIcon` + `NativeMenu`; startup/power routed through the capability services; existing modal-window helper instead of `MessageBox`.
 - **⚠️ Tray menu identity (macOS crash pitfall — mandatory pattern):** Avalonia's macOS exporter binds its **native proxy to the `NativeMenu` instance** when the tray icon is initialized. Replacing `TrayIcon.Menu` (or re-registering via `TrayIcon.SetIcons`) **after** initialization throws a native exception — the crash upstream v0.2.0 explicitly fixed ("Mac native menu now retains the same root object while its entries update"). Rule for all refresh paths: **create the tray + menu exactly once; on refresh, mutate `menu.Items` in place** (`Items.Clear()` + re-add). Never assign a new `NativeMenu` to `TrayIcon.Menu` after startup, and never call `SetIcons` again. Regression-guard it in smoke tests with a *"tray menu identity preserved"* assertion after every editor operation (upstream's `EditorSmokeChecks` pattern). Also fixes our current stale-tray-menu bug (our `Refresh()` rebuilds a menu it never assigns).
-- **Playback** — `PlaybackCoordinator` (Core, UI-agnostic, state machine per §5) + `LibVlcPlaybackEngine` (App/Services) + `AvaloniaUiDispatcher`; `PeriodicTimer` + cancellation in the orchestration layer; no `DispatcherTimer` in coordinator logic.
+- **macOS tray asset rule:** use a monochrome template-compatible menu-bar image; set `MacOSProperties.IsTemplateIcon="True"` on the macOS `TrayIcon`; create the `TrayIcon` and its root `NativeMenu` **once** at startup; keep the same `NativeMenu` object for the full process lifetime and refresh by mutating `menu.Items` in place (per the rule above).
+- **Playback** — `PlaybackCoordinator` (Core, UI-agnostic, state machine per §5) + **selected `IPlaybackEngine` adapter** (`LibVlcPlaybackEngine` on Windows; `MacAvPlayerPlaybackEngine` on macOS) + `AvaloniaUiDispatcher`; `PeriodicTimer` + cancellation in the orchestration layer; no `DispatcherTimer` in coordinator logic.
 - **`MainWindow` / `Dialogs` / `Program.cs`** — keep the Avalonia versions; `Program.cs` becomes the composition root.
 
 ### 7.7 Retired / repurposed pieces
@@ -450,7 +479,7 @@ Note: AVPlayer works on Intel macOS too — supporting `osx-x64` with AVPlayer (
 - **Windows:** retain `LibVlcPlaybackEngine` behind `IPlaybackEngine`.
 - **macOS:** implement `MacAvPlayerPlaybackEngine` behind the same contract.
 - Keep all retry/fallback/schedule/wake/cancellation policy in `PlaybackCoordinator`.
-- Normalize engine lifecycle/errors into shared state events (§5.5).
+- Normalize engine lifecycle/errors into shared state events (§5.6).
 - Do not expose engine-specific metadata or native types through `IPlaybackEngine`.
 - Verify the **media compatibility corpus** (§11) on each target platform.
 
@@ -492,7 +521,7 @@ Canonical per-platform layout — matches upstream v0.2.0 and our current Mac ap
 ## 8. Release packaging & signing
 
 - **Windows:** decide the artifact format now — `.zip` initially, MSIX/installer later; verify SmartScreen/code-signing policy before public distribution.
-- **macOS:** package a real `.app` bundle: `Info.plist` with `CFBundleIdentifier`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement` policy, correct executable permissions, and architecture-specific native libraries.
+- **macOS:** package a real `.app` bundle: `Info.plist` with `CFBundleIdentifier`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement` policy, correct executable permissions, and **Apple-framework playback dependencies via system linkage — no VLC dylibs in the target package**.
 - **Signing:** decide explicitly whether development builds are unsigned and whether release builds must be code-signed + notarized.
 - **Clean-machine testing:** test distribution artifacts on a clean machine, not only developer machines.
 - **Tray-first behavior:** with `LSUIElement=true` there is no Dock icon — deliberately test quit, reopen, and second-instance activation under that condition.
@@ -561,15 +590,22 @@ Everything else — models, scheduler, settings persistence, playback **coordina
 
 Not every native integration is practical to fully automate — but every critical capability has an owner and a verification method.
 
-**Media compatibility corpus:** maintain a documented set of representative stream URLs/types that DialShift is legally permitted to test — covering **every format and authentication mode the app claims to support** (MP3, AAC, HLS; plain, redirect, auth-token where permitted). AVPlayer's compatibility envelope is not identical to LibVLC's; run the corpus against **both** engines before each release.
+**Media compatibility corpus:** maintain a documented set of representative stream URLs/types that DialShift is legally permitted to test — covering **every format and authentication mode the app claims to support** (MP3, AAC, HLS; plain, redirect, auth-token where permitted). Include **URL security / transport behavior** cases: HTTPS certificate failures, redirects, authenticated endpoints, malformed stream URLs, unavailable network, and captive-portal-like failures — AVFoundation and LibVLC surface these at different moments and in different callback forms, and the adapter must normalize them into the same shared state/error model. Run the corpus against **both** engines before each release.
 
 ## 12. Revised execution order (when we start)
 
 1. **Behavior inventory** — list every behavior in either front-end: first launch, restore settings, tray click, close-to-tray, quit, schedule starts/stops, retry/fallback, volume persistence, stream errors, sleep/wake recovery, startup registration, open-settings-folder, second-launch activation, crash recovery, log locations. It becomes the matrix in §11.
 2. **Characterization tests before moving code** — scheduler, retry/fallback, state-machine transitions, second-instance protocol. Guard existing behavior even if the tests initially mirror quirks.
-3. **Run the three spikes** (§7.3) — Apple Silicon AVPlayer migration, Windows `SystemEvents`, macOS wake notification — before code movement consumes the migration.
+3. **Run the three spikes** (§7.3) — Apple Silicon AVPlayer migration, Windows `SystemEvents`, macOS wake notification — before code movement consumes the migration. The AVPlayer spike has **two explicit checkpoints**:
+
+| Checkpoint | Required result | If it fails |
+|---|---|---|
+| **AVPlayer feasibility** | compiles; starts, stops, changes volume; plays the core MP3/AAC/HLS corpus on an M-series Mac | Keep legacy `osx-x64` as a temporary labeled fallback; do **not** commit to the target package structure |
+| **AVPlayer reliability** | repeated source changes, wake/reconnect, stop-while-connecting, second-instance activation, clean exit, and clean-machine `.app` installation succeed | Keep AVPlayer behind a feature branch/flag until lifecycle defects are fixed |
+
+That avoids treating "audio came out once" as proof the backend is ready to anchor the macOS product path.
 4. **Extract playback coordination from Avalonia** — before merging the Windows shell; per the §5 state machine + cancellation spec.
-5. **Create `DialShift.App` from the Avalonia project** — Mac-only initially; verify identical behavior to the current Mac app.
+5. **Create `DialShift.App` from the Avalonia project** — behaviorally equivalent to the current Mac app initially; verify identical behavior.
 6. **Add platform-service abstractions + macOS implementations** — preserve existing Mac behavior *through* the abstraction first; this proves the boundary before Windows features arrive.
 7. **Implement Windows platform services** — startup registration, file reveal, sleep/resume, icon assets, platform release settings.
 8. **Port Windows behavior incrementally** — tray, single instance, settings, playback, schedule, sleep/wake, launch-at-login validated individually; don't wait for WPF deletion to test.
