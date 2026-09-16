@@ -352,7 +352,7 @@ No code written here — what changes and where — so it can be executed direct
 
 ### 7.5 Single-instance hardening (net10.0-accurate)
 
-- **File-lock location**: per-user, writable, version-independent — inside the application support/data directory, **not** beside the executable or inside a signed app bundle.
+- **File-lock location**: per-user, writable, version-independent — inside the canonical data directory (§7.9), **not** beside the executable or inside a signed app bundle.
 - **Pipe options**: use `PipeOptions.CurrentUserOnly` on both client and server — it enforces same-user connectivity (on Windows it additionally considers elevation level). **Note:** the documented mode-`0600` backing-file behavior is a **.NET 11** change; on our `net10.0` target the Unix-domain-socket file permissions come from the process umask. **Validate the actual socket path and permissions on macOS** in the production launch environment — do not claim `0600` merely from using `CurrentUserOnly`. If/when targeting .NET 11+, it sets `0600` explicitly.
 - **Operational rules:**
   - Stable per-user pipe namespace (hashed by app identity + user scope), never derived from untrusted input.
@@ -377,7 +377,26 @@ No code written here — what changes and where — so it can be executed direct
 - `DialShift/SmokeChecks.cs` — **repurpose, don't drop**: replaced by the three-level strategy (§4.5) before removal.
 - Icons — `.ico` (Windows tray), macOS template image (menu bar), `.icns` (bundle) as release packaging.
 
-### 7.8 Docs
+### 7.9 Data & diagnostics locations (settings, logs, locks)
+
+Canonical per-platform layout — matches upstream v0.2.0 and our current Mac app; codified here so the merge keeps it:
+
+| Context | Directory |
+|---|---|
+| **Windows** (production) | `%LOCALAPPDATA%\DialShift\` (`Environment.SpecialFolder.LocalApplicationData`) |
+| **macOS** (production) | `~/Library/Application Support/DialShift/` |
+| Windows dev-preview (Avalonia `WINDOWS_PREVIEW`) | `%LOCALAPPDATA%\DialShift-Preview\` — separate dir, never touches the shipped Windows app's data |
+| Smoke tests | isolated temp dir per run (e.g. `%TEMP%\DialShift-smoke-<guid>` / temp + PID) — never real user data |
+
+**Files inside (both platforms):** `settings.json` · `dialshift.log` · single-instance lock (`running.lock` / `.single-instance.lock`) · settings backups (`.unreadable-<timestamp>` for corrupt files, `.before-import-<timestamp>` for imports).
+
+**Rules:**
+- Per-user, writable, **version-independent** — never beside the executable or inside a signed `.app` bundle (see §7.5).
+- The **app layer** computes `DataDirectory` once (single helper, e.g. `App.DataDirectory`); `DialShift.Core` never references filesystem locations (purity rule, §6) — `SettingsStore` receives the directory as a parameter.
+- The import feature may read the *other* platform's path when migrating (Windows `settings.json` → Mac import), but always writes to the local platform's directory.
+- "Open settings folder" reveals this directory on each OS (§7.4 `IFileRevealService`).
+
+### 7.10 Docs
 
 - `README.md` — single `DialShift.App`; `dotnet publish -r` targets with ARM64 status recorded honestly (§4.3 step 5).
 - `THIRD-PARTY-NOTICES.md` — confirm conditional-package wording.
