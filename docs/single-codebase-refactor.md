@@ -2,7 +2,7 @@
 
 > **Status:** Deferred — not a priority yet. This document is a bootstrap: a ready-to-execute plan for when we want to collapse the two front-ends into one.
 >
-> **Updated 2026-09-16** (2nd revision, post-audit): architecture research folded in, then refined after review — platform/process concerns kept out of the domain core, an explicit playback state machine + cancellation policy, honest .NET 10 pipe-permission wording, three early spikes (Apple Silicon LibVLC, Windows `SystemEvents`, macOS wake notification), and formal definition-of-done + acceptance matrix.
+> **Updated 2026-09-16** (3rd revision, post-audit): architecture research folded in, then refined after review — platform/process concerns kept out of the domain core, an explicit playback state machine + cancellation policy, honest .NET 10 pipe-permission wording, three early spikes (Apple Silicon AVPlayer migration, Windows `SystemEvents`, macOS wake notification), formal definition-of-done + acceptance matrix, dual-engine `IPlaybackEngine` contract (LibVLC on Windows / AVPlayer on macOS), Intel Mac policy, canonical data locations, and AVPlayer adapter acceptance criteria.
 
 ## 1. Context
 
@@ -28,7 +28,7 @@ Application coordinator / view model
     ↓
 Playback service + scheduling service
     ↓
-LibVLC adapter, clock/timer, settings, platform lifecycle
+Playback-engine adapters (LibVLC / AVPlayer), clock/timer, settings, platform lifecycle
 ```
 
 One presentation layer, explicit **capability-based platform services**, and playback/application coordination that is **independently testable**. `RadioController` must not become a UI-thread-bound, platform-aware god object — it is split into a UI-agnostic playback coordinator plus thin adapters.
@@ -123,9 +123,13 @@ public interface ISystemPowerEvents : IDisposable
 
 public interface IFileRevealService
 {
-    Task RevealAsync(string path, CancellationToken ct = default);
+    Task RevealInFileManagerAsync(
+        string fileOrDirectoryPath,
+        CancellationToken cancellationToken = default);
 }
 ```
+
+Semantics: for the settings-folder action it opens the directory; for file-level paths — Windows: Explorer select/open behavior as appropriate; macOS: `open -R` to reveal a file, plain `open` for a folder. Use `ProcessStartInfo.ArgumentList` (never interpolate paths into a shell command string).
 
 The richer `StartupRegistrationStatus` (not bare `bool`) maps directly to the transactional/observable requirement: the UI can show *why* registration failed instead of a wrong "enabled" state.
 
@@ -133,33 +137,41 @@ Select implementations **once** at composition time (`Program.cs` / `App.axaml.c
 
 ### 4.3 Treat macOS ARM64 as a product requirement
 
-The biggest practical weakness today: `VideoLAN.LibVLC.Mac` is x86_64, so Apple Silicon runs under Rosetta 2. Do not accept that silently. Runtime matrix:
+**Current-state constraint:** the existing macOS build (`DialShift.Mac`) uses `VideoLAN.LibVLC.Mac`, whose packaged native runtime is x86_64 and therefore requires Rosetta 2 on Apple Silicon.
+
+**Target-state decision:** the consolidated application uses
+- **Windows:** LibVLC via `LibVlcPlaybackEngine`, and
+- **macOS:** AVPlayer via `MacAvPlayerPlaybackEngine` — no LibVLC native dependency on macOS at all.
+
+The Apple Silicon spike therefore **validates the AVPlayer adapter**, native `osx-arm64` publication, bundle architecture, stream compatibility, lifecycle, and clean-machine behavior. It is **no longer an attempt to make x64 LibVLC work inside an arm64 process.**
+
+Runtime matrix:
 
 | Platform | Initial support | Preferred target | Release decision |
 |---|---|---|---|
 | Windows Intel/AMD | `win-x64` | `win-x64` | Ship |
-| macOS Intel | `osx-x64` | `osx-x64` | Ship if still needed |
-| macOS Apple Silicon | Rosetta fallback | `osx-arm64` | **Investigate before calling the refactor complete** |
+| macOS Apple Silicon | Rosetta fallback (current app) | **`osx-arm64` with AVPlayer** | Gate: AVPlayer spike (§7.3) |
+| macOS Intel | `osx-x64` (current LibVLC app) | per Intel policy below | **Decision required — see §7.2** |
 
-**Spike before starting the consolidation:**
+**Apple Silicon AVPlayer spike (replaces the old LibVLC architecture spike):**
 
-1. Publish the current Mac app as `osx-arm64`.
-2. Confirm the exact architecture of the bundled `libvlc.dylib` (`file` / `lipo -info`).
-3. Test whether a native arm64 app + x64 LibVLC works, whether the process needs Rosetta, and what users actually see.
-4. Evaluate an arm64-compatible LibVLC package/build or a replacement playback backend if it becomes user-facing.
-5. Record the outcome in the README and release notes.
+1. Build and publish `DialShift.App` for `osx-arm64`.
+2. Confirm the app executable has an arm64 Mach-O slice.
+3. Confirm the macOS package contains **no LibVLC native dylibs or Rosetta-only dependency**.
+4. Test all supported production stream formats and authentication modes.
+5. Verify play, stop, volume, retry, fallback, schedule-triggered playback, sleep/wake recovery, and second-instance activation.
+6. Install and test on a clean Apple Silicon Mac without Rosetta dependency.
+7. Record known macOS engine differences — especially metadata support and format limitations — in README and release notes.
 
-**Honest labeling rule:** the macOS path in every matrix/docs table is either *"native `osx-arm64` once a compatible LibVLC runtime is proven"* or *"clearly labeled `osx-x64` Rosetta build"*. Until the spike succeeds, do not list `osx-arm64` as an ordinary publish target and never ship it unlabeled.
+**Honest labeling rule:** the macOS path in every matrix/docs table is either *"native `osx-arm64` (AVPlayer)"* or *"clearly labeled `osx-x64` Rosetta build"*. Until the spike succeeds, do not list `osx-arm64` as an ordinary publish target and never ship it unlabeled.
 
-**A proven answer already exists (upstream v0.2.0 reference):** the replacement-backend option is implemented and shipped — AVPlayer via raw `objc_msgSend` P/Invoke (~70 lines in `MacAudioSession.cs`, zero dependencies, no Rosetta, no VLC bundling). The spike therefore becomes *validation and adaptation* of that reference, not open-ended research. Decision shortlist:
+**Reference implementation (upstream v0.2.0):** the AVPlayer direction is already implemented and shipped upstream — `MacAudioSession.cs`, ~70 lines of raw `objc_msgSend` P/Invoke, zero third-party runtime dependencies. Treat it as a **reference and starting point, not proof of production readiness** — acceptance criteria in §7.8. Decision shortlist:
 
 | Option | Status | Notes |
 |---|---|---|
-| **A. AVPlayer P/Invoke (macOS) + LibVLC (Windows)** | **Proven — upstream ships it** | Native arm64; trade-off: no track-title metadata on Mac, fewer exotic formats (MP3/AAC/HLS covered); **two playback adapters** behind `IPlaybackEngine` — fits the capability-service architecture |
-| B. Arm64 LibVLC build/package | Not demonstrated | Investigate only if VLC-specific formats matter on Mac |
-| C. Labeled `osx-x64` Rosetta build | Fallback | Honest labeling still required |
-
-Option A is the default plan: it closes the ARM64 risk, removes the VLC native dependency from the Mac bundle entirely, and the two-engine shape (`LibVlcPlaybackEngine` + `MacAvPlayerPlaybackEngine`) is exactly what §6's `IPlaybackEngine` port exists for.
+| **A. AVPlayer P/Invoke (macOS) + LibVLC (Windows)** | **Proven upstream — the default plan** | Native arm64; trade-off: no track-title metadata on Mac, fewer exotic formats (MP3/AAC/HLS covered); **two playback adapters** behind `IPlaybackEngine` |
+| B. Arm64 LibVLC build/package | Not demonstrated | Only if VLC-specific formats are required on Mac |
+| C. Labeled `osx-x64` Rosetta build | Transition fallback | Honest labeling still required; needs a removal date |
 
 ### 4.4 Sleep/wake recovery: layered, not timer-only
 
@@ -209,7 +221,7 @@ Do not delete or defer `SmokeChecks.cs` without a replacement. Lifecycle, tray v
 | One Avalonia executable project | Platform differences stay in small adapters; native dependencies resolve cleanly | Simplest dev/release workflow |
 | Shared app/UI library + tiny platform host projects | Native package assets, signing, app lifecycles, entitlements, or platform compilation get complex | Slightly more structure, cleaner packaging boundaries |
 
-One project is better **while**: both platforms start via `StartWithClassicDesktopLifetime`, LibVLC packaging works with runtime-conditioned assets, macOS `.app` creation stays a packaging concern (not a source fork), and adapters stay truly small.
+One project is better **while**: both platforms start via `StartWithClassicDesktopLifetime`, playback-engine packaging works with runtime-conditioned assets (LibVLC Windows-only, AVPlayer macOS-only), macOS `.app` creation stays a packaging concern (not a source fork), and adapters stay truly small.
 
 Switch to two thin hosts **if**: macOS entitlements/Objective-C/`Info.plist` lifecycle/wake notification create significant macOS bootstrap code; Windows packaging (MSIX, registry, installer) significantly alters build assets; per-platform VLC packages need mutually incompatible build configs; or `Platform/` approaches hundreds of lines with UI-specific branching. Two shells would still be **one UI + shared application logic** — far better than maintaining WPF and Avalonia separately.
 
@@ -233,7 +245,7 @@ UserPlay · UserStop · ScheduleDue · PlaybackEnded · PlaybackError
 
 ### 5.3 Invariants
 
-- At most one active LibVLC playback session.
+- At most one active **playback-engine session** (engine-agnostic — not "one LibVLC session").
 - At most one reconnect/recovery operation in flight.
 - **User Stop cancels scheduled and automatic reconnect work.**
 - Wake recovery is idempotent.
@@ -252,6 +264,43 @@ long operationGeneration;
 ```
 
 Every `PlayAsync`, retry, or wake recovery captures the generation; if a delayed operation wakes up and its captured value no longer matches the current one, it exits harmlessly. This prevents old retry tasks from restarting radio playback after a newer user action.
+
+### 5.5 `IPlaybackEngine` — a genuine lowest-common-denominator contract
+
+Windows LibVLC and macOS AVPlayer do **not** expose identical capabilities; the contract must describe only behavior guaranteed on **both** engines:
+
+| Capability | Windows LibVLC | macOS AVPlayer | Contract implication |
+|---|---|---|---|
+| Basic stream playback | Yes | Yes | Include |
+| Start / stop | Yes | Yes | Include |
+| Volume | Yes | Yes | Include |
+| State / error events | Yes | Yes | Normalize |
+| Retry / fallback policy | Coordinator-owned | Coordinator-owned | **Do not put in adapter** |
+| Schedule decisions | Coordinator-owned | Coordinator-owned | **Do not put in adapter** |
+| Track title / metadata | Likely richer | May be unavailable | Optional capability |
+| Exotic codec/container support | Broader | Framework-dependent | Do not assume |
+| Native rendering / video output | Possible | Possible, different model | Exclude unless required |
+
+Keep the contract small:
+
+```csharp
+public interface IPlaybackEngine : IAsyncDisposable
+{
+    event EventHandler<PlaybackEngineStateChangedEventArgs>? StateChanged;
+    event EventHandler<PlaybackEngineFailedEventArgs>? Failed;
+
+    Task StartAsync(StreamSource source, double volume, CancellationToken ct);
+    Task StopAsync(CancellationToken ct);
+    Task SetVolumeAsync(double volume, CancellationToken ct);
+}
+```
+
+Design rules (exact names may differ):
+- `IPlaybackEngine` describes only behavior guaranteed on both engines.
+- The coordinator owns retry timing, fallback selection, schedule intent, recovery after wake, and cancellation generation.
+- Metadata must be optional — e.g. an `ITrackMetadataProvider` capability — or exposed as nullable/non-guaranteed state.
+- AVPlayer-specific Objective-C/AppKit/CoreFoundation types must **never** cross the interface boundary.
+- "Successful start" must have a defined meaning (request accepted / item ready / audible playback started). Prefer a clear state event over implying `StartAsync` proves audio is actually playing.
 
 ## 6. Revised target structure
 
@@ -328,10 +377,29 @@ No code written here — what changes and where — so it can be executed direct
 ### 7.2 `DialShift.App/DialShift.App.csproj`
 
 - `TargetFramework` stays `net10.0` (no `-windows` suffix).
-- `RuntimeIdentifiers`: `win-x64;osx-x64` now; `osx-arm64` is added **only after** the §4.3 spike succeeds.
-- Conditional native VLC packages: `VideoLAN.LibVLC.Windows 3.0.23.1` on Windows, `VideoLAN.LibVLC.Mac 3.1.3.1` on macOS; `LibVLCSharp 3.10.1` unconditional.
-- Avalonia packages unchanged (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` 11.3.22).
+- **RuntimeIdentifiers:** *initial transition* `win-x64;osx-x64` (keeping the current LibVLC Mac app alive during the transition); *consolidated target* `win-x64;osx-arm64`; keep `osx-x64` beyond that **only** if Intel Mac support is deliberately chosen (policy below).
+- **Packages under Option A:** `LibVLCSharp` + `VideoLAN.LibVLC.Windows` **only for `win-x64`**; `VideoLAN.LibVLC.Mac` is **removed from the consolidated target**; the AVPlayer backend adds **no third-party media runtime package** (P/Invoke + Apple framework linkage only). Use runtime-target conditions, not broad compile-time OS assumptions:
+
+```xml
+<ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+  <PackageReference Include="LibVLCSharp" Version="3.10.1" />
+  <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
+</ItemGroup>
+```
+
+- **IDE-without-RID builds must not break `LibVlcPlaybackEngine.cs`:** keep the `LibVLCSharp` compile-time reference available and condition only native assets; or place the Windows implementation in a Windows-specific compile item group; or adopt thin platform-host projects if package/compile conditions become awkward (§4.6 two-shell door).
+- Avalonia packages unchanged (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` — bump to 12.1.2 during the merge).
 - Icon assets are **part of release packaging, not optional polish**: Windows tray expects `.ico`; macOS menu bar prefers a template image (monochrome PNG); the `.app` bundle gets its own `.icns`.
+
+**Intel Mac release policy — settle explicitly (required decision):**
+
+| Policy | Artifacts | Recommendation |
+|---|---|---|
+| Apple Silicon only | `win-x64`, `osx-arm64` | **Default** — simplest, unless Intel Macs are still required |
+| Universal macOS support | `win-x64`, `osx-arm64`, `osx-x64` | Only if both engines/architectures are actually tested |
+| Intel/Rosetta transition | `win-x64`, labeled `osx-x64`, later `osx-arm64` | Acceptable short-term bridge — must carry a removal date |
+
+Note: AVPlayer works on Intel macOS too — supporting `osx-x64` with AVPlayer (no LibVLC, no Rosetta) is possible but needs **separate Intel-Mac validation**; do not assume "AVPlayer" automatically covers every existing macOS deployment.
 
 ### 7.3 Early spikes (run before code movement)
 
@@ -347,7 +415,7 @@ No code written here — what changes and where — so it can be executed direct
 |---|---|---|---|
 | `IStartupRegistration` | Registry `HKCU\...\Run` value | `~/Library/LaunchAgents/com.tsiger.dialshift.plist` | **Transactional + observable** via `StartupRegistrationStatus`: if plist write succeeds but load/unload fails, report the failure state + diagnostic log — never report "enabled" incorrectly |
 | `ISystemPowerEvents` | `SystemEvents.PowerModeChanged` (spike-gated, §7.3) | `NSWorkspace.DidWakeNotification` (spike-gated) + timer-gap fallback | Both platforms keep the monotonic timer-gap heuristic as defensive fallback (§4.4) |
-| `IFileRevealService` | Avalonia `Launcher`/file API if it can reveal-in-file-manager; `explorer.exe` only if "reveal containing folder" semantics are needed | `open <path>` | Evaluate the built-in Avalonia launcher **first**; keep the adapter only for reveal-folder semantics |
+| `IFileRevealService` | Avalonia `Launcher`/file API if it can reveal-in-file-manager; `explorer.exe` only if "reveal containing folder" semantics are needed | `open` (folder) / `open -R` (file) | `RevealInFileManagerAsync` (§4.2); `ProcessStartInfo.ArgumentList`, never shell-interpolated paths |
 | `ISingleInstanceService` | named pipe (server) | named pipe (server) | Lives in `DialShift.App/SingleInstance/`; hardening in §7.5 |
 
 ### 7.5 Single-instance hardening (net10.0-accurate)
@@ -376,6 +444,25 @@ No code written here — what changes and where — so it can be executed direct
 - `DialShift/NativeChrome.cs` — retire (Avalonia theming replaces DWM dark-title-bar).
 - `DialShift/SmokeChecks.cs` — **repurpose, don't drop**: replaced by the three-level strategy (§4.5) before removal.
 - Icons — `.ico` (Windows tray), macOS template image (menu bar), `.icns` (bundle) as release packaging.
+
+### 7.8 Playback-engine adapters
+
+- **Windows:** retain `LibVlcPlaybackEngine` behind `IPlaybackEngine`.
+- **macOS:** implement `MacAvPlayerPlaybackEngine` behind the same contract.
+- Keep all retry/fallback/schedule/wake/cancellation policy in `PlaybackCoordinator`.
+- Normalize engine lifecycle/errors into shared state events (§5.5).
+- Do not expose engine-specific metadata or native types through `IPlaybackEngine`.
+- Verify the **media compatibility corpus** (§11) on each target platform.
+
+**`MacAvPlayerPlaybackEngine` acceptance criteria** (the upstream P/Invoke is a reference, not proof of production readiness):
+
+- All Objective-C selectors, classes, argument signatures, and return types are verified for arm64 ABI correctness.
+- P/Invoke declarations are architecture-correct and use safe ownership rules for Objective-C object references.
+- `NSURL`/`AVURLAsset`/`AVPlayerItem`/`AVPlayer` lifecycle is deterministic: create, replace, observe, stop, dispose.
+- Notification/KVO observers are registered once and removed before disposal.
+- Errors from `AVPlayerItem` and playback-end notifications become normalized `IPlaybackEngine` failure/state events.
+- Rapid source changes, stop-while-connecting, application exit, and repeated sleep/wake cycles do not crash, leak, or resume unintended playback.
+- Capability differences are documented: metadata/title support, format constraints, redirects, HTTPS/TLS behavior, proxy/auth behavior, and HLS behavior.
 
 ### 7.9 Data & diagnostics locations (settings, logs, locks)
 
@@ -409,7 +496,10 @@ Canonical per-platform layout — matches upstream v0.2.0 and our current Mac ap
 - **Signing:** decide explicitly whether development builds are unsigned and whether release builds must be code-signed + notarized.
 - **Clean-machine testing:** test distribution artifacts on a clean machine, not only developer machines.
 - **Tray-first behavior:** with `LSUIElement=true` there is no Dock icon — deliberately test quit, reopen, and second-instance activation under that condition.
-- **Reference implementation (upstream v0.2.0 — adopt as the HOW):** the packaging pipeline is already solved end-to-end and cross-builds **from Windows**: `build-macos.ps1` + `package-macos.py` download a **checksum-verified** `rcodesign` (apple-platform-rs), assemble the `.app` with `plistlib`, ad-hoc sign, then **mechanically verify the bundle** — pure-Python Mach-O parser asserting the **ARM64 slice** exists and the **ad-hoc CodeDirectory page hashes** match, and a ZIP with explicit Unix permissions. This is §4.3's honest-labeling rule enforced at build time: an Intel/Rosetta or unsigned artifact *cannot* pass the script. Keep `build-mac-app.sh` as the Mac-hosted convenience path; the Windows cross-build becomes the canonical release path.
+- **Reference implementation (upstream v0.2.0 — candidate to validate and adopt):** upstream cross-builds the macOS artifact **from Windows** — `build-macos.ps1` + `package-macos.py` download a **checksum-verified** `rcodesign` (apple-platform-rs), assemble the `.app` with `plistlib`, ad-hoc sign, then mechanically verify the bundle (pure-Python Mach-O parser asserting the **ARM64 slice** and **ad-hoc CodeDirectory page hashes**) and ZIP with explicit Unix permissions. **The Windows cross-build pipeline is a *candidate* canonical artifact-assembly path, subject to validation with DialShift's AVPlayer backend, bundle contents, signing policy, and clean native-macOS installation tests — it does not replace native macOS verification or a release signing/notarization process.** A mechanical Mach-O/signature check proves the bundle is *structurally assembled*; it does not prove AVPlayer playback, Gatekeeper acceptance, LaunchAgent behavior, tray behavior, wake recovery, or external-stream compatibility.
+- **Signing tiers — distinguish explicitly:**
+  - *Ad-hoc signing:* suitable for local development/testing only; not publicly distributable without warnings.
+  - *Developer ID signing + notarization:* normally required for smooth distribution outside the App Store on modern macOS.
 
 ## 9. What stays OS-specific after the refactor
 
@@ -418,7 +508,7 @@ Canonical per-platform layout — matches upstream v0.2.0 and our current Mac ap
 | Playback engine | LibVLC (`LibVlcPlaybackEngine`) | **AVPlayer P/Invoke (`MacAvPlayerPlaybackEngine`) — native `osx-arm64`**, per §4.3 Option A | `Services/` (two `IPlaybackEngine` adapters) |
 | Launch at login | Registry `Run` key | LaunchAgent plist | `Platform/Windows|MacOS` |
 | Sleep/resume | `SystemEvents.PowerModeChanged` (spike) + timer-gap fallback | `NSWorkspace.DidWakeNotification` (spike) + timer-gap fallback | `Platform/...PowerEvents` |
-| Reveal folder | Avalonia Launcher / `explorer.exe` fallback | `open` | `Platform/...FileRevealService` |
+| Reveal folder / file | Avalonia Launcher / `explorer.exe` fallback | `open` (folder) / `open -R` (file) | `Platform/...FileRevealService` |
 | Tray icon | Avalonia `TrayIcon` (`.ico`) | Avalonia `TrayIcon` (template image) | shared (no split) |
 | UI + playback | Avalonia | Avalonia | shared (no split) |
 
@@ -427,7 +517,7 @@ Everything else — models, scheduler, settings persistence, playback **coordina
 ## 10. Risks & gotchas
 
 - **Loss of WPF-native look** — Windows renders with the Avalonia dark theme; confirm this is desired. Native controls, font rendering, window chrome, menu placement, and tray behavior will still differ legitimately between platforms — plan for **shared visual-regression baselines where feasible**, not "one set of screenshots".
-- **Rosetta / x86_64 libvlc** — an explicit deliverable (§4.3 spike), not a footnote.
+- **AVPlayer adapter maturity** — the upstream P/Invoke is a reference to validate (§7.8 acceptance criteria), not proof of production readiness; Rosetta/LibVLC on Mac remains only during the transition and needs a removal date (§7.2 Intel policy).
 - **Sleep/resume** — timer-gap (monotonic) is the fallback; `SystemEvents` and `NSWorkspace` are spike-gated (§7.3); neither may block the consolidation.
 - **Single-instance** — net10.0-accurate hardening (§7.5): per-user pipe name, versioned protocol, bounded input, lock file in app-support dir, validation of macOS socket permissions.
 - **Tray menu identity** — never replace the bound `NativeMenu` after startup (§7.6); the crash upstream fixed is exactly what a naive refresh implementation reintroduces on macOS.
@@ -446,6 +536,7 @@ Everything else — models, scheduler, settings persistence, playback **coordina
 - Launch-at-login can be enabled, disabled, and verified on both systems.
 - Sleep/wake recovery is verified using a manual native-OS checklist.
 - Apple Silicon status is published honestly: native arm64 **or** Rosetta-required.
+- **Structured, redacted diagnostic logs are written to the canonical per-user data directory (§7.9); logs identify application version, RID/architecture, selected playback engine, significant state transitions, startup-registration outcome, wake-recovery outcome, and recoverable failures — without exposing credentials or full private stream URLs.**
 - The legacy WPF/WinForms app is removed only after equivalent checks pass.
 
 **Acceptance matrix** (the behavior inventory as a living test matrix):
@@ -460,16 +551,23 @@ Everything else — models, scheduler, settings persistence, playback **coordina
 | Second-instance activation | No | Yes | Yes | Yes |
 | Launch at login | No | Contract test | Yes | Yes |
 | Sleep/wake recovery | Gap logic only | Limited | Yes | Yes |
-| LibVLC playback | Fake engine | Limited | Yes | Yes |
-| Native ARM64 media playback | No | No | No | Manual Apple Silicon gate |
+| Playback coordinator vs fake engine | Yes | Yes | Yes | Yes |
+| Windows LibVLC playback | No | Limited | Yes | N/A |
+| macOS AVPlayer playback | No | Limited | N/A | Yes |
+| Native ARM64 macOS playback | No | No | N/A | Manual Apple Silicon gate |
+| Media compatibility corpus | No | Limited | Yes | Yes |
+| Redacted diagnostic logging | Yes | Yes | Yes | Yes |
+| App upgrade/move + launch-at-login recovery | No | Limited | Yes | Yes |
 
 Not every native integration is practical to fully automate — but every critical capability has an owner and a verification method.
+
+**Media compatibility corpus:** maintain a documented set of representative stream URLs/types that DialShift is legally permitted to test — covering **every format and authentication mode the app claims to support** (MP3, AAC, HLS; plain, redirect, auth-token where permitted). AVPlayer's compatibility envelope is not identical to LibVLC's; run the corpus against **both** engines before each release.
 
 ## 12. Revised execution order (when we start)
 
 1. **Behavior inventory** — list every behavior in either front-end: first launch, restore settings, tray click, close-to-tray, quit, schedule starts/stops, retry/fallback, volume persistence, stream errors, sleep/wake recovery, startup registration, open-settings-folder, second-launch activation, crash recovery, log locations. It becomes the matrix in §11.
 2. **Characterization tests before moving code** — scheduler, retry/fallback, state-machine transitions, second-instance protocol. Guard existing behavior even if the tests initially mirror quirks.
-3. **Run the three spikes** (§7.3) — Apple Silicon LibVLC, Windows `SystemEvents`, macOS wake notification — before code movement consumes the migration.
+3. **Run the three spikes** (§7.3) — Apple Silicon AVPlayer migration, Windows `SystemEvents`, macOS wake notification — before code movement consumes the migration.
 4. **Extract playback coordination from Avalonia** — before merging the Windows shell; per the §5 state machine + cancellation spec.
 5. **Create `DialShift.App` from the Avalonia project** — Mac-only initially; verify identical behavior to the current Mac app.
 6. **Add platform-service abstractions + macOS implementations** — preserve existing Mac behavior *through* the abstraction first; this proves the boundary before Windows features arrive.
@@ -482,7 +580,7 @@ Not every native integration is practical to fully automate — but every critic
 ## 13. Open questions to confirm before starting
 
 - Is losing the WPF-native window styling acceptable for the Windows build?
-- ARM64 spike outcome — native arm64 LibVLC feasible, or ship an explicit Intel/Rosetta build?
+- **Intel Mac policy** — Apple Silicon only (default), keep `osx-x64` (with separate Intel validation of AVPlayer), or a labeled Rosetta transition with a removal date? (§7.2)
 - Is the `NSWorkspace.DidWakeNotification` interop dependency acceptable, or timer-gap-only for the first consolidation?
 - `.icns` app icon as part of this work — yes (recommended) or later?
 
@@ -493,7 +591,8 @@ Not every native integration is practical to fully automate — but every critic
 - Define playback state transitions, cancellation ownership, and stale-operation handling (§5) before code moves.
 - Keep process/shell concerns — especially single-instance — out of the domain core (§6).
 - Treat `PipeOptions.CurrentUserOnly` accurately for `net10.0`; validate macOS socket permissions rather than assuming the .NET 11 `0600` behavior (§7.5).
-- Run the three early spikes (§7.3): Apple Silicon LibVLC, Windows `SystemEvents`, macOS wake notification.
+- Run the three early spikes (§7.3): Apple Silicon AVPlayer migration, Windows `SystemEvents`, macOS wake notification.
+- Validate — not assume — the AVPlayer adapter against the §7.8 acceptance criteria and the media compatibility corpus.
 - Add the definition of done and cross-platform acceptance matrix (§11) before code movement begins.
 - Preserve — or replace — every meaningful legacy smoke check before deleting the WPF/WinForms frontend.
 
