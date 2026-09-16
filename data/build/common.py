@@ -52,6 +52,11 @@ def norm_freq(s):
     s = re.sub(r'[^\w\s.]', ' ', s)           # keep digits and dots
     return re.sub(r'\s+', ' ', s).strip()
 
+def url_norm(u):
+    """Normalize a stream URL for dedupe: strip query/fragment, ignore http vs https."""
+    u = (u or '').split('?')[0].split(';')[0].strip()
+    return u.replace('https://', 'http://')
+
 def clean_name(n):
     """Strip Wikipedia link-text artifacts like  Name "LinkedName")  or  Name (LinkedName)."""
     n = re.sub(r'\s+"[^"]*"\)?$', '', n)   # 'Third Programme "Third Programme (ERT)")' -> 'Third Programme'

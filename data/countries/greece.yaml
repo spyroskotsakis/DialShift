@@ -994,12 +994,16 @@ curated:
   notes: Rebroadcasts Skai 100.3 Athens
 - match:
   - sto kokkino
-  name_local: 91.4 Στο Κόκκινο (Θεσ/νίκη)
-  city: Thessaloniki
+  name_local: Στο Κόκκινο 105.5
+  city: Athens
   type: Political
-  genre: News & Talk
+  genre: News & political talk
   leaning: Left
-  notes: Thessaloniki relay of 105.5 Sto Kokkino (left-wing)
+  notes: Political talk radio of the Avgi newspaper group; official site stokokkino.gr
+  name: Sto Kokkino
+  freq: '105.5'
+  url: https://stream.radiojar.com/kokkino-ath.mp3
+  relay_pin: true
 - match:
   - super fm
   name_local: Super FM

@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 from common import (DATA_DIR, classify, clean_name, dedupe_rb, fetch_radio_browser,
-                    fetch_text, norm, norm_city, norm_freq)
+                    fetch_text, norm, norm_city, norm_freq, url_norm)
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
 COLLECTIONS_DIR = DATA_DIR / 'collections'
@@ -283,6 +283,7 @@ def build_country(cfg, force_refresh=False):
     wiki_norms = [x for x in wiki_norms if len(x) >= 3]
     pinned_urls = {p.get('url') for p in cfg.get('national_programmes', []) if p.get('url')}
     pinned_urls |= {e.get('url') for e in cfg.get('curated', []) if e.get('url')}
+    pinned_urls = {url_norm(u) for u in pinned_urls}
     # group extras by (normalized name, state) so same-name stations in
     # different cities survive, while curated entries can pick the BEST stream
     by_norm = {}
@@ -327,7 +328,7 @@ def build_country(cfg, force_refresh=False):
         url = (s.get('url_resolved') or '').split('?ver=')[0]
         if (s.get('votes') or 0) < 2 and not s.get('state'):
             continue
-        if url in pinned_urls:                      # duplicates a pinned stream
+        if url_norm(url) in pinned_urls:             # duplicates a pinned stream
             continue
         if any(n == wn or (min(len(n), len(wn)) >= 5 and (n in wn or wn in n)) for wn in wiki_norms):
             continue
@@ -350,9 +351,10 @@ def build_country(cfg, force_refresh=False):
 
     # final safety dedupe: same normalized name + city + stream = same station
     # (keeps the richest row: with frequency, curated, then most votes)
+    # 'stokokkino' vs 'Sto Kokkino' merge: spaces are ignored in the name key
     deduped, best = {}, {}
     for r in rows:
-        key = (norm(r['name']), norm_city(r['city'], code), r['stream_url'])
+        key = (norm(r['name']).replace(' ', ''), norm_city(r['city'], code), url_norm(r['stream_url']))
         prev = best.get(key)
         if prev is None or _row_score(r) > _row_score(prev):
             best[key] = r
