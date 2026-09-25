@@ -1,13 +1,13 @@
 # Open items: native verification and release sign-off
 
-> **As of 2026-09-25**, branch `refactor/single-codebase-timezone` at `a54e423`.
+> **As of 2026-09-25**, branch `refactor/single-codebase-timezone` at `1b16518`, after the pre-merge sweep.
 > This is the hand-off list for the work that is still open after both briefs were implemented. The implementation task is closed. Only the items below remain.
 >
 > Related documents:
 > - [README.md](../README.md): the project and how to build, test and run it.
 > - [Acceptance matrix §9](acceptance-matrix.md#9-remaining-native-checks): the full procedure and pass criteria for every native check (NC-*).
 > - [Matrix §9.1](acceptance-matrix.md#91-native-checks-that-require-the-user): the same checks grouped by what they need.
-> - [docs/decisions.md](decisions.md): decisions D1–D52.
+> - [docs/decisions.md](decisions.md): decisions D1–D55.
 >
 > This file sums up and orders the work. If this file and matrix §9 disagree, §9 is right.
 
@@ -28,22 +28,25 @@
 
 | Area | State | Evidence |
 |---|---|---|
-| Brief 1 (single codebase) and brief 2 (per-slot time zones) | Implemented. WPF and `DialShift.Mac` are retired, and one Avalonia app, `DialShift.App`, ships as `win-x64` and `osx-arm64` | Branch `refactor/single-codebase-timezone` at `a54e423`, pushed to the `private` remote (`spyroskotsakis/dialshift-dev`) |
-| CI | Green on both OSes | Run [`36121345627`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36121345627) at `a54e423`: **windows-latest 1,634 passed / 17 skipped**, **macos-latest 1,656 passed / 4 skipped**, **23/23 suites** on both |
+| Brief 1 (single codebase) and brief 2 (per-slot time zones) | Implemented. WPF and `DialShift.Mac` are retired, and one Avalonia app, `DialShift.App`, ships as `win-x64` and `osx-arm64` | Branch `refactor/single-codebase-timezone` at `1b16518`, pushed to the `private` remote (`spyroskotsakis/dialshift-dev`) |
+| CI | Green on both OSes | Run [`36126312566`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36126312566) at `1b16518`: **windows-latest 1,702 passed / 18 skipped**, **macos-latest 1,769 passed / 5 skipped**, **24/24 suites** on both |
 | Native smoke in CI | `--smoke-test --recovery-test` **34/34 on both OSes**. The **bundle smoke** (the packaged `osx-arm64` app, extracted from the release zip with `unzip`) passes **32/32** with `MacAvPlayerPlaybackEngine` | Same run: `smoke-win-x64` and `smoke-osx-arm64` artifacts, and the "Bundle smoke" step of the macOS job |
 | Packaging | Both downloadable zips verified: `win-x64` by `verify-win-package.ps1`, `osx-arm64` by `verify-mac-app.sh --zip` after both `ditto` and `unzip` extraction | Same run |
 | Acceptance matrix §3 (106 rows) | **62 GREEN / 44 NATIVE-PENDING / 0 TODO** | [Matrix §3](acceptance-matrix.md#3-acceptance-matrix) |
 | Timezone QA tracker | QA-B1..B4 (blocking) all GREEN. QA-N1..N9: 8 GREEN, 1 NATIVE-PENDING (QA-N1). §9.2: 14 of 15 GREEN, TZ-12 NATIVE-PENDING (the unit half is green) | [Matrix §6](acceptance-matrix.md#6-timezone-qa-tracker-brief-2) |
-| Review findings (§7.10) | All GREEN except SR-02 and NX-01, both NATIVE-PENDING | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
-| Decisions | D1–D52 recorded | [docs/decisions.md](decisions.md) |
+| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING, and SW-N4 (open, [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items)). The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
+| Decisions | D1–D55 recorded | [docs/decisions.md](decisions.md) |
 | Rollback point | Tag `legacy-last-known-good` (commit `82281e5`) keeps the last build of both old front-ends, including the last Intel Mac build | `git show legacy-last-known-good` |
+
+**Release status:** the first release is planned as the pre-release **`v0.3.0-rc.1`** through the D53 pipeline: a dry run by pushing the tag to the private repository (`release.yml` builds, verifies and publishes there), then a manual public push of `main` and the tag by the maintainer (README "Releasing (maintainers)"). It stays a pre-release because the checks below are open. `CHANGELOG.md` has its `[0.3.0-rc.1] - 2026-09-25` section.
 
 ### What keeps the phase from sign-off
 
 **This list is the only thing left.** Every item needs something the development session cannot provide: Windows hardware, a clean or older Mac, signing credentials, a real login, a lid close, real network faults, or a person looking at the screen. No product code change is known to be needed. The only engineering left is:
 - the temporary dev builds for NC-02 and NC-08 step 4, which disable the power-event source;
 - the release-lane signing steps, once the credentials exist ([§2.2](#22-signing-credentials-and-certificates-2-items-release-only-not-performed));
-- the small follow-ups in [§2.9](#29-follow-ups-that-depend-on-the-above), which depend on what these checks observe.
+- the small follow-ups in [§2.9](#29-follow-ups-that-depend-on-the-above), which depend on what these checks observe;
+- the release-engineering items in [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items), which need no hardware.
 
 Native checks: 16 open. NC-01..NC-13 and NC-15..NC-17, where NC-07, NC-13 and NC-17 are partly done. NC-14 (Intel) is not applicable (D13).
 
@@ -65,10 +68,10 @@ How to read the tables:
 
 | Item | What's left | Why blocked | Procedure | Pass (short) | Rows it unblocks |
 |---|---|---|---|---|---|
-| NC-01 | The Windows tray, window, audio and dialog pass. The smoke part already passes in CI | Needs a real mouse on the notification area, focus rules and audible output | §9 NC-01, steps 1–7 | The smoke shows 34/34, then by hand: tray clicks and every menu item work, the tooltip shows, audio switches one stream at a time, close and minimize hide the window with no flash, dialogs are owned and Enter/Escape work, the recovery and lock-failure dialogs appear (exit 1), no clipped text. The log ends `app.exit … code=0 clean=true` | BHV-03, 04, 09, 12, 13, 14, 15, 19, 20, 21, 23, 24, 27, 29, 50, 51, 55, 63, 64, 65; MX-04; DOD-04; PK-04; QG-03 |
+| NC-01 | The Windows tray, window, audio and dialog pass, including the refusal to start beside the older WPF app (step 5, SW-S2, D55). The smoke part already passes in CI | Needs a real mouse on the notification area, focus rules and audible output | §9 NC-01, steps 1–7 | The smoke shows 34/34, then by hand: tray clicks and every menu item work, the tooltip shows, audio switches one stream at a time, close and minimize hide the window with no flash, dialogs are owned and Enter/Escape work, the recovery and lock-failure dialogs appear (exit 1); with the WPF app running, "An older DialShift is still running…" appears, the exit code is 1 and only the older app plays; no clipped text. The log ends `app.exit … code=0 clean=true` | BHV-03, 04, 09, 12, 13, 14, 15, 19, 20, 21, 23, 24, 27, 29, 50, 51, 55, 63, 64, 65; MX-04; DOD-04; PK-04; QG-03; the native confirmation of SW-S2 |
 | NC-02 | `SystemEvents` delivery on a real sleep, including a zoned slot that starts during sleep (TZ-12) and a run with only the tick gap. Also record the thread `Resumed` arrives on (for SR-02) and the delay from wake to `Resume` (for HZ-04) | Needs a hardware sleep. A hosted runner can't be suspended | §9 NC-02, steps 1–4 | On each wake: `power_events.resumed`, one `wake.detected`, exactly one `wake.recovery` and one reconnect. Paused stays paused. The Athens slot fires once. The tick gap alone recovers. Quit does not hang. Record the thread and the delay | BHV-42; MX-08; DOD-07; SP-03. Also QA-N1 and TZ-12 (with NC-08), SR-02, and HZ-04's recorded delay |
 | NC-03 | Run the LibVLC corpus (C1–C15, T1–T15) on speakers with public streams. Check the real-engine retry and fallback timings, the 25 s watchdog, and title behavior on public Icecast `http://` stations | Needs Windows audio and public streams. CI has only the silent output and a local server | §9 NC-03 | The failure kinds match the adapter column, or the difference is explained. No crash. No audio after Stop. The 3/6/30 s retries, the fallback after 3 failures and the 120 s primary re-check match matrix §5.1 | BHV-37 (with NC-11), BHV-39, MX-10 (with NC-15), MX-13 (with NC-11, NC-15, NC-16) |
-| NC-04 | Launch at sign-in, a moved copy, and the Task Manager Startup-apps switch | Needs a real Windows sign-in | §9 NC-04, steps 1–5 | Starts in the tray at sign-in. A moved copy shows off with the stale diagnostic, and turning it on repairs it. Off in Task Manager shows off. `StartupApproved\Run` starts with `03` after step 3 and `02` after step 4 (D39). Turning it off removes both registry values | BHV-59, MX-07, MX-15, DOD-06 (each with NC-10) |
+| NC-04 | Launch at sign-in, a moved copy, the Task Manager Startup-apps switch, and an upgrade with `Install.ps1` keeping launch at sign-in (step 6) | Needs a real Windows sign-in | §9 NC-04, steps 1–6 | Starts in the tray at sign-in. A moved copy shows off with "Launch at sign-in points to an older copy of DialShift…", and turning it on repairs it. Off in Task Manager shows off. `StartupApproved\Run` starts with `03` after step 3 and `02` after step 4 (D39). Turning it off removes both registry values. After `Install.ps1`, the Run value names the installed exe and Settings shows on | BHV-59, MX-07, MX-15, DOD-06 (each with NC-10); the README upgrade note (SW-S5) |
 | NC-06 | A second launch brings the hidden window to the foreground while another app has focus | Needs a Windows desktop with real focus rules | §9 NC-06 | The window comes to the foreground, not just a flashing taskbar button. The second process exits 0. The log has `single_instance.activated … delivered` | BHV-08, BHV-15, MX-06, DOD-05 (with NC-13, NC-17, and NC-07 for DOD-05) |
 | NC-15 | LibVLC fast-switch stress: 7 runs of 160 UI Automation "Next station" presses with random 0–300 ms gaps | Needs native Windows with a real audio device | §9 NC-15 | No crash or hang. At most one station audible. After runs 2–7 the working set stays within ±20 MB of its value after run 1. The last station plays. No `playback.engine_error` | MX-10 (with NC-03), MX-13 |
 
@@ -91,7 +94,7 @@ How to read the tables:
 
 | Item | What's left | Why blocked | Procedure | Pass (short) | Rows it unblocks |
 |---|---|---|---|---|---|
-| NC-07 | Partly done. **Done on 2026-09-25**, on the dev box (macOS 26.5.2, build `0.3.0+2c0909e`, the zip from `scripts/build-mac-app.sh`): the zip was given Safari's quarantine attribute and extracted with `ditto`. Quarantine propagated to `DialShift.app`, `codesign --verify --deep --strict` reports it valid, and `spctl --assess --type execute` reports `rejected`, which is expected for an ad-hoc signed app that isn't notarized. So the user must choose **Open Anyway**, as the README says. **Remaining:** (a) a real Safari download and a Finder unzip; (b) the first launch through Open Anyway; (c) a menu-bar icon and no Dock icon; (d) `https://` and `http://` stations audible; (e) a relaunch with no prompt, and a second `open` activates the window; (f) no Rosetta prompt ever; (g) the `unzip`-extracted copy opens after Open Anyway | Needs a clean Apple Silicon Mac | §9 NC-07 | Each observation holds. `app.start` shows `rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine`. No Rosetta prompt | MX-12; SP-02 (with NC-08); DOD-04 (with NC-01, NC-17); DOD-05 (with NC-06, NC-17). When it passes, the README drops "not clean-machine tested" (DOD-08, D36) |
+| NC-07 | Partly done. **Done on 2026-09-25**, on the dev box (macOS 26.5.2, build `0.3.0+2c0909e`, the zip from `scripts/build-mac-app.sh`): the zip was given Safari's quarantine attribute and extracted with `ditto`. Quarantine propagated to `DialShift.app`, `codesign --verify --deep --strict` reports it valid, and `spctl --assess --type execute` reports `rejected`, which is expected for an ad-hoc signed app that isn't notarized. So the user must choose **Open Anyway**, as the README says. **Remaining:** (a) a real Safari download and a Finder unzip; (b) the first launch through Open Anyway; (c) a menu-bar icon and no Dock icon; (d) `https://` and `http://` stations audible; (e) a relaunch with no prompt, and a second `open` activates the window; (f) no Rosetta prompt ever; (g) the `unzip`-extracted copy opens after Open Anyway; (h) **App Translocation (SW-S3, D55):** a copy opened from Downloads without moving it runs translocated (`app.translocated` in the log), and turning on launch at login is refused with "Move DialShift to Applications first, then turn this on again.", writing no LaunchAgent | Needs a clean Apple Silicon Mac | §9 NC-07 | Each observation holds. `app.start` shows `rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine`. No Rosetta prompt. The translocated copy refuses launch at login | MX-12; SP-02 (with NC-08); DOD-04 (with NC-01, NC-17); DOD-05 (with NC-06, NC-17). When it passes, the README drops "not clean-machine tested" (DOD-08, D36) |
 
 ### 2.4 Displays genuinely asleep, and a MacBook lid close (2 items)
 
@@ -112,7 +115,7 @@ How to read the tables:
 
 | Item | What's left | Why blocked | Procedure | Pass (short) | Rows it unblocks |
 |---|---|---|---|---|---|
-| NC-10 | The LaunchAgent at a real login, a moved bundle, Login Items "Allow in the Background", and `launchctl disable`/`enable` | Needs a real log out and log in | §9 NC-10, steps 1–4 | Starts in the menu bar with no window. A moved bundle shows off with the stale diagnostic, and turning it on repairs it. Record whether the Login Items switch shows up in `launchctl print-disabled`; if it doesn't, amend D39 and the README. `plutil -lint` passes on the plist. No second instance | BHV-59, MX-07, MX-15, DOD-06 (each with NC-04) |
+| NC-10 | The LaunchAgent at a real login, a moved bundle, Login Items "Allow in the Background", and `launchctl disable`/`enable`. Also (5) an older DialShift still running (DialShift.Mac from `legacy-last-known-good`, or upstream v0.2.0) makes the new app show "An older DialShift is still running…" and exit 1 (SW-S2); (6) upstream v0.2.0's `com.dialshift.radio` entry shows on with "set up by an older DialShift", starts DialShift once at login, and is replaced by ours after off and on (SW-S1) | Needs a real log out and log in | §9 NC-10, steps 1–6 | Starts in the menu bar with no window. A moved bundle shows off with the stale diagnostic, and turning it on repairs it. Record whether the Login Items switch shows up in `launchctl print-disabled`; if it doesn't, amend D39 and the README. `plutil -lint` passes on the plist. No second instance. The older-app dialog and exit 1; one LaunchAgent after the v0.2.0 entry is replaced | BHV-59, MX-07, MX-15, DOD-06 (each with NC-04); the native confirmation of SW-S1 and SW-S2 |
 | NC-13 (LaunchAgent half) | **The LaunchServices half PASSED on 2026-09-25** (dev box, build `0.3.0+2c0909e`): the socket was mode `0600` and owned by the user, a second `open` was delivered and acknowledged (`single_instance.activated … delivered`), and SIGTERM gave `app.exit code=0 clean=True` and removed the socket. **Remaining:** the same socket-mode check when the LaunchAgent starts the app at a real login | Needs a real login | §9 NC-13 | `stat -f %Lp "$TMPDIR"/CoreFxPipe_DialShift-*` prints `600`. The log has `single_instance.socket`. A second `open` activates the window | BHV-08, MX-06 (each with NC-06, NC-17) |
 
 ### 2.6 Real network faults (1 item)
@@ -190,6 +193,15 @@ Outside §3, these rows flip as well:
 
 NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-closure-criteria)).
 
+### 2.10 Release engineering, not blocked on hardware (2 items)
+
+**Missing resource:** none. These are engineering and maintainer steps that can run now.
+
+| Item | What's left | Severity | Owner | Done when |
+|---|---|---|---|---|
+| SW-N4 | **`Install.ps1` robustness.** `scripts/Install.ps1` deletes `%LOCALAPPDATA%\Programs\DialShift` (`Remove-Item $destination -Recurse -Force`) before it copies the new build. A locked file leaves the old install half-deleted, and a zip extracted inside `%LOCALAPPDATA%\Programs\DialShift\…` is deleted before it is copied. Copy into a staging folder beside the destination first, then swap (move the old install aside, move the new one in, delete the old one; on failure restore the old one), and refuse a source inside the destination with a clear message | SHOULD-FIX before the full release `v0.3.0`; not a native check | release | The script is changed, `build.ps1` and `verify-win-package.ps1` still pass in CI, and NC-04 step 6 (the upgrade through `Install.ps1`) passes on hardware. Matrix §7.10 SW-N4 is GREEN |
+| Legacy tag on the public repository | The README ("Upgrading", "Earlier versions") and CHANGELOG name the tag `legacy-last-known-good`, which exists on the private remote only. Push it to the public repository with the first release (`git push origin legacy-last-known-good`), a manual maintainer step like the release push | Before the public `v0.3.0-rc.1` push | maintainer | `git ls-remote --tags origin` lists `legacy-last-known-good` |
+
 ---
 
 ## 3. Suggested order of execution
@@ -209,6 +221,8 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 9 | **NC-07** (clean Apple Silicon Mac) | A clean Mac | 30–45 min once the machine exists | The last check for MX-12, SP-02, DOD-04 and DOD-05, and it changes the README wording |
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
 | 11 | **Signing: NC-05 (b), NC-09** | Release pipeline | Getting the certificates is outside the team and can take days to weeks. Then about half a day to a day of release-lane script work (Developer ID signing, hardened runtime, entitlements, notarization, Authenticode), plus about 1 h to verify each | Release gate only. No §3 row depends on it |
+
+The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items (SW-N4 and the legacy tag) need no hardware. They can run in parallel with any step, and SW-N4 should land before the Windows hardware block so that NC-04 step 6 tests the fixed `Install.ps1`.
 
 ---
 
@@ -305,6 +319,26 @@ reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApprove
 (Get-Process DialShift).WorkingSet64                                                               # NC-15
 ```
 
+### Using the native-check kit
+
+`scripts/native-check/` runs the checks in this file on the real machines and collects the evidence. Its [README](../scripts/native-check/README.md) says what each script automates, what it touches and how the evidence is laid out.
+
+| Where | Command | Checks |
+|---|---|---|
+| A Mac: the dev box; a MacBook for NC-08; a clean Mac for NC-07; macOS 14 for NC-16 | `bash scripts/native-check/macos.sh --zip <DialShift-osx-arm64-native-avplayer.zip>` | NX-01, NC-12, NC-17 steps 1–9, NC-10 with NC-13's LaunchAgent half, NC-11, NC-08, NC-07, NC-16 |
+| A Windows 11 x64 PC with speakers | `powershell -ExecutionPolicy Bypass -File .\scripts\native-check\windows.ps1 -Zip <DialShift-win-x64.zip>` | NC-01, NC-06, NC-04, NC-02, NC-03, NC-15, NC-05 (a; b once a build is signed) |
+
+- **How a script works.** It offers the checks in the [§3](#3-suggested-order-of-execution) order. For each one it prints the procedure and pass criteria from matrix §9 and does what a script can do: launches, log and `results.json` verdicts, `codesign`/`spctl`/`stat`/registry reads, and timings. It asks the tester for the physical steps and a PASS/FAIL/SKIP verdict with a note.
+- **Re-running.** It is safe to run a script again. NC-10 and NC-04 continue after each log-out.
+- **Real data.** The checks that need the real data folder ask first, move the originals aside and restore them afterwards: NC-17, NC-10 and NC-07 on macOS; NC-01, NC-04, NC-05 and NC-06 on Windows. The other checks use an isolated `DIALSHIFT_DATA_DIR`.
+- **The evidence.** The tester sends back `native-evidence-<host>-<yyyymmdd>.zip`. Its `summary.json` has one record per check with these fields: `checkId`, `result`, `timestampUtc`, `machine`, `build` (including the CI run id), `notes`, `artifacts` and `steps`. The schema is in the kit README.
+- **Recording.** Recording then follows steps 1–6 above. Each record gives the date, OS build, hardware, artifact run id and result that §9 asks for. The `dialshift.log` excerpts and `results.json` are in the check's folder in the zip.
+- **Not in the kit:**
+  - NC-09, and NC-05 (b) until a build is signed ([§2.2](#22-signing-credentials-and-certificates-2-items-release-only-not-performed)).
+  - The dev builds with the power-event source disabled, for NC-02 step 4 and NC-08 step 4. The kit asks for their path.
+  - The thread `Resumed` arrives on (SR-02, D30). The kit only records what the tester observed from such a build or a debugger.
+  - The upgrade-path steps added after the kit was written (D55): NC-01's older-WPF-app dialog, NC-04 step 6 (`Install.ps1`), NC-07's translocated copy, and NC-10 steps 5–6. Until the kit prompts for them, run them from matrix §9 and record them as a note on the check.
+
 ---
 
 ## 5. Known accepted limitations (not blockers)
@@ -326,8 +360,8 @@ These are deliberate and documented. They are listed here so that nobody mistake
 ## 6. Closure criteria
 
 **The phase is signed off when both of these hold:**
-1. Every item in this file is PASS and recorded in [matrix §9](acceptance-matrix.md#9-remaining-native-checks), and its [§2.9](#29-follow-ups-that-depend-on-the-above) follow-ups are done.
-2. The matrix reads **106 GREEN / 0 NATIVE-PENDING / 0 TODO** in §3, with QA-N1, TZ-12, SR-02 and NX-01 GREEN.
+1. Every item in this file is PASS and recorded in [matrix §9](acceptance-matrix.md#9-remaining-native-checks), its [§2.9](#29-follow-ups-that-depend-on-the-above) follow-ups are done, and the [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items are done.
+2. The matrix reads **106 GREEN / 0 NATIVE-PENDING / 0 TODO** in §3, with QA-N1, TZ-12, SR-02, NX-01 and SW-N4 GREEN.
 
 NC-14 stays N/A (D13).
 

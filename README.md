@@ -59,9 +59,23 @@ Requires macOS 14.0 or later on Apple Silicon (M1 or newer); there is no Intel b
 
 DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC and no Rosetta 2. It is a menu-bar app, so there is no Dock icon.
 
+Move DialShift to `/Applications` before you turn on launch at login. If you open it straight from Downloads, macOS runs it from a temporary copy that disappears when it quits, so DialShift refuses with "Move DialShift to Applications first, then turn this on again."
+
+### Upgrading from an earlier DialShift
+
+This applies if you used the earlier separate Windows or macOS app, including `v0.2.0` from [tsiger/DialShift](https://github.com/tsiger/DialShift).
+
+- **Your settings carry over.** DialShift keeps using the same data folder (see [Data](#data)), so your stations, schedule, fallback and volume are there on first start. Slots that an earlier version saved with a dot in the time (`08.30`, on computers set to Danish, Finnish, Indonesian and some other formats) play again and are saved as `08:30`.
+- **Quit the old app first**, from its tray or menu-bar icon. While it runs, the new DialShift shows "An older DialShift is still running. Quit it from its tray icon, then open DialShift again." and exits, so the two never play at once.
+- **Windows, launch at sign-in:** `Install.ps1` keeps it. It uses the same `Run` value as before and points it at the new copy. If you run the new `DialShift.exe` from another folder instead, Settings shows "Launch at sign-in points to an older copy of DialShift"; turn it on again to fix it.
+- **macOS, launch at login:** an older app's launch-at-login entry is recognized. Settings shows it on, with a note if the entry came from an older DialShift; turn launch at login off and on to replace it with the new one. If Settings says it "points to an older copy", turn it on again. Move DialShift to `/Applications` first (see [Install on macOS](#install-on-macos)).
+- **Intel Macs:** there is no Intel build of this version, so keep using your current app. The last Intel build's source is kept at the tag `legacy-last-known-good` (see [Earlier versions](#earlier-versions)).
+- **Going back to an older version** keeps your stations and schedule, but the older app ignores slot time zones and removes them the next time it saves.
+
 ## Open items / release status
 
-Both packages build, test and pass the native smoke in CI. Before the phase can be signed off and a release made, some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
+Both packages build, test and pass the native smoke in CI. Before the phase can be signed off and a full release (`v0.3.0`) made, some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it. Until they pass, releases are pre-releases, starting with `v0.3.0-rc.1`.
+To run them, use the guided [native-check kit](scripts/native-check/README.md): one script per OS that walks through the checks and produces an evidence zip to send back.
 
 ## Listen
 
@@ -211,7 +225,7 @@ DIALSHIFT_DATA_DIR=/tmp/dialshift-dev dotnet run --project DialShift.App -- --tr
 | Exit code | Meaning |
 |---|---|
 | 0 | Normal quit, or a second launch whose activation was acknowledged |
-| 1 | Startup failed and the startup-failure dialog was shown, including a single-instance lock file that can't be created in the data folder (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
+| 1 | Startup failed and the startup-failure dialog was shown, including a single-instance lock file that can't be created in the data folder, or an older DialShift is still running (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
 | 2 | A second launch whose activation was rejected or not answered |
 | 3 | The lock was acquired but the activation channel could not start |
 | 4 | `--smoke-test`: at least one check failed, or the smoke watchdog fired (`results.json` says which) |
@@ -228,8 +242,8 @@ On macOS, run the bundled executable, `dist/DialShift.app/Contents/MacOS/DialShi
 
 ### Signing tiers
 
-- **Development (what the scripts produce):** the Windows build is unsigned; the macOS bundle is ad-hoc signed. Good for local and CI use only. Gatekeeper and SmartScreen will warn.
-- **Public release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials, and a clean-machine install test comes before any release.
+- **Development (what the scripts produce):** the Windows build is unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and for pre-releases. Gatekeeper and SmartScreen will warn.
+- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials, and a clean-machine install test comes before the first full release. Until then, releases are pre-releases built from the development tier (decision D53).
 
 ## Project
 

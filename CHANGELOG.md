@@ -19,13 +19,17 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 - **Documented exit codes:** 0 normal quit or activated second launch, 1 startup failure, 2 second launch not activated, 3 activation channel failure, 4 smoke test failed.
 - **Developer settings:** `DIALSHIFT_DATA_DIR` (an isolated data folder) and `DIALSHIFT_AUDIO_OUTPUT=dummy` (silent LibVLC output on Windows machines without an audio device).
 - **GitHub Releases** built from version tags, with `SHA256SUMS.txt` and this changelog as the release notes.
+- **Safe upgrade from the earlier apps.** DialShift won't start while an older DialShift is still running: it says "An older DialShift is still running. Quit it from its tray icon, then open DialShift again." and exits, so two players never play at once. See [Upgrading from an earlier DialShift](README.md#upgrading-from-an-earlier-dialshift) in the README.
 
 ### Changed
 
 - **One app for both platforms.** A single Avalonia 12 app, `DialShift.App`, replaces the WPF Windows app and the separate macOS app. Windows now uses the Fluent dark theme.
 - **Native Apple Silicon.** The macOS build is native `osx-arm64` and plays through Apple's AVPlayer: no bundled VLC and no Rosetta 2. `http://` stations play inside the app bundle through App Transport Security's media-only exception. The minimum is macOS 14.0.
 - **Hardened single instance.** A second launch brings the running window to the front, including when it arrives before the window exists. On macOS the activation socket is readable by your user only. A lock file that can't be used is reported as a startup failure instead of "already running".
-- **Launch at sign-in shows the real state.** Settings shows it as off when it has been turned off in Task Manager's Startup apps (Windows) or disabled in launchd (macOS), and when DialShift can't confirm the state.
+- **Launch at sign-in shows the real state.** Settings shows it as off when it has been turned off in Task Manager's Startup apps (Windows) or disabled in launchd (macOS), and when DialShift can't confirm the state. The setting says "sign in" on Windows and "log in" on macOS.
+- **macOS: launch at login from an earlier DialShift carries over.** An entry made by an earlier app, including `v0.2.0`, is recognized; turning launch at login off and on replaces it, so there is only ever one. After an in-place upgrade in `/Applications`, DialShift still starts at login.
+- **macOS: launch at login needs DialShift in Applications.** Opened straight from Downloads, macOS runs the app from a temporary copy, so DialShift refuses to turn launch at login on and says "Move DialShift to Applications first, then turn this on again."
+- **About shows the full version**, including a pre-release suffix such as `0.3.0-rc.1`.
 - **Redacted logs.** One redactor removes stream credentials and private URL parts from the log and from both players' diagnostics. Several processes can share the log safely. The first line of each start records the version, runtime, architecture and player.
 - **Playback recovery shared by both players:** retries, the fallback station after three failures, and catch-up after sleep, from one tested coordinator.
 - **Settings recovery never loses the original.** An unreadable `settings.json` is copied to `settings.json.unreadable-<timestamp>` (with `-2`, `-3`, … so no copy is overwritten), and saving is refused while no copy could be made.
@@ -35,6 +39,7 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 ### Fixed
 
 - macOS: the app no longer crashes at startup when no display is active, for example when it starts at login with the screens asleep. It starts on a fallback render loop and draws normally once a display wakes.
+- **Schedule slots on computers whose time format uses a dot** (for example Danish, Finnish or Indonesian) now play. Earlier versions saved such a slot as `08.30`, which never played and was not caught as a conflict. Slots already saved that way play again and are saved as `08:30`.
 
 ### Removed
 
@@ -50,6 +55,7 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 - Formats beyond MP3, AAC and HLS (Ogg Vorbis, Opus, FLAC in Ogg) were tested on macOS 26.5 only.
 - A change of the computer's time zone takes effect after DialShift restarts.
 - The schedule does not wake a sleeping computer, and slots have no end time.
+- Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
 [Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.1...HEAD
 [0.3.0-rc.1]: https://github.com/spyroskotsakis/DialShift/releases/tag/v0.3.0-rc.1
