@@ -6,10 +6,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
-using DialShift.App.Views.Dialogs;
 using DialShift.Core;
 
-namespace DialShift.App.Views;
+namespace DialShift.App.Views.Legacy;
 
 public sealed class MainWindow : Window
 {

@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DialShift.App.ViewModels"
+             x:Class="DialShift.App.Views.Pages.SettingsPage"
+             x:DataType="vm:SettingsPageViewModel">
+  <StackPanel>
+    <Border Classes="card">
+      <StackPanel>
+        <TextBlock Classes="cardTitle" Text="At your service" />
+        <CheckBox Margin="0,10,0,0"
+                  Content="{Binding LaunchAtLoginLabel}"
+                  IsChecked="{Binding LaunchAtLogin}"
+                  IsEnabled="{Binding IsStartupEditable}" />
+        <TextBlock Classes="error" Text="{Binding StartupDiagnostic}" IsVisible="{Binding HasStartupDiagnostic}"
+                   Margin="28,0,0,6" />
+        <CheckBox Content="{Binding StartInTrayLabel}" IsChecked="{Binding StartInTray}" />
+        <TextBlock Classes="secondary" Text="{Binding StartupHelp}" Margin="0,8,0,0" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="card">
+      <StackPanel>
+        <TextBlock Classes="cardTitle" Text="Keep the music going" />
+        <TextBlock Classes="secondary" Text="{Binding FallbackHelp}" Margin="0,7,0,10" />
+        <ComboBox ItemsSource="{Binding FallbackOptions}" SelectedItem="{Binding SelectedFallback}"
+                  MinWidth="280" MaxWidth="380" HorizontalAlignment="Left"
+                  AutomationProperties.Name="Fallback station" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="card">
+      <StackPanel>
+        <TextBlock Text="{Binding VersionText}" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock Classes="secondary" FontSize="13" Text="{Binding Tagline}" Margin="0,6,0,14" />
+        <Button Content="Open settings folder ↗" Command="{Binding OpenSettingsFolderCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>

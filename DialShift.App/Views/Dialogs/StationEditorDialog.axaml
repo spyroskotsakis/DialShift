@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DialShift.App.ViewModels"
+        x:Class="DialShift.App.Views.Dialogs.StationEditorDialog"
+        x:DataType="vm:StationEditorViewModel"
+        Title="{Binding Title, StringFormat='{}{0} · DialShift'}"
+        Width="580" MinWidth="510" SizeToContent="Height" CanResize="False"
+        ShowInTaskbar="False">
+  <DockPanel Margin="26">
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,20">
+      <TextBlock Classes="pageTitle" Text="{Binding Title}" />
+      <TextBlock Classes="muted" Text="{Binding Description}" Margin="0,8,0,0" />
+    </StackPanel>
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Left" Classes="danger" Content="{Binding DeleteLabel}"
+              Command="{Binding DeleteCommand}" IsVisible="{Binding CanDelete}" />
+      <Button DockPanel.Dock="Right" Classes="accent" Content="Save" IsDefault="True" MinWidth="88"
+              Command="{Binding SaveCommand}" />
+      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Margin="0,0,8,0"
+              Command="{Binding CancelCommand}" />
+    </DockPanel>
+
+    <TextBlock DockPanel.Dock="Bottom" Classes="error" Text="{Binding Error}" IsVisible="{Binding HasError}" Margin="0,4,0,0" />
+
+    <StackPanel>
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.NameLabel}" />
+      <TextBox x:Name="NameField" Text="{Binding Name}" MaxLength="{x:Static vm:StationEditorViewModel.NameMaxLength}"
+               AutomationProperties.Name="{x:Static vm:StationEditorViewModel.NameLabel}" />
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.TagLabel}" />
+      <TextBox x:Name="TagField" Text="{Binding Tag}" MaxLength="{x:Static vm:StationEditorViewModel.TagMaxLength}" PlaceholderText="Internet radio"
+               AutomationProperties.Name="{x:Static vm:StationEditorViewModel.TagLabel}" />
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.UrlLabel}" />
+      <TextBox x:Name="UrlField" Text="{Binding Url}" MaxLength="{x:Static vm:StationEditorViewModel.UrlMaxLength}"
+               AutomationProperties.Name="{x:Static vm:StationEditorViewModel.UrlLabel}" />
+      <TextBlock Classes="muted" FontSize="12" Text="{Binding Hint}" />
+    </StackPanel>
+  </DockPanel>
+</Window>

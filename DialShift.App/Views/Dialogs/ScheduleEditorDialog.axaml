@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DialShift.App.ViewModels"
+        xmlns:core="using:DialShift.Core"
+        x:Class="DialShift.App.Views.Dialogs.ScheduleEditorDialog"
+        x:DataType="vm:ScheduleEditorViewModel"
+        Title="{Binding Title, StringFormat='{}{0} · DialShift'}"
+        Width="580" MinWidth="510" SizeToContent="Height" CanResize="False"
+        ShowInTaskbar="False">
+  <DockPanel Margin="26">
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,20">
+      <TextBlock Classes="pageTitle" Text="{Binding Title}" />
+      <TextBlock Classes="muted" Text="{Binding Description}" Margin="0,8,0,0" />
+    </StackPanel>
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Left" Classes="danger" Content="{Binding DeleteLabel}"
+              Command="{Binding DeleteCommand}" IsVisible="{Binding CanDelete}" />
+      <Button DockPanel.Dock="Right" Classes="accent" Content="Save" IsDefault="True" MinWidth="88"
+              Command="{Binding SaveCommand}" />
+      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Margin="0,0,8,0"
+              Command="{Binding CancelCommand}" />
+    </DockPanel>
+
+    <TextBlock DockPanel.Dock="Bottom" Classes="error" Text="{Binding Error}" IsVisible="{Binding HasError}" Margin="0,4,0,0" />
+
+    <StackPanel>
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:ScheduleEditorViewModel.LabelLabel}" />
+      <TextBox x:Name="LabelField" Text="{Binding Label}" MaxLength="{x:Static vm:ScheduleEditorViewModel.LabelMaxLength}"
+               AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.LabelLabel}" />
+
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:ScheduleEditorViewModel.StationLabel}" />
+      <ComboBox x:Name="StationField" ItemsSource="{Binding Stations}" SelectedItem="{Binding SelectedStation}"
+                MinWidth="280" Margin="0,0,0,14"
+                AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.StationAutomationName}">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="core:Station">
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:ScheduleEditorViewModel.TimeLabel}" />
+      <TextBox x:Name="TimeField" Text="{Binding Time}" MaxLength="{x:Static vm:ScheduleEditorViewModel.TimeMaxLength}" Width="120" HorizontalAlignment="Left"
+               AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.TimeLabel}" />
+
+      <TextBlock Classes="fieldLabel" Text="Repeat on" />
+      <ItemsControl ItemsSource="{Binding Days}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:DayChoiceViewModel">
+            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsChecked}" Margin="0,4,14,4" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,10">
+        <Button Content="Weekdays" Command="{Binding WeekdaysCommand}" Padding="12,6" />
+        <Button Content="Weekend" Command="{Binding WeekendCommand}" Padding="12,6" />
+        <Button Content="Every day" Command="{Binding EveryDayCommand}" Padding="12,6" />
+      </StackPanel>
+
+      <CheckBox Content="Enable this time slot" IsChecked="{Binding Enabled}" />
+    </StackPanel>
+  </DockPanel>
+</Window>

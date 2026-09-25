@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
 using DialShift.Core;
-using static DialShift.App.Views.MainWindow;
+using static DialShift.App.Views.Legacy.MainWindow;
 
-namespace DialShift.App.Views.Dialogs;
+namespace DialShift.App.Views.Legacy;
 
 public sealed class StationDialog : EditorDialog
 {

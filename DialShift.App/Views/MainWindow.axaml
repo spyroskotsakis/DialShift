@@ -1,0 +1,114 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DialShift.App.ViewModels"
+        xmlns:pages="using:DialShift.App.Views.Pages"
+        x:Class="DialShift.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="DialShift"
+        Width="1050" Height="860" MinWidth="780" MinHeight="650"
+        WindowStartupLocation="CenterScreen">
+
+  <Window.DataTemplates>
+    <DataTemplate DataType="vm:StationsPageViewModel">
+      <pages:StationsPage />
+    </DataTemplate>
+    <DataTemplate DataType="vm:SchedulePageViewModel">
+      <pages:SchedulePage />
+    </DataTemplate>
+    <DataTemplate DataType="vm:SettingsPageViewModel">
+      <pages:SettingsPage />
+    </DataTemplate>
+  </Window.DataTemplates>
+
+  <Grid Margin="30,20,30,18" RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+    <!-- Header: brand + hide to tray -->
+    <DockPanel Margin="0,0,0,20">
+      <Button DockPanel.Dock="Right"
+              Content="{Binding TrayButtonLabel}"
+              Command="{Binding HideToTrayCommand}"
+              AutomationProperties.Name="Hide to tray"
+              ToolTip.Tip="Keep DialShift running in the tray" />
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock Text="◴" FontSize="34" FontWeight="SemiBold" Foreground="{StaticResource DsAccentBrush}"
+                   Margin="0,-6,10,0" VerticalAlignment="Center" />
+        <TextBlock Classes="brand" Text="DialShift" VerticalAlignment="Center" />
+        <TextBlock Classes="eyebrow" Text="YOUR RADIO, ON TIME." FontSize="10" Margin="20,5,0,0" VerticalAlignment="Center" />
+      </StackPanel>
+    </DockPanel>
+
+    <!-- Player card -->
+    <Border Grid.Row="1" Classes="card" Background="{StaticResource DsPlayerCardBrush}" Padding="26,20" Margin="0">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Ellipse Classes="statusDot"
+                     Classes.live="{Binding IsLive}"
+                     Classes.busy="{Binding IsBusy}"
+                     Classes.problem="{Binding IsProblem}"
+                     VerticalAlignment="Center" />
+            <TextBlock Classes="status" Classes.problem="{Binding IsProblem}"
+                       Text="{Binding StatusText}" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" />
+          </StackPanel>
+          <TextBlock Text="{Binding StationTitle}" FontSize="30" FontWeight="SemiBold"
+                     Margin="0,10,12,6" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding TrackText}" FontSize="14" Foreground="{StaticResource DsMutedBrush}"
+                     TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,20,0,0">
+            <Button Classes="accent" MinWidth="112"
+                    Content="{Binding PlayPauseLabel}"
+                    Command="{Binding TogglePlayCommand}"
+                    AutomationProperties.Name="{Binding PlayPauseAutomationName}" />
+            <Button Content="{x:Static vm:UiText.SkipLabel}"
+                    Command="{Binding NextStationCommand}"
+                    AutomationProperties.Name="Next station" />
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0" Spacing="8">
+              <TextBlock Classes="eyebrow" Text="VOL" FontSize="10" Foreground="{StaticResource DsMutedBrush}" VerticalAlignment="Center" />
+              <Slider x:Name="VolumeSlider"
+                      Minimum="0" Maximum="100" Width="110"
+                      SmallChange="1" LargeChange="10" TickFrequency="1" IsSnapToTickEnabled="True"
+                      Value="{Binding Volume}"
+                      VerticalAlignment="Center"
+                      AutomationProperties.Name="Playback volume" />
+              <TextBlock Text="{Binding VolumeLabel}" FontSize="12" MinWidth="36"
+                         Foreground="{StaticResource DsMutedBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Dial -->
+        <Grid Grid.Column="1" Width="140" Height="140" Margin="16,0,0,0" VerticalAlignment="Center">
+          <Ellipse Stroke="{StaticResource DsDialRingBrush}" StrokeThickness="1" />
+          <Ellipse Stroke="{StaticResource DsAccentBrush}" StrokeThickness="3" Margin="14" />
+          <TextBlock Text="◴" FontSize="68" Foreground="{StaticResource DsAccentBrush}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-8,0,0" />
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- Tabs -->
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,18,0,14">
+      <Button Classes="tab" Classes.selected="{Binding IsStationsSelected}" Content="Stations" Command="{Binding ShowStationsCommand}" />
+      <Button Classes="tab" Classes.selected="{Binding IsScheduleSelected}" Content="Schedule" Command="{Binding ShowScheduleCommand}" />
+      <Button Classes="tab" Classes.selected="{Binding IsSettingsSelected}" Content="Settings" Command="{Binding ShowSettingsCommand}" />
+    </StackPanel>
+
+    <!-- Page: the heading scrolls with the content so a compact window keeps room for it. -->
+    <ScrollViewer x:Name="PageScroller" Grid.Row="3" Padding="0,0,12,0">
+      <StackPanel>
+        <TextBlock Classes="pageTitle" Text="{Binding CurrentPage.Title}" />
+        <TextBlock Classes="muted" Text="{Binding CurrentPage.Description}" Margin="0,4,0,16" />
+        <ContentControl Content="{Binding CurrentPage}" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- Footer -->
+    <DockPanel Grid.Row="4" Margin="0,14,0,0">
+      <TextBlock DockPanel.Dock="Right" Text="{Binding LocalTimeText}" FontSize="10"
+                 Foreground="{StaticResource DsSubtleBrush}" VerticalAlignment="Center" Margin="16,0,0,0" />
+      <TextBlock Text="{Binding UpNextText}" FontSize="13" Foreground="{StaticResource DsMutedBrush}"
+                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+    </DockPanel>
+  </Grid>
+</Window>

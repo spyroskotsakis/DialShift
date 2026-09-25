@@ -1,0 +1,296 @@
+<!--
+  DialShift dark theme on top of Avalonia Fluent (decision D1). One palette for Windows and macOS.
+  Fluent is themed by overriding its resource keys (lookup checks these Styles before FluentTheme),
+  plus a few classes: accent / tab / danger buttons, card borders, and text roles.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <!-- Palette -->
+    <Color x:Key="DsWindowColor">#10191B</Color>
+    <Color x:Key="DsTextColor">#EFF6F0</Color>
+    <Color x:Key="DsAccentColor">#C2F278</Color>
+    <Color x:Key="DsAccentInkColor">#172216</Color>
+
+    <SolidColorBrush x:Key="DsWindowBrush" Color="#10191B"/>
+    <SolidColorBrush x:Key="DsCardBrush" Color="#192527"/>
+    <SolidColorBrush x:Key="DsPlayerCardBrush" Color="#203029"/>
+    <SolidColorBrush x:Key="DsTileBrush" Color="#30413A"/>
+    <SolidColorBrush x:Key="DsTextBrush" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="DsMutedBrush" Color="#A3B4B6"/>
+    <SolidColorBrush x:Key="DsSecondaryBrush" Color="#9BB0B2"/>
+    <SolidColorBrush x:Key="DsSubtleBrush" Color="#81989A"/>
+    <SolidColorBrush x:Key="DsTabInkBrush" Color="#B4C3C3"/>
+    <SolidColorBrush x:Key="DsAccentBrush" Color="#C2F278"/>
+    <SolidColorBrush x:Key="DsAccentHoverBrush" Color="#D2F79A"/>
+    <SolidColorBrush x:Key="DsAccentPressedBrush" Color="#A9D95F"/>
+    <SolidColorBrush x:Key="DsAccentInkBrush" Color="#172216"/>
+    <SolidColorBrush x:Key="DsErrorBrush" Color="#FFB5A7"/>
+    <SolidColorBrush x:Key="DsDialRingBrush" Color="#3D5141"/>
+    <SolidColorBrush x:Key="DsButtonBrush" Color="#293638"/>
+    <SolidColorBrush x:Key="DsButtonHoverBrush" Color="#34464A"/>
+    <SolidColorBrush x:Key="DsButtonPressedBrush" Color="#22302F"/>
+    <SolidColorBrush x:Key="DsInputBrush" Color="#243134"/>
+    <SolidColorBrush x:Key="DsInputHoverBrush" Color="#2A393C"/>
+    <SolidColorBrush x:Key="DsInputBorderBrush" Color="#4C6264"/>
+
+    <!-- Fluent overrides: accent -->
+    <Color x:Key="SystemAccentColor">#C2F278</Color>
+    <Color x:Key="SystemAccentColorDark1">#A9D95F</Color>
+    <Color x:Key="SystemAccentColorLight1">#D2F79A</Color>
+
+    <!-- Fluent overrides: buttons -->
+    <SolidColorBrush x:Key="ButtonBackground" Color="#293638"/>
+    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#34464A"/>
+    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#22302F"/>
+    <SolidColorBrush x:Key="ButtonForeground" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#1E2A2C"/>
+    <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#62787A"/>
+
+    <!-- Fluent overrides: text input -->
+    <SolidColorBrush x:Key="TextControlBackground" Color="#243134"/>
+    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#2A393C"/>
+    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#243134"/>
+    <SolidColorBrush x:Key="TextControlBorderBrush" Color="#4C6264"/>
+    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#6A8284"/>
+    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#C2F278"/>
+    <SolidColorBrush x:Key="TextControlForeground" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="TextControlSelectionHighlightColor" Color="#5E7A3A"/>
+
+    <!-- Fluent overrides: combo box -->
+    <SolidColorBrush x:Key="ComboBoxBackground" Color="#243134"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#2A393C"/>
+    <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#22302F"/>
+    <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#4C6264"/>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#6A8284"/>
+    <SolidColorBrush x:Key="ComboBoxForeground" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#1C2A2C"/>
+    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#4C6264"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#30413A"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#3A4E45"/>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="#2A393C"/>
+
+    <!-- Fluent overrides: check boxes (dark glyph on the lime fill) -->
+    <SolidColorBrush x:Key="CheckBoxForegroundUnchecked" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="CheckBoxForegroundChecked" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="CheckBoxForegroundUncheckedPointerOver" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="CheckBoxForegroundCheckedPointerOver" Color="#EFF6F0"/>
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUnchecked" Color="#6A8284"/>
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" Color="#A3B4B6"/>
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="#C2F278"/>
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#D2F79A"/>
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPressed" Color="#A9D95F"/>
+    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked" Color="#172216"/>
+    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="#172216"/>
+    <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPressed" Color="#172216"/>
+
+    <!-- Fluent overrides: slider -->
+    <SolidColorBrush x:Key="SliderTrackValueFill" Color="#C2F278"/>
+    <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#D2F79A"/>
+    <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#A9D95F"/>
+    <SolidColorBrush x:Key="SliderTrackFill" Color="#3D5141"/>
+    <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#4C6264"/>
+    <SolidColorBrush x:Key="SliderTrackFillPressed" Color="#4C6264"/>
+    <SolidColorBrush x:Key="SliderThumbBackground" Color="#C2F278"/>
+    <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#D2F79A"/>
+    <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#A9D95F"/>
+  </Styles.Resources>
+
+  <!-- Base -->
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource DsWindowBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsTextBrush}"/>
+    <Setter Property="FontSize" Value="14"/>
+  </Style>
+
+  <!-- Text roles -->
+  <Style Selector="TextBlock.brand">
+    <Setter Property="FontSize" Value="24"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <Style Selector="TextBlock.eyebrow">
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource DsSubtleBrush}"/>
+    <Setter Property="LetterSpacing" Value="0.6"/>
+  </Style>
+  <Style Selector="TextBlock.pageTitle">
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="FontSize" Value="26"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <Style Selector="TextBlock.cardTitle">
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="FontSize" Value="18"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <Style Selector="TextBlock.rowTitle">
+    <Setter Property="FontSize" Value="17"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="TextWrapping" Value="NoWrap"/>
+    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+  </Style>
+  <Style Selector="TextBlock.muted">
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Foreground" Value="{StaticResource DsMutedBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.secondary">
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.hint">
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Foreground" Value="{StaticResource DsSubtleBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.fieldLabel">
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Margin" Value="0,0,0,5"/>
+  </Style>
+  <Style Selector="TextBlock.error">
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Foreground" Value="{StaticResource DsErrorBrush}"/>
+  </Style>
+
+  <!-- Cards -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource DsCardBrush}"/>
+    <Setter Property="CornerRadius" Value="12"/>
+    <Setter Property="Padding" Value="18"/>
+    <Setter Property="Margin" Value="0,0,0,10"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+  </Style>
+  <Style Selector="Border.card.current">
+    <Setter Property="BorderBrush" Value="{StaticResource DsAccentBrush}"/>
+  </Style>
+  <Style Selector="Border.tile">
+    <Setter Property="Width" Value="44"/>
+    <Setter Property="Height" Value="44"/>
+    <Setter Property="CornerRadius" Value="10"/>
+    <Setter Property="Background" Value="{StaticResource DsTileBrush}"/>
+  </Style>
+  <Style Selector="Border.tile.current">
+    <Setter Property="Background" Value="{StaticResource DsAccentBrush}"/>
+  </Style>
+  <Style Selector="Border.tile TextBlock">
+    <Setter Property="FontSize" Value="24"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentBrush}"/>
+    <Setter Property="HorizontalAlignment" Value="Center"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Border.tile.current TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+
+  <!-- Buttons -->
+  <Style Selector="Button">
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Padding" Value="16,10"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+
+  <Style Selector="Button.accent">
+    <Setter Property="Background" Value="{StaticResource DsAccentBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+  <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DsAccentHoverBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+  <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DsAccentPressedBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+
+  <!-- Tabs: page tabs and day tabs. "selected" is bound from the view model. -->
+  <Style Selector="Button.tab">
+    <Setter Property="Foreground" Value="{StaticResource DsTabInkBrush}"/>
+  </Style>
+  <Style Selector="Button.tab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Foreground" Value="{StaticResource DsTextBrush}"/>
+  </Style>
+  <Style Selector="Button.tab.selected">
+    <Setter Property="Background" Value="{StaticResource DsAccentBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+  <Style Selector="Button.tab.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DsAccentHoverBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+  <Style Selector="Button.tab.selected:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DsAccentPressedBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+
+  <Style Selector="Button.danger">
+    <Setter Property="Foreground" Value="{StaticResource DsErrorBrush}"/>
+  </Style>
+  <Style Selector="Button.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Foreground" Value="{StaticResource DsErrorBrush}"/>
+  </Style>
+
+  <!-- Inputs -->
+  <Style Selector="TextBox">
+    <Setter Property="Padding" Value="10,8"/>
+    <Setter Property="FontSize" Value="14"/>
+    <Setter Property="Margin" Value="0,0,0,14"/>
+    <Setter Property="CornerRadius" Value="6"/>
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="FontSize" Value="14"/>
+    <Setter Property="MinHeight" Value="36"/>
+    <Setter Property="CornerRadius" Value="6"/>
+  </Style>
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{StaticResource DsTextBrush}"/>
+  </Style>
+
+  <Style Selector="ScrollViewer">
+    <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+    <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+  </Style>
+
+  <!-- Player status line: color follows the playback state. -->
+  <Style Selector="TextBlock.status">
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="LetterSpacing" Value="0.6"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.status.problem">
+    <Setter Property="Foreground" Value="{StaticResource DsErrorBrush}"/>
+  </Style>
+  <Style Selector="Ellipse.statusDot">
+    <Setter Property="Width" Value="8"/>
+    <Setter Property="Height" Value="8"/>
+    <Setter Property="Fill" Value="{StaticResource DsSubtleBrush}"/>
+  </Style>
+  <Style Selector="Ellipse.statusDot.live">
+    <Setter Property="Fill" Value="{StaticResource DsAccentBrush}"/>
+  </Style>
+  <Style Selector="Ellipse.statusDot.busy">
+    <Setter Property="Fill" Value="#F2D478"/>
+    <Style.Animations>
+      <Animation Duration="0:0:0.9" IterationCount="INFINITE" PlaybackDirection="Alternate">
+        <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1"/></KeyFrame>
+        <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.35"/></KeyFrame>
+      </Animation>
+    </Style.Animations>
+  </Style>
+  <Style Selector="Ellipse.statusDot.problem">
+    <Setter Property="Fill" Value="{StaticResource DsErrorBrush}"/>
+  </Style>
+</Styles>
