@@ -1,11 +1,6 @@
 code: FR
 name: France
 language_default: French
-city_aliases:  # the four keys below are inert: not in norm() form, never match (see data/README.md)
-  ile-de-france: Paris
-  île-de-france: Paris
-  auvergne-rhone-alpes: Lyon
-  provence-alpes-cote dazur: Marseille
 curated:
 - match:
   - france inter

@@ -333,11 +333,10 @@ def self_test() -> int:
     check('dedupe is per country', sorted(e['country'] for e in by_name['Fixture One']) == ['XA', 'XB'])
 
     # city aliases: any country's YAML `city_aliases` block, no code per country
-    aliases = city_aliases({'fixton north': 'Fixton', 'punct-key': 'Never'}, 'fixture.yaml')
+    aliases = city_aliases({'fixton north': 'Fixton'}, 'fixture.yaml')
     check('norm_city: the alias of the normalized city', norm_city(' FIXTON-north. ', aliases) == 'Fixton')
     check('norm_city: no alias -> trimmed, title case', norm_city(' old town. ', aliases) == 'Old Town'
           and norm_city('', aliases) == '')
-    check('norm_city: a key not in norm() form never matches', norm_city('Punct-Key', aliases) == 'Punct-Key')
     alias_rows = [_row(country='XC', name='Alias One', city='Fixton North', stream_url='https://x.example.test/a'),
                   _row(country='XC', name='Alias One', city='Fixton', stream_url='https://x.example.test/a')]
     _, with_block = build_app_catalog([({'code': 'XC', 'name': 'Aliasland', 'city_aliases': aliases}, alias_rows)],
@@ -356,6 +355,24 @@ def self_test() -> int:
 
     check('city_aliases: a list, a boolean key (unquoted no:), an empty or null city are hard errors',
           all(rejected(b) for b in (['a'], {False: 'Fixton'}, {'a': ''}, {'a': None}, {' ': 'Fixton'})))
+
+    def unnormalized_error(key):
+        try:
+            city_aliases({'fixton north': 'Fixton', key: 'Fixton'}, 'fixture.yaml')
+        except ValueError as e:
+            return str(e)
+        return ''
+
+    for key, want in (('fixton-north', "'fixton north'"), ('Fixton', "'fixton'"), ('fíxton', "'fixton'"),
+                      ('fixton, north', "'fixton north'"), (' fixton', "'fixton'"),
+                      ('fixton  north', "'fixton north'"), ('!!', 'nothing left once normalized')):
+        msg = unnormalized_error(key)
+        check(f'city_aliases: key {key!r} not in norm() form is a hard error naming file, key and {want}',
+              'fixture.yaml' in msg and repr(key) in msg and want in msg and "'fixton north' (" not in msg)
+    check('city_aliases: keys already in norm() form pass (Greek transliterated form too)',
+          city_aliases({'frankfurt am main': 'Frankfurt', 'thessaloniki': 'Thessaloniki', 'in athens': 'Athens'},
+                       'fixture.yaml') == {'frankfurt am main': 'Frankfurt', 'thessaloniki': 'Thessaloniki',
+                                           'in athens': 'Athens'})
     check('country_label from the YAML name', all(e['country_label'] == 'Fixtureland'
                                                   for e in st if e['country'] == 'XA'))
     chill = by_name['Fixture Chill'][0]
