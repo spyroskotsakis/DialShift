@@ -1,3 +1,6 @@
+# Per-user install of the extracted DialShift win-x64 release; no administrator rights needed.
+# Copies the app to %LOCALAPPDATA%\Programs\DialShift and adds a Start menu shortcut.
+# Settings live separately in %LOCALAPPDATA%\DialShift and are never touched here.
 param([switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
 $source = $PSScriptRoot
@@ -6,9 +9,11 @@ $destination = Join-Path $env:LOCALAPPDATA 'Programs\DialShift'
 $executable = Join-Path $destination 'DialShift.exe'
 $running = Get-Process DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $executable }
 if ($running) { throw 'Quit DialShift from its tray menu before installing an update.' }
-New-Item -ItemType Directory -Path $destination -Force | Out-Null
 if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($destination)) {
-    Get-ChildItem -LiteralPath $source | Copy-Item -Destination $destination -Recurse -Force
+    # Replace the previous install completely so no files from an older build linger.
+    if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
+    New-Item -ItemType Directory -Path $destination -Force | Out-Null
+    Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $destination -Recurse -Force
 }
 $shell = New-Object -ComObject WScript.Shell
 $shortcutPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'DialShift.lnk'
