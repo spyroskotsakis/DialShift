@@ -119,7 +119,7 @@ public partial class StationEditorDialog : Window
     /// <summary>A click in the search box brings back the last results the user closed.</summary>
     private void ReopenResults()
     {
-        if (editor != null && (editor.Results.Count > 0 || editor.HasNoMatches)) editor.IsResultsOpen = true;
+        if (editor is { Results.Count: > 0 }) editor.IsResultsOpen = true;
     }
 
     /// <summary>A press anywhere but the overlay, the search box or the filters closes the results.</summary>

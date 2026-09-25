@@ -410,10 +410,21 @@ internal static class CatalogHeadlessTests
         rig.Catalog.Result = Loaded(Small);
         (dialog, editor) = await OpenAddAsync(rig);
         await SearchAsync(dialog, editor, "zzz no such station");
-        Check("CAT-13 no match: the overlay shows \"No stations match — adjust filters or enter the stream manually\", no list, no count",
-            Overlay(dialog).IsVisible && Shows(Overlay(dialog), UiText.CatalogNoMatch) && editor.HasNoMatches
-            && !Find<ListBox>(dialog).Single().IsVisible && !Shows(dialog, "0 matches"));
+        name = Field(dialog, StationEditorViewModel.NameLabel);
+        Check("CAT-13 D87 no match: the results stay closed and the status line reads \"No stations match — adjust filters or enter the stream manually\" (its help text too), no count",
+            !Overlay(dialog).IsVisible && editor.HasNoMatches && StatusLine(dialog) is { Text: UiText.CatalogNoMatch } line && line.Classes.Contains("noMatch")
+            && AutomationProperties.GetHelpText(StatusRegion(dialog)) == UiText.CatalogNoMatch && !Shows(dialog, "0 matches"));
+        Check("CAT-13 D87 no match: the manual form the message points to is in view", name.IsEffectivelyVisible && Field(dialog, StationEditorViewModel.UrlLabel).IsEffectivelyVisible);
         Png(dialog, "catalog-add-no-match");
+        await PressAsync(dialog, Key.Down);
+        Check("CAT-13 D87 no match: Down in the search box does nothing (no rows to open)", !editor.IsResultsOpen && !Overlay(dialog).IsVisible);
+        await PressAsync(dialog, Key.Enter);
+        Check("CAT-13 D87 no match: Enter goes to Save, which shows the missing-name message and focuses the name field",
+            VisibleError(dialog)?.Text == "Give this station a name." && Focused(dialog) == name && dialog.IsVisible);
+        await SearchAsync(dialog, editor, "kosmos");
+        Check("CAT-13 D87 typing a matching word after no match opens the results again; the status line is the catalog status",
+            Overlay(dialog).IsVisible && editor.Results.Count > 0 && StatusLine(dialog).Text == editor.CatalogStatusText
+            && !StatusLine(dialog).Classes.Contains("noMatch"));
         dialog.Close();
         await PumpAsync();
     }
@@ -502,6 +513,9 @@ internal static class CatalogHeadlessTests
 
             await SearchAsync(dialog, editor, "zzz no such station");
             CheckUnclipped(dialog, $"window {size}, dialog {dialogWidth} wide, Add: no match");
+            Check($"CAT-14 D87 window {size}, dialog {dialogWidth} wide, no match: the results are closed, the form shows, the message is one line on the status line, the height is unchanged",
+                !Overlay(dialog).IsVisible && Field(dialog, StationEditorViewModel.NameLabel).IsEffectivelyVisible
+                && StatusLine(dialog) is { Text: UiText.CatalogNoMatch } line && line.TextLayout.TextLines.Count == 1 && dialog.ClientSize.Height == closedHeight);
             Png(dialog, $"catalog-{width}x{height}-{dialogWidth}-no-match");
             dialog.Close();
             await PumpAsync();

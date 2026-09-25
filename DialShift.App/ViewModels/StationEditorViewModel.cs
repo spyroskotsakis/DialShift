@@ -131,7 +131,21 @@ public sealed class StationEditorViewModel : EditorViewModel
     public bool IsCatalogAvailable { get => isCatalogAvailable; private set => SetProperty(ref isCatalogAvailable, value); }
 
     /// <summary>Loading, unavailable, or "8,274 stations · catalog updated 2026-09-25" (§5.3).</summary>
-    public string CatalogStatusText { get => catalogStatusText; private set => SetProperty(ref catalogStatusText, value); }
+    public string CatalogStatusText
+    {
+        get => catalogStatusText;
+        private set
+        {
+            if (SetProperty(ref catalogStatusText, value)) OnPropertyChanged(nameof(StatusLineText));
+        }
+    }
+
+    /// <summary>
+    /// The status line under the filters (D87): the no-match message while a search matches nothing in a non-empty catalog,
+    /// else <see cref="CatalogStatusText"/> (so an empty catalog keeps "0 stations"). The results overlay stays closed on no
+    /// match, so the manual form the message points to stays in view.
+    /// </summary>
+    public string StatusLineText => HasNoMatches && index.Entries.Count > 0 ? UiText.CatalogNoMatch : CatalogStatusText;
 
     /// <summary>The search text; a change searches after the debounce delay (D72). Typed during the load, it is searched when the load completes.</summary>
     public string SearchText
@@ -167,11 +181,19 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// <summary>The results footer (§5.3, D85): "Top 50 of 8,274 stations by votes" unfiltered, else "Showing 50 of 214 matches".</summary>
     public string TotalCountText { get => totalCountText; private set => SetProperty(ref totalCountText, value); }
 
-    /// <summary>The catalog is available, a search was applied, and nothing matched.</summary>
-    public bool HasNoMatches { get => hasNoMatches; private set => SetProperty(ref hasNoMatches, value); }
+    /// <summary>The catalog is available, a search was applied, and nothing matched (the overlay is then closed, D87).</summary>
+    public bool HasNoMatches
+    {
+        get => hasNoMatches;
+        private set
+        {
+            if (SetProperty(ref hasNoMatches, value)) OnPropertyChanged(nameof(StatusLineText));
+        }
+    }
 
     /// <summary>
-    /// The results overlay is showing. A search or filter change opens it; a pick closes it; the view may open or close it.
+    /// The results overlay is showing. A search or filter change that matches something opens it; one that matches nothing,
+    /// or a pick, closes it (D87); the view may open or close it.
     /// Opening it highlights the first row when nothing is highlighted, so typing then Enter picks the top match; closing
     /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85).
     /// </summary>
@@ -295,6 +317,7 @@ public sealed class StationEditorViewModel : EditorViewModel
             pendingSearch?.TrySetResult();
             return;
         }
+        // The index's entry count feeds StatusLineText; CatalogStatusText changes below with it and raises that change.
         index = loaded.Result.Catalog;
         CountryOptions = options.Country;
         CityOptions = options.City;
@@ -388,7 +411,9 @@ public sealed class StationEditorViewModel : EditorViewModel
             ? UiText.BrowseCount(rows.Count, outcome.Result.TotalCount)
             : UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
         HasNoMatches = outcome.Result.TotalCount == 0;
-        if (outcome.Request.Open) IsResultsOpen = true;
+        // D87: no match closes the overlay, so the form the status line's message points to stays in view.
+        if (outcome.Result.TotalCount == 0) IsResultsOpen = false;
+        else if (outcome.Request.Open) IsResultsOpen = true;
         // D85: new rows in an open overlay highlight the top match again, so typing then Enter picks it; closed, none.
         HighlightedResult = isResultsOpen && rows.Count > 0 ? rows[0] : null;
         LoadRowLogos(rows);
