@@ -6,10 +6,12 @@ One Avalonia app, `DialShift.App`, ships as two self-contained packages:
 
 | Package | Platform | Playback | Status |
 |---|---|---|---|
-| `DialShift-win-x64.zip` | Windows 10/11, x64 | LibVLC (bundled) | Windows build; unsigned |
+| `DialShift-win-x64.zip` | Windows 10/11, x64 | LibVLC (bundled) | Windows build; unsigned; passes CI on `windows-latest`, not yet tested by hand on a real Windows PC |
 | `DialShift-macos-arm64.zip` | macOS 14.0+, Apple Silicon only | Apple AVPlayer (part of macOS) | Native `osx-arm64` (AVPlayer, label `native-avplayer`); development build: ad-hoc signed, not yet notarized or clean-machine tested |
 
 There is no Intel Mac build.
+
+> **Testing status of 0.3.0.** On Windows, the build, the automated checks and the app's smoke test pass in CI on GitHub-hosted machines, but this version has **not yet been tested by hand on a real Windows PC**: the tray, audible playback, launch at sign-in, sleep and wake, and upgrading with `Install.ps1` are unverified on real hardware. The Mac build has been tested on the developer's Apple Silicon Mac only, not on a clean Mac. Please report problems as [issues](https://github.com/spyroskotsakis/DialShift/issues), with your `dialshift.log` (see [Data](#data)). The full list of open checks is in [Open items](#open-items--release-status).
 
 ## Download
 
@@ -21,14 +23,14 @@ Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/
 | `DialShift-macos-arm64.zip` | macOS 14.0 or later, Apple Silicon |
 | `SHA256SUMS.txt` | SHA-256 checksums of both zips |
 
-**Pre-releases and "latest".** The first release, `v0.3.0-rc.1`, is a pre-release: native checks are still open (see [Open items](#open-items--release-status)). GitHub never treats a pre-release as the latest release, so until the first full release, `v0.3.0`, the "latest" links below return "not found"; take the newest release from the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) instead. From the first full release on, these links always point at the newest full release:
+**Releases and "latest".** `v0.3.0` is the first full release; the "latest" links below point at it, and from then on at the newest full release. Pre-releases, such as `v0.3.0-rc.1` and `v0.3.0-rc.2`, are listed on the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) but are never the "latest" release. `v0.3.0` was released before every native check had passed; see the testing status above and [Open items](#open-items--release-status).
 
 - Latest release: <https://github.com/spyroskotsakis/DialShift/releases/latest>
 - Windows: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-win-x64.zip>
 - macOS: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-macos-arm64.zip>
 - Checksums: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/SHA256SUMS.txt>
 
-A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.3.0-rc.1/DialShift-win-x64.zip`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.3.0/DialShift-win-x64.zip`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ### Check the download
 
@@ -74,7 +76,7 @@ This applies if you used the earlier separate Windows or macOS app, including `v
 
 ## Open items / release status
 
-Both packages build, test and pass the native smoke in CI. Before the phase can be signed off and a full release (`v0.3.0`) made, some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it. Until they pass, releases are pre-releases, starting with `v0.3.0-rc.1`.
+Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` is released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for 0.3.x. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
 To run them, use the guided [native-check kit](scripts/native-check/README.md): one script per OS that walks through the checks and produces an evidence zip to send back.
 
 ## Listen
@@ -205,10 +207,16 @@ Development and dry-run releases happen on the private repository `spyroskotsaki
 1. **Version.** Set `<Version>` in `DialShift.App/DialShift.App.csproj` to the new `MAJOR.MINOR.PATCH`. In `CHANGELOG.md`, move the `[Unreleased]` notes into a new `## [X.Y.Z] - YYYY-MM-DD` section (`## [X.Y.Z-rc.N]` for a pre-release) and update the link references at the bottom. Commit.
 2. **Tag** the commit: `git tag -a vX.Y.Z -m "DialShift X.Y.Z"`. A pre-release uses a `-rc.N` suffix: `git tag -a v0.3.0-rc.1 -m "DialShift 0.3.0-rc.1"`.
 3. **Dry run on the private repository:** `git push private vX.Y.Z`. `release.yml` first checks that the tag's `MAJOR.MINOR.PATCH` equals the csproj `<Version>` and that `CHANGELOG.md` has the section, then runs the whole build, test, smoke and verification workflow at the tag, then creates the GitHub Release with `DialShift-win-x64.zip`, `DialShift-macos-arm64.zip` and `SHA256SUMS.txt`, and the changelog section plus install, checksum and signing notes as its text. A tag with a `-` suffix becomes a pre-release; `vX.Y.Z` becomes the latest release. Check the release page, download both zips and check them against `SHA256SUMS.txt`.
-4. **Public release:** push `main` and the tag to the public repository yourself: `git push origin main vX.Y.Z`. The same workflow builds, verifies and publishes the public release. The push-guard hook in `.claude/settings.json` blocks agent pushes to `origin` and `upstream` on purpose, so this push is always a manual maintainer step.
+4. **Public release:** push `main` and then the tag to the public repository yourself, in two pushes: `git push origin main`, then `git push origin vX.Y.Z`. The same workflow builds, verifies and publishes the public release. The push-guard hook in `.claude/settings.json` blocks agent pushes to `origin` and `upstream` on purpose, so this push is always a manual maintainer step. Then check that a **Release** run for the tag started in the Actions tab (see the first-push caveat below).
 5. **Never push to `upstream`** (`tsiger/DialShift`).
 
-GitHub Actions must be enabled on the public repository: it is a fork, and forks start with Actions turned off (**Actions** tab → enable workflows). To publish a tag again, delete its release (keep the tag) and run **Release** from the Actions tab (`workflow_dispatch`) with the tag name.
+GitHub Actions must be enabled on the public repository: it is a fork, and forks start with Actions turned off (**Actions** tab → enable workflows). They have been enabled since the first public push on 2026-09-25.
+
+**First-push caveat.** When one push first brings (or changes) `.github/workflows` on the default branch and also carries tags or other branches, GitHub may start workflows for `main` only. On 2026-09-25 the first public push, of `main`, the feature branch and three tags, started CI for `main` and nothing else: no CI for the branch and no Release run for either version tag, most likely because the workflows were not yet on the default branch when those ref events were handled. GitHub also documents that it creates no events for tags when more than three tags are pushed at once. So push `main` first and each tag in a separate, later push (`git push origin main`, then `git push origin vX.Y.Z`). If a Release run is missing, start it by hand **on the tag itself**: `gh workflow run Release --ref vX.Y.Z -f tag=vX.Y.Z` (add `-R <owner>/<repo>` outside the clone). Never `--ref main`: GitHub takes the workflow files from the ref the run is started on while the build checks out the tag, so the workflow and the code must come from the same commit. `release.yml` refuses a run whose ref is not the tag. `gh workflow run CI --ref <branch>` starts CI for a branch.
+
+**To publish a tag again,** delete its release (keep the tag) and run **Release** from the Actions tab (`workflow_dispatch`): choose the tag under **Use workflow from → Tags** and enter the same tag name, or run `gh workflow run Release --ref vX.Y.Z -f tag=vX.Y.Z`.
+
+**Actions billing.** GitHub Actions is free on public repositories. On the private repository the minutes count against the account's plan, and macOS and Windows runners use them at a multiple of the Linux rate, so the private dry run can stop for billing rather than for the code: GitHub then does not start a job ("The job was not started because recent account payments have failed or your spending limit needs to be increased"). Fix the billing or spending limit in the account settings, then re-run only what did not run: `gh run rerun <run-id> -R spyroskotsakis/dialshift-dev --failed`.
 
 ### Developer runs
 
@@ -242,8 +250,8 @@ On macOS, run the bundled executable, `dist/DialShift.app/Contents/MacOS/DialShi
 
 ### Signing tiers
 
-- **Development (what the scripts produce):** the Windows build is unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and for pre-releases. Gatekeeper and SmartScreen will warn.
-- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials, and a clean-machine install test comes before the first full release. Until then, releases are pre-releases built from the development tier (decision D53).
+- **Development (what the scripts produce):** the Windows build is unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and, so far, for every release, including `v0.3.0` (D57). Gatekeeper and SmartScreen will warn.
+- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials and a clean-machine install test. `v0.3.0` shipped in the development tier before them (decision D57).
 
 ## Project
 

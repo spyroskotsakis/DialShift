@@ -8,6 +8,29 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
+The first full release of the rebuilt DialShift. The app is the same as in [0.3.0-rc.2](CHANGELOG.md#030-rc2---2026-09-25); only the documentation and a check in the release workflow changed.
+
+### Testing status and known limitations
+
+Please read this before you install.
+
+- **Windows has not been tested by hand on a real PC yet.** The build, more than 1,700 automated checks and the app's own smoke test (window, tray, dialogs, playback through a silent audio output, a second launch) pass on Windows in CI, on GitHub-hosted `windows-latest` machines. Nobody has yet used this version on a physical Windows PC. So these are **unverified on real hardware**: clicking the tray icon, audible playback, launch at sign-in, sleep and wake, and upgrading with `Install.ps1`. If something doesn't work, please [open an issue](https://github.com/spyroskotsakis/DialShift/issues) and attach `%LOCALAPPDATA%\DialShift\dialshift.log`.
+- **macOS has been tested only on the developer's own Apple Silicon Mac** (macOS 26.5). There the packaged app passed its smoke test when started the way Finder starts apps (through LaunchServices), and a second launch brought the running app to the front. It has not been tested on a clean Mac or on macOS 14 and 15. The hands-on checks of the menu-bar icon, audible playback, launch at login, and closing the lid are still open.
+- **Neither download is signed for public distribution.** Windows is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**. The Mac app is ad-hoc signed and not notarized, so the first launch needs **System Settings → Privacy & Security → Open Anyway**. See [Install on Windows](README.md#install-on-windows) and [Install on macOS](README.md#install-on-macos).
+- **Going back:** `v0.2.0` is still on the [tsiger/DialShift Releases page](https://github.com/tsiger/DialShift/releases/tag/v0.2.0). The tag `legacy-last-known-good` holds the source of the last build of the earlier Windows and macOS apps, including the last Intel Mac build. Your stations and schedule carry over when you go back, but the older app ignores slot time zones and deletes them the next time it saves.
+- All the known limitations of [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) still apply. The checks that are still open are listed in [docs/open-items.md](docs/open-items.md), and they are tracked for 0.3.x.
+
+### What's new since 0.2.0
+
+- **One app for Windows and Apple Silicon Macs.** One Avalonia app replaces the separate WPF and macOS apps. On Windows it plays through LibVLC. On the Mac it is native Apple Silicon and plays through Apple's AVPlayer, with no VLC and no Rosetta 2.
+- **Per-slot time zones.** Each schedule slot can have its own time zone, and daylight saving time is handled.
+- **Sturdier playback and startup.** Both players share one tested recovery path: retries, the fallback station, and catching up after sleep. The Mac app no longer crashes when it starts with no active display. An unreadable settings file is kept, never overwritten, and stream passwords are removed from the log. A second launch brings the running app to the front.
+- **Safer upgrades.** Your settings carry over from the earlier apps. DialShift won't play alongside an older DialShift that is still running. On the Mac, launch-at-login entries from the older apps are recognized. On Windows, `Install.ps1` swaps the new version in and puts the installed copy back if the swap fails.
+
+The full lists are in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) (the rebuild) and [0.3.0-rc.2](CHANGELOG.md#030-rc2---2026-09-25) (the `Install.ps1` fix).
+
 ## [0.3.0-rc.2] - 2026-09-25
 
 **Pre-release: native checks are pending.** Everything in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) still applies, including its known limitations. [docs/open-items.md](docs/open-items.md) lists the checks that are still open.
@@ -67,6 +90,7 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 - The schedule does not wake a sleeping computer, and slots have no end time.
 - Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
-[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...HEAD
+[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...v0.3.0
 [0.3.0-rc.2]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.1...v0.3.0-rc.2
 [0.3.0-rc.1]: https://github.com/spyroskotsakis/DialShift/releases/tag/v0.3.0-rc.1

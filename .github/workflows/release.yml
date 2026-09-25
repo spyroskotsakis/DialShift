@@ -1,6 +1,7 @@
 # Publishes a GitHub Release for a version tag (decision D53).
-#   resolve  checks the tag (vMAJOR.MINOR.PATCH[-prerelease]), that its MAJOR.MINOR.PATCH equals the csproj <Version>,
-#            and that CHANGELOG.md has a section for it, before anything is built.
+#   resolve  checks the tag (vMAJOR.MINOR.PATCH[-prerelease]), that the run was started on that tag, that its
+#            MAJOR.MINOR.PATCH equals the csproj <Version>, and that CHANGELOG.md has a section for it, before
+#            anything is built.
 #   build    the same build, test, native smoke, package, zip verification and macOS bundle smoke as CI (build.yml),
 #            at the tag, with the tag's version in the packages.
 #   publish  the only job that can write: attaches DialShift-win-x64.zip, DialShift-macos-arm64.zip and SHA256SUMS.txt
@@ -8,6 +9,9 @@
 #            latest release.
 # Nothing here names a repository: the workflow publishes to the repository it runs in, so a tag pushed to the private
 # development repository is a dry run and the same tag pushed to the public repository is the public release.
+# A run started by hand must be started on the tag itself (gh workflow run Release --ref <tag> -f tag=<tag>): GitHub
+# takes this file and build.yml from the ref the run is started on, while the build checks out the tag, and only the
+# tag keeps the workflow and the code from one commit.
 name: Release
 
 on:
@@ -16,7 +20,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to build and publish, for example v0.3.0-rc.1 (delete its release first to publish again)
+        description: >-
+          Existing tag to build and publish, for example v0.3.0-rc.1. Start the run on that same tag (Use workflow
+          from > Tags, or gh workflow run Release --ref <tag> -f tag=<tag>) so the workflow and the code come from one
+          commit. Delete its release first to publish again.
         required: true
         type: string
 
@@ -42,9 +49,17 @@ jobs:
         id: tag
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          REF: ${{ github.ref }}
         run: |
           if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
             echo "::error title=Release tag::'$TAG' is not vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-<prerelease> (for example v0.3.0 or v0.3.0-rc.1)."
+            exit 1
+          fi
+          # This file and build.yml come from the ref the run was started on; the build checks out the tag. Started by
+          # hand on another ref (main), newer build steps would test older code, so only the tag itself is accepted.
+          # A tag push always passes: its ref is the tag.
+          if [ "$REF" != "refs/tags/$TAG" ]; then
+            echo "::error title=Release ref::This run was started on $REF, not on the tag $TAG, so the workflow and the code would come from different commits. Start it on the tag: gh workflow run Release --ref $TAG -f tag=$TAG"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

@@ -1,13 +1,13 @@
 # Open items: native verification and release sign-off
 
-> **As of 2026-09-25**, branch `refactor/single-codebase-timezone` at `bc807b5` plus docs-only updates, after the pre-merge sweep and SW-N4; the CI evidence below is run `36163420184` at `bc807b5`.
+> **As of 2026-09-25**, branch `refactor/single-codebase-timezone` at `99a1122` (= `main` = `v0.3.0-rc.2`) plus docs updates and the RL-01 check in `release.yml`, after the pre-merge sweep, SW-N4 and the first public push; the CI evidence below is run `36163420184` at `bc807b5`, and CI at `99a1122` is green on the private repository. 0.3.0 is to ship as a full release before the native checks (D57).
 > This is the hand-off list for the work that is still open after both briefs were implemented. The implementation task is closed. Only the items below remain.
 >
 > Related documents:
 > - [README.md](../README.md): the project and how to build, test and run it.
 > - [Acceptance matrix §9](acceptance-matrix.md#9-remaining-native-checks): the full procedure and pass criteria for every native check (NC-*).
 > - [Matrix §9.1](acceptance-matrix.md#91-native-checks-that-require-the-user): the same checks grouped by what they need.
-> - [docs/decisions.md](decisions.md): decisions D1–D56.
+> - [docs/decisions.md](decisions.md): decisions D1–D57.
 >
 > This file sums up and orders the work. If this file and matrix §9 disagree, §9 is right.
 
@@ -28,25 +28,25 @@
 
 | Area | State | Evidence |
 |---|---|---|
-| Brief 1 (single codebase) and brief 2 (per-slot time zones) | Implemented. WPF and `DialShift.Mac` are retired, and one Avalonia app, `DialShift.App`, ships as `win-x64` and `osx-arm64` | Branch `refactor/single-codebase-timezone` at `1b16518`, pushed to the `private` remote (`spyroskotsakis/dialshift-dev`) |
-| CI | Green on both OSes | Run [`36163420184`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36163420184) at `bc807b5`: **windows-latest 1,702 passed / 18 skipped**, **macos-latest 1,769 passed / 5 skipped**, **24/24 suites** on both |
+| Brief 1 (single codebase) and brief 2 (per-slot time zones) | Implemented. WPF and `DialShift.Mac` are retired, and one Avalonia app, `DialShift.App`, ships as `win-x64` and `osx-arm64` | Branch `refactor/single-codebase-timezone` at `1b16518`, pushed to the `private` remote (`spyroskotsakis/dialshift-dev`); since 2026-09-25 also on the public repository (`main` and the branch at `99a1122`, [§2.10](#210-release-engineering-not-blocked-on-hardware-6-items)) |
+| CI | Green on both OSes | Run [`36163420184`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36163420184) at `bc807b5`: **windows-latest 1,702 passed / 18 skipped**, **macos-latest 1,769 passed / 5 skipped**, **24/24 suites** on both. At `99a1122` (docs-only changes since): private runs `36164427376` (`main`) and `36164427469` (the branch), both green on `windows-latest` and `macos-latest` |
 | Native smoke in CI | `--smoke-test --recovery-test` passes on both OSes (**34/34** in run `36126312566` at `1b16518`; the step fails on any failed check). The **bundle smoke** (the packaged `osx-arm64` app, extracted from the release zip with `unzip`) passes **32/32** with `MacAvPlayerPlaybackEngine` | Run `36163420184`: `smoke-win-x64` and `smoke-osx-arm64` artifacts, and the "Bundle smoke" step of the macOS job |
 | Packaging | Both downloadable zips verified: `win-x64` by `verify-win-package.ps1`, `osx-arm64` by `verify-mac-app.sh --zip` after both `ditto` and `unzip` extraction. `Install.ps1` from the `win-x64` zip passes fresh install, upgrade, locked file, install lock and the three refusals (SW-N4) | Run `36163420184` |
 | Acceptance matrix §3 (106 rows) | **62 GREEN / 44 NATIVE-PENDING / 0 TODO** | [Matrix §3](acceptance-matrix.md#3-acceptance-matrix) |
 | Timezone QA tracker | QA-B1..B4 (blocking) all GREEN. QA-N1..N9: 8 GREEN, 1 NATIVE-PENDING (QA-N1). §9.2: 14 of 15 GREEN, TZ-12 NATIVE-PENDING (the unit half is green) | [Matrix §6](acceptance-matrix.md#6-timezone-qa-tracker-brief-2) |
-| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING. The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed, and SW-N4 (`Install.ps1`, D56) is GREEN in CI `36163420184` ([§2.10](#210-release-engineering-not-blocked-on-hardware-2-items)) | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
-| Decisions | D1–D56 recorded | [docs/decisions.md](decisions.md) |
-| Rollback point | Tag `legacy-last-known-good` (commit `82281e5`) keeps the last build of both old front-ends, including the last Intel Mac build | `git show legacy-last-known-good` |
+| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING. The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed, and SW-N4 (`Install.ps1`, D56) is GREEN in CI `36163420184` ([§2.10](#210-release-engineering-not-blocked-on-hardware-6-items)) | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
+| Decisions | D1–D57 recorded | [docs/decisions.md](decisions.md) |
+| Rollback point | Tag `legacy-last-known-good` (commit `82281e5`) keeps the last build of both old front-ends, including the last Intel Mac build. On the private and, since 2026-09-25, the public repository | `git show legacy-last-known-good`; `git ls-remote --tags origin` |
 
-**Release status:** the first pre-release, **`v0.3.0-rc.1`**, is tagged at `9b47afb`. The next, **`v0.3.0-rc.2`** (`CHANGELOG.md` section `[0.3.0-rc.2]`), carries the SW-N4 `Install.ps1` fix (D56). Each goes through the D53 pipeline: a dry run by pushing the tag to the private repository (`release.yml` builds, verifies and publishes there), then a manual public push of `main` and the tag by the maintainer (README "Releasing (maintainers)"). Releases stay pre-releases while the checks below are open. `CHANGELOG.md` has the `[0.3.0-rc.1]` and `[0.3.0-rc.2]` sections.
+**Release status:** the first pre-release, **`v0.3.0-rc.1`**, is tagged at `9b47afb`. The next, **`v0.3.0-rc.2`** (`CHANGELOG.md` section `[0.3.0-rc.2]`), carries the SW-N4 `Install.ps1` fix (D56) and is tagged at `99a1122`. Both tags, `main` and the branch are on the public repository since 2026-09-25; their public CI and Release runs are listed in [§2.10](#210-release-engineering-not-blocked-on-hardware-6-items). The private dry run of `v0.3.0-rc.2` is held up by account billing, not by the code ([§2.10](#210-release-engineering-not-blocked-on-hardware-6-items)). By the user's decision **D57**, the next release is the full release **`v0.3.0`**, on the same code as `v0.3.0-rc.2`, with its testing status (Windows not yet tested by hand on a real PC; macOS tested on the developer's Mac only; unsigned) in the `[0.3.0]` section of `CHANGELOG.md` and in the README. Every check below stays open after it and is tracked for 0.3.x. Releases follow the D53 pipeline (README "Releasing (maintainers)").
 
 ### What keeps the phase from sign-off
 
-**This list is the only thing left.** Every item needs something the development session cannot provide: Windows hardware, a clean or older Mac, signing credentials, a real login, a lid close, real network faults, or a person looking at the screen. No product code change is known to be needed. The only engineering left is:
+**This list is the only thing left.** It no longer gates the `v0.3.0` release (D57), but it still gates the phase sign-off ([§6](#6-closure-criteria)). Every item needs something the development session cannot provide: Windows hardware, a clean or older Mac, signing credentials, a real login, a lid close, real network faults, or a person looking at the screen. No product code change is known to be needed. The only engineering left is:
 - the temporary dev builds for NC-02 and NC-08 step 4, which disable the power-event source;
 - the release-lane signing steps, once the credentials exist ([§2.2](#22-signing-credentials-and-certificates-2-items-release-only-not-performed));
 - the small follow-ups in [§2.9](#29-follow-ups-that-depend-on-the-above), which depend on what these checks observe;
-- the release-engineering items in [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items), which need no hardware.
+- the release-engineering and maintainer items in [§2.10](#210-release-engineering-not-blocked-on-hardware-6-items), which need no hardware.
 
 Native checks: 16 open. NC-01..NC-13 and NC-15..NC-17, where NC-07, NC-13 and NC-17 are partly done. NC-14 (Intel) is not applicable (D13).
 
@@ -193,24 +193,18 @@ Outside §3, these rows flip as well:
 
 NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-closure-criteria)).
 
-### 2.10 Release engineering, not blocked on hardware (2 items)
+### 2.10 Release engineering, not blocked on hardware (6 items)
 
-**Missing resource:** none. These are engineering and maintainer steps that can run now.
+**Missing resource:** none for SW-N4 and the tag (both done). The others need the maintainer: the GitHub account's billing, the public repository's settings, or the release push.
 
 | Item | What's left | Severity | Owner | Done when |
 |---|---|---|---|---|
-| SW-N4 | **Done: GREEN in CI [`36163420184`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36163420184) at `bc807b5`.** `Install.ps1` robustness, fixed in `58b813a` with the review fixes in `dc032fe` and the hardening in `65771f7` (D56). `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now:
-- copies into `DialShift.new-<id>` beside the install;
-- renames the old install to `DialShift.old-<id>` and the new one in, retrying each rename for about 4 s;
-- deletes the old one (a failed delete is a warning);
-- on a failed copy or swap, restores the old install and exits 1;
-- refuses a source inside or equal to the install folder, or an install folder inside the source, before changing anything;
-- runs one install at a time (named mutex `Local\DialShift.Install`);
-- removes leftovers of earlier runs only under their exact generated names, never through a junction;
-- shows every message and waits for Enter unless the run is non-interactive.
-
-In run `36163420184` the `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, install lock, refusals)" passed on `windows-latest` under Windows PowerShell 5.1: (a) fresh install; (b) upgrade, with both planted leftovers removed; (e) locked file and (g) install lock held, both exit 1 with the install unchanged; (c) and (f) refused with the install unchanged; (d) refused. Remaining native part: NC-04 step 6 | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | Done: the step passed with `build.ps1` and `verify-win-package.ps1` in run `36163420184` at `bc807b5`, and matrix §7.10 SW-N4 is GREEN. NC-04 step 6 runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
-| Legacy tag on the public repository | The README ("Upgrading", "Earlier versions") and CHANGELOG name the tag `legacy-last-known-good`, which exists on the private remote only. Push it to the public repository with the first release (`git push origin legacy-last-known-good`), a manual maintainer step like the release push | Before the public `v0.3.0-rc.1` push | maintainer | `git ls-remote --tags origin` lists `legacy-last-known-good` |
+| SW-N4 | **Done: GREEN in CI [`36163420184`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36163420184) at `bc807b5`.** `Install.ps1` robustness, fixed in `58b813a` with the review fixes in `dc032fe` and the hardening in `65771f7` (D56). `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now: copies into `DialShift.new-<id>` beside the install; renames the old install to `DialShift.old-<id>` and the new one in, retrying each rename for about 4 s; deletes the old one (a failed delete is a warning); on a failed copy or swap, restores the old install and exits 1; refuses a source inside or equal to the install folder, or an install folder inside the source, before changing anything; runs one install at a time (named mutex `Local\DialShift.Install`); removes leftovers of earlier runs only under their exact generated names, never through a junction; and shows every message and waits for Enter unless the run is non-interactive. In run `36163420184` the `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, install lock, refusals)" passed on `windows-latest` under Windows PowerShell 5.1: (a) fresh install; (b) upgrade, with both planted leftovers removed; (e) locked file and (g) install lock held, both exit 1 with the install unchanged; (c) and (f) refused with the install unchanged; (d) refused. Remaining native part: NC-04 step 6 | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | Done: the step passed with `build.ps1` and `verify-win-package.ps1` in run `36163420184` at `bc807b5`, and matrix §7.10 SW-N4 is GREEN. NC-04 step 6 runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
+| Legacy tag on the public repository | **Done on 2026-09-25.** The maintainer pushed `legacy-last-known-good` (`82281e5`) to the public repository with the first public push; `git ls-remote --tags origin` lists it. The tag that the README ("Upgrading", "Earlier versions") and CHANGELOG name now exists on the public repository | Was: before the public `v0.3.0-rc.1` push | maintainer | Done: `git ls-remote --tags origin` lists `legacy-last-known-good` |
+| Public runs of the first public push | On 2026-09-25 the maintainer pushed `main` and `refactor/single-codebase-timezone` (both `99a1122`) and the tags `v0.3.0-rc.1` (`9b47afb`), `v0.3.0-rc.2` (`99a1122`) and `legacy-last-known-good` to the public repository in one push, the first that brought `.github/workflows` there. GitHub started only CI for `main`; the branch and the two version tags got no run (the first-push caveat, README "Releasing (maintainers)", D53 update). They were started by hand with `gh workflow run CI --ref refactor/single-codebase-timezone` and `gh workflow run Release --ref <tag> -f tag=<tag>`. The first Release dispatch for `v0.3.0-rc.1` used `--ref main` (public run `36168661177`): it took the workflows from `main` but built the rc.1 code, failed at the newer `Install.ps1` step's case (b) and skipped publishing (matrix §7.10 RL-01, now refused by `release.yml`). rc.1 was dispatched again on its tag; rc.2 was dispatched from `main` while `main` was the tag's own commit (`99a1122`). Run IDs and results: see the public repository's Actions tab (to be recorded here) | Needed before the public `v0.3.0` push: confirms that public CI and Release work | maintainer (orchestrator records the runs) | CI for `main` and the branch green on both OSes, and the public Releases page shows `v0.3.0-rc.1` and `v0.3.0-rc.2` as pre-releases with the three assets each; the run IDs are recorded here |
+| Private dry run of `v0.3.0-rc.2`: blocked by billing | Release run `36164430765` on `spyroskotsakis/dialshift-dev` passed `resolve` and both builds, but GitHub did not start its "Publish the GitHub Release" job: "The job was not started because recent account payments have failed or your spending limit needs to be increased." Account billing, not code: Actions minutes are billed on the private repository (macOS and Windows runners at a multiple of the Linux rate) and free on the public one. Until it is fixed, further private runs, including CI and the `v0.3.0` dry run, can be stopped the same way | Blocks the private dry run until fixed | maintainer (GitHub account billing) | Billing or the spending limit is fixed, then `gh run rerun 36164430765 -R spyroskotsakis/dialshift-dev --failed` publishes the private `v0.3.0-rc.2` release |
+| Issues on the public repository | The `[0.3.0]` release notes and the README ask users to report problems at `https://github.com/spyroskotsakis/DialShift/issues`. On 2026-09-25 the public repository, a fork, has Issues turned off (`gh repo view spyroskotsakis/DialShift --json hasIssuesEnabled` gives `false`), so that link does not work | Before the public `v0.3.0` push | maintainer (repository **Settings → General → Features → Issues**) | `hasIssuesEnabled` is `true` |
+| Release `v0.3.0` (D57) | A full release on the `v0.3.0-rc.2` app code, with the testing status in its notes. Steps (README "Releasing (maintainers)"): after review and green CI, `git tag -a v0.3.0 -m "DialShift 0.3.0"` on a commit with the same app code as `v0.3.0-rc.2` (the D57 `git diff` check); the private dry run (needs the billing row above); then the maintainer pushes `main` and, in a separate push, the tag to the public repository, and checks that the Release run started (a missing one: `gh workflow run Release --ref v0.3.0 -f tag=v0.3.0`) | After the rows above | maintainer (tag and push); release (notes) | The public Releases page shows `v0.3.0` as the latest release with `DialShift-win-x64.zip`, `DialShift-macos-arm64.zip` and `SHA256SUMS.txt`, and the checksums match. Its `resolve` job is the first public run of the RL-01 ref check |
 
 ---
 
@@ -232,7 +226,7 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
 | 11 | **Signing: NC-05 (b), NC-09** | Release pipeline | Getting the certificates is outside the team and can take days to weeks. Then about half a day to a day of release-lane script work (Developer ID signing, hardened runtime, entitlements, notarization, Authenticode), plus about 1 h to verify each | Release gate only. No §3 row depends on it |
 
-The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items need no hardware. SW-N4 is done (GREEN in CI `36163420184`); the legacy tag waits for the public push. Run the Windows hardware block from a CI zip built at or after `65771f7`, so that NC-04 step 6 tests the fixed `Install.ps1`.
+The [§2.10](#210-release-engineering-not-blocked-on-hardware-6-items) items need no hardware. SW-N4 and the public legacy tag are done. The maintainer items come first, in this order: record the public runs of the first push, fix the private repository's billing and re-run `36164430765`, turn on Issues on the public repository, then release `v0.3.0` (D57). The native checks above then run against the released build and are tracked for 0.3.x. Run the Windows hardware block from a CI zip built at or after `65771f7`, so that NC-04 step 6 tests the fixed `Install.ps1`.
 
 ---
 
@@ -368,12 +362,14 @@ These are deliberate and documented. They are listed here so that nobody mistake
 
 ## 6. Closure criteria
 
+**Release versus sign-off (D57).** By the user's decision D57, `v0.3.0` ships as a full release **before** these criteria hold, with its testing status in the release notes and the README. That overrides, for 0.3.0 only, the rule that a full release waits for the native checks and signing. It does not change the criteria below: they still decide when the phase is signed off, and every open item stays tracked for 0.3.x.
+
 **The phase is signed off when both of these hold:**
-1. Every item in this file is PASS and recorded in [matrix §9](acceptance-matrix.md#9-remaining-native-checks), its [§2.9](#29-follow-ups-that-depend-on-the-above) follow-ups are done, and the [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items are done.
+1. Every item in this file is PASS and recorded in [matrix §9](acceptance-matrix.md#9-remaining-native-checks), its [§2.9](#29-follow-ups-that-depend-on-the-above) follow-ups are done, and the [§2.10](#210-release-engineering-not-blocked-on-hardware-6-items) items are done.
 2. The matrix reads **106 GREEN / 0 NATIVE-PENDING / 0 TODO** in §3, with QA-N1, TZ-12, SR-02, NX-01 and SW-N4 GREEN.
 
 NC-14 stays N/A (D13).
 
-NC-05 (b) and NC-09 affect no §3 row, so the matrix can reach 106 GREEN without them. Under D7 they gate the **public release**, not the matrix. If the phase is to be signed off before the certificates exist, record that as a decision in `docs/decisions.md` and keep NC-05 (b) and NC-09 open here as release items.
+NC-05 (b) and NC-09 affect no §3 row, so the matrix can reach 106 GREEN without them. Under D7 they gate a **signed public release**, not the matrix; `v0.3.0` ships unsigned by D57. If the phase is to be signed off before the certificates exist, record that as a decision in `docs/decisions.md` and keep NC-05 (b) and NC-09 open here as release items.
 
 **When to delete this file:** once every item is done, delete `docs/open-items.md` in the same change that flips the last row. In that same change, remove the links to it from [README.md](../README.md) and from the matrix "Current status" block.
