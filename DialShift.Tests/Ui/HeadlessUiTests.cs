@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
 using DialShift.App.Platform;
+using DialShift.App.Tray;
 using DialShift.App.ViewModels;
 using DialShift.App.Views;
 using DialShift.App.Views.Dialogs;
@@ -40,28 +41,28 @@ public static class HeadlessUiTests
         await Headless.RunAsync(SettingsPageControls);
         await AppLifecycleTests.RunAsync();
         await PlaybackLoopTests.RunAsync();
-        if (Environment.GetEnvironmentVariable(DefectReprosVariable) == "1") await Headless.RunAsync(LongStationNameInPickers);
-        else Skip("UI-D1 a 100-character station name is trimmed with an ellipsis in the station and fallback pickers",
-            $"known open UI defect, repro kept out of the default run; set {DefectReprosVariable}=1 to run it");
+        await Headless.RunAsync(LongStationNameInPickers);
     }
 
     // ─── helpers ───
 
     /// <summary>Texts of the effectively visible text blocks under <paramref name="root"/> (buttons' generated text blocks included).</summary>
-    private static List<string> Texts(Visual root) =>
+    internal static List<string> Texts(Visual root) =>
         Find<TextBlock>(root).Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text)).Select(t => t.Text!).ToList();
 
-    private static bool Shows(Visual root, string text) => Texts(root).Contains(text);
+    internal static bool Shows(Visual root, string text) => Texts(root).Contains(text);
 
-    private static TextBlock? VisibleError(Window window) =>
+    internal static TextBlock? VisibleError(Window window) =>
         Find<TextBlock>(window).FirstOrDefault(t => t.Classes.Contains("error") && t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text));
 
-    private static IInputElement? Focused(Window window) => window.FocusManager?.GetFocusedElement();
+    internal static IInputElement? Focused(Window window) => window.FocusManager?.GetFocusedElement();
 
-    private static async Task ShowPage(UiRig rig, string tab)
+    internal static Task ShowPage(UiRig rig, string tab) => ShowPage(rig.Window!, tab);
+
+    internal static async Task ShowPage(Window window, string tab)
     {
-        await ClickAsync(ButtonWithText(rig.Window!, tab));
-        Layout(rig.Window!);
+        await ClickAsync(ButtonWithText(window, tab));
+        Layout(window);
     }
 
     /// <summary>
@@ -69,7 +70,7 @@ public static class HeadlessUiTests
     /// than their box (wrapping), or running past the window's right edge. Measured with an unconstrained copy that carries
     /// the effective font properties.
     /// </summary>
-    private static List<string> ClippedTexts(Window window)
+    internal static List<string> ClippedTexts(Window window)
     {
         var clipped = new List<string>();
         foreach (var tb in Find<TextBlock>(window).Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text) && t.Bounds.Width > 0))
@@ -131,7 +132,7 @@ public static class HeadlessUiTests
             && UiText.Week.All(d => Shows(window, UiText.ShortDay(d))) && ButtonWithText(window, "Mon").Classes.Contains("selected"));
         Check("HS-01 BHV-55 empty Monday: \"A little room for spontaneity.\" / \"No switches on Monday. …\" and the helper text",
             Shows(window, "A little room for spontaneity.") && Shows(window, "No switches on Monday. Add a time slot to tune in automatically.")
-            && Texts(window).Any(t => t.StartsWith("Times follow your local time zone.", StringComparison.Ordinal)));
+            && Texts(window).Any(t => t.StartsWith("Each slot runs in its own time zone (Local time by default).", StringComparison.Ordinal)));
         Check("HS-01 BHV-24 the selected tab moves to Schedule", ButtonWithText(window, "Schedule").Classes.Contains("selected") && !ButtonWithText(window, "Stations").Classes.Contains("selected"));
         Console.WriteLine("  PNG: " + Screenshot(window, "schedule"));
 
@@ -148,13 +149,10 @@ public static class HeadlessUiTests
         Check("HS-01 BHV-63 the button reveals the data directory", rig.Reveal.Paths.SequenceEqual([rig.Paths.DataDirectory]) && rig.Journal.Count == mark);
     }
 
-    /// <summary>Opt-in switch for repros of open UI defects (they fail until fixed, so they stay out of the default run).</summary>
-    private const string DefectReprosVariable = "DIALSHIFT_UI_DEFECT_REPROS";
-
     /// <summary>
-    /// UI-D1 (open, low): station names may be 100 characters (BHV-52). Everywhere else a long name ends in an ellipsis
-    /// (player title, row title, footer), but the slot editor's station picker and the Settings fallback picker render the
-    /// name with no trimming, so it is cut mid-glyph at the picker's edge.
+    /// UI-D1 (fixed in b37f8ec, regression guard): station names may be 100 characters (BHV-52). Like everywhere else (player
+    /// title, row title, footer), the slot editor's station picker and the Settings fallback picker end a long name in an
+    /// ellipsis instead of cutting it mid-glyph at the picker's edge.
     /// </summary>
     private static async Task LongStationNameInPickers()
     {
@@ -262,10 +260,10 @@ public static class HeadlessUiTests
     /// Visible interactive controls the views declare (template parts such as a slider's track buttons are part of their
     /// owner) whose spoken name has no letters: empty, or only a symbol such as "▶". Printed when not empty.
     /// </summary>
-    private static List<string> Unnamed(Visual root)
+    internal static List<string> Unnamed(Visual root)
     {
         var unnamed = Find<Control>(root)
-            .Where(c => c.IsEffectivelyVisible && c.TemplatedParent == null && c is Button or ToggleButton or Slider or ComboBox or TextBox)
+            .Where(c => c.IsEffectivelyVisible && c.TemplatedParent == null && c is Button or ToggleButton or Slider or ComboBox or TextBox or AutoCompleteBox)
             .Where(c => !AccessibleName(c).Any(char.IsLetter))
             .Select(c => $"{c.GetType().Name} \"{(c as ContentControl)?.Content}\" named \"{AccessibleName(c)}\"")
             .ToList();
@@ -305,9 +303,13 @@ public static class HeadlessUiTests
         _ = rig.ViewModel.Schedule.AddCommand.ExecuteAsync();
         var slot = await WaitForWindowAsync<ScheduleEditorDialog>(count);
         var unnamed = Unnamed(slot);
-        Check("HS-02 BHV-56 BHV-65 slot editor: label, \"Scheduled station\" combo, time field and day boxes are named",
+        Check("HS-02 BHV-56 BHV-65 slot editor: label, \"Scheduled station\" combo, time field, \"Time zone\" picker, \"Show all time zones\" and day boxes are named",
             ByName<TextBox>(slot, ScheduleEditorViewModel.LabelLabel) != null && ByName<ComboBox>(slot, ScheduleEditorViewModel.StationAutomationName) != null
-            && ByName<TextBox>(slot, ScheduleEditorViewModel.TimeLabel) != null && unnamed.Count == 0);
+            && ByName<TextBox>(slot, ScheduleEditorViewModel.TimeLabel) != null && ByName<AutoCompleteBox>(slot, ScheduleEditorViewModel.TimeZoneLabel) != null
+            && ByName<Button>(slot, ScheduleEditorViewModel.BrowseTimeZonesName).Content as string == "Browse" && unnamed.Count == 0);
+        var zoneText = Find<TextBox>(ByName<AutoCompleteBox>(slot, ScheduleEditorViewModel.TimeZoneLabel)).Single();
+        Check("HS-02 BHV-65 brief 2 §4.5 the picker's inner text box (the part that takes focus) is also named \"Time zone\"",
+            AccessibleName(zoneText) == ScheduleEditorViewModel.TimeZoneLabel);
         slot.Close();
         await PumpAsync();
     }
@@ -439,10 +441,13 @@ public static class HeadlessUiTests
 
     // ─── HS-02 + HS-03: station editor through the real dialogs; tray identity after every operation ───
 
-    private sealed class TrayProbe(UiRig rig)
+    /// <summary>HS-03 tray identity: the tray's menu and icon stay the instances it started with, and the menu follows <paramref name="settings"/>.</summary>
+    internal sealed class TrayProbe(TrayMenuController tray, Settings settings)
     {
-        private readonly NativeMenu root = rig.Tray!.RootMenu;
-        private readonly TrayIcon icon = rig.Tray!.TrayIcon;
+        private readonly NativeMenu root = tray.RootMenu;
+        private readonly TrayIcon icon = tray.TrayIcon;
+
+        public TrayProbe(UiRig rig) : this(rig.Tray!, rig.Settings) { }
 
         public async Task CheckAfter(string operation)
         {
@@ -450,14 +455,14 @@ public static class HeadlessUiTests
             var items = root.Items.OfType<NativeMenuItem>().ToList();
             var stations = items.Single(i => i.Header == "Stations").Menu!.Items.OfType<NativeMenuItem>().Select(i => i.Header).ToList();
             var follow = items.Single(i => i.Header == "Follow schedule");
-            var expected = rig.Settings.Stations.Count == 0 ? ["No saved stations"] : rig.Settings.Stations.Select(s => s.Name).ToList();
+            var expected = settings.Stations.Count == 0 ? ["No saved stations"] : settings.Stations.Select(s => s.Name).ToList();
             Check($"HS-03 MX-05 BHV-22 after {operation}: TrayIcon.Menu is still the original RootMenu instance",
-                ReferenceEquals(icon.Menu, root) && ReferenceEquals(rig.Tray!.RootMenu, root));
+                ReferenceEquals(icon.Menu, root) && ReferenceEquals(tray.RootMenu, root) && ReferenceEquals(tray.TrayIcon, icon));
             Check($"HS-03 MX-05 BHV-22 after {operation}: the icon is registered once (the same TrayIcon)",
                 TrayIcon.GetIcons(Application.Current!) is { Count: 1 } icons && ReferenceEquals(icons[0], icon));
             Check($"HS-03 BHV-22 after {operation}: Stations ▸ lists the current stations ({string.Join(", ", expected)})", stations.SequenceEqual(expected));
-            Check($"HS-03 BHV-50 after {operation}: \"Follow schedule\" check matches the setting ({rig.Settings.ScheduleEnabled})",
-                follow.IsChecked == rig.Settings.ScheduleEnabled && follow.ToggleType == MenuItemToggleType.CheckBox);
+            Check($"HS-03 BHV-50 after {operation}: \"Follow schedule\" check matches the setting ({settings.ScheduleEnabled})",
+                follow.IsChecked == settings.ScheduleEnabled && follow.ToggleType == MenuItemToggleType.CheckBox);
         }
     }
 

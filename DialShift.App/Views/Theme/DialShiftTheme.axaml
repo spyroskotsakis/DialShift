@@ -27,6 +27,9 @@
     <SolidColorBrush x:Key="DsAccentPressedBrush" Color="#A9D95F"/>
     <SolidColorBrush x:Key="DsAccentInkBrush" Color="#172216"/>
     <SolidColorBrush x:Key="DsErrorBrush" Color="#FFB5A7"/>
+    <!-- Warning: noticeable, not alarming (an unknown slot time zone still plays, on local time). -->
+    <SolidColorBrush x:Key="DsWarningBrush" Color="#F2D478"/>
+    <SolidColorBrush x:Key="DsWarningTintBrush" Color="#3A3622"/>
     <SolidColorBrush x:Key="DsDialRingBrush" Color="#3D5141"/>
     <SolidColorBrush x:Key="DsButtonBrush" Color="#293638"/>
     <SolidColorBrush x:Key="DsButtonHoverBrush" Color="#34464A"/>
@@ -74,6 +77,16 @@
     <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#30413A"/>
     <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#3A4E45"/>
     <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="#2A393C"/>
+
+    <!-- Fluent overrides: the time-zone picker's suggestion list (AutoCompleteBox + list items), styled like a combo drop-down.
+         Only list box items use the SystemControlHighlightList* keys in this app. -->
+    <SolidColorBrush x:Key="AutoCompleteBoxSuggestionsListBackground" Color="#1C2A2C"/>
+    <SolidColorBrush x:Key="AutoCompleteBoxSuggestionsListBorderBrush" Color="#4C6264"/>
+    <SolidColorBrush x:Key="SystemControlHighlightListLowBrush" Color="#2A393C"/>
+    <SolidColorBrush x:Key="SystemControlHighlightListMediumBrush" Color="#22302F"/>
+    <SolidColorBrush x:Key="SystemControlHighlightListAccentLowBrush" Color="#30413A"/>
+    <SolidColorBrush x:Key="SystemControlHighlightListAccentMediumBrush" Color="#3A4E45"/>
+    <SolidColorBrush x:Key="SystemControlHighlightListAccentHighBrush" Color="#30413A"/>
 
     <!-- Fluent overrides: check boxes (dark glyph on the lime fill) -->
     <SolidColorBrush x:Key="CheckBoxForegroundUnchecked" Color="#EFF6F0"/>
@@ -159,6 +172,10 @@
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="FontSize" Value="13"/>
     <Setter Property="Foreground" Value="{StaticResource DsErrorBrush}"/>
+  </Style>
+  <!-- After the other roles, so it recolors a hint or secondary line. -->
+  <Style Selector="TextBlock.warning">
+    <Setter Property="Foreground" Value="{StaticResource DsWarningBrush}"/>
   </Style>
 
   <!-- Cards -->
@@ -269,6 +286,20 @@
   <!-- The drop-down is exactly as wide as its picker (Fluent sets only the minimum), so long names trim there too. -->
   <Style Selector="ComboBox /template/ Popup#PART_Popup">
     <Setter Property="MaxWidth" Value="{Binding $parent[ComboBox].Bounds.Width}"/>
+  </Style>
+  <!-- Time-zone picker: the inner text box has no field margin of its own; an unknown zone reads in the warning color. -->
+  <Style Selector="AutoCompleteBox.zonePicker /template/ TextBox#PART_TextBox">
+    <Setter Property="Margin" Value="0"/>
+  </Style>
+  <Style Selector="AutoCompleteBox.zonePicker.unknown /template/ TextBox#PART_TextBox">
+    <Setter Property="Foreground" Value="{StaticResource DsWarningBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.zoneDetail">
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.zoneDetail.warning">
+    <Setter Property="Foreground" Value="{StaticResource DsWarningBrush}"/>
   </Style>
   <Style Selector="CheckBox">
     <Setter Property="Foreground" Value="{StaticResource DsTextBrush}"/>

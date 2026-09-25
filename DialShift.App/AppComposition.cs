@@ -46,14 +46,21 @@ public static class AppComposition
         // startup-failure path reports it (BHV-03, BHV-04).
         services.AddSingleton(sp => sp.GetRequiredService<SettingsStore>().Load());
 
-        services.AddSingleton<IPlaybackCoordinator>(sp => new PlaybackCoordinator(
-            sp.GetRequiredService<Settings>(),
-            sp.GetRequiredService<PlaybackEngineFactory>().Create(),
-            sp.GetRequiredService<IClock>(),
-            // The per-OS sleep-inclusive clock from the platform lane (D14), never StopwatchMonotonicClock.
-            sp.GetRequiredService<IMonotonicClock>(),
-            sp.GetRequiredService<IAppLog>(),
-            TimeZoneInfo.Local));
+        services.AddSingleton<IPlaybackCoordinator>(sp =>
+        {
+            var log = sp.GetRequiredService<IAppLog>();
+            // Core's static scheduler has no logger of its own: this routes schedule.zone_unknown to dialshift.log. The
+            // coordinator is resolved first at startup (the main window view model depends on it), before any zone lookup.
+            Scheduler.Log = log;
+            return new PlaybackCoordinator(
+                sp.GetRequiredService<Settings>(),
+                sp.GetRequiredService<PlaybackEngineFactory>().Create(),
+                sp.GetRequiredService<IClock>(),
+                // The per-OS sleep-inclusive clock from the platform lane (D14), never StopwatchMonotonicClock.
+                sp.GetRequiredService<IMonotonicClock>(),
+                log,
+                TimeZoneInfo.Local);
+        });
         services.AddSingleton<PlaybackHost>();
 
         services.AddSingleton<IUiDispatcher, AvaloniaUiDispatcher>();

@@ -1,4 +1,3 @@
-using System.Reflection;
 using Avalonia;
 using DialShift.App;
 using DialShift.App.Platform;
@@ -13,25 +12,24 @@ using Microsoft.Extensions.DependencyInjection;
 namespace DialShift.Tests.Ui;
 
 /// <summary>
-/// Drives the real <see cref="App"/> startup and quit sequence headlessly (HS-05, HS-06, HS-08, BHV-11): it builds a
-/// service provider shaped like <c>AppComposition.BuildServiceProvider</c> (same registrations and lifetimes) with doubles for
-/// the OS edges — single instance, power events, startup registration, reveal, playback coordinator — and hands it to
-/// <c>App.Run</c> exactly as <c>Program.Main</c> does, with a recording desktop lifetime.
+/// Drives the real <see cref="App"/> startup and quit sequence headlessly (HS-05, HS-06, HS-08, BHV-11): it builds the real
+/// service graph with <see cref="AppComposition.BuildServiceProvider"/>, overriding only the OS edges — single instance,
+/// power events, startup registration, reveal, log, clocks, playback coordinator — and hands it to <c>App.Run</c> exactly as
+/// <c>Program.Main</c> does, with a recording desktop lifetime.
 /// </summary>
 /// <remarks>
-/// <b>Seam.</b> <c>App.Run(lifetime, services, launch, pendingFailure)</c> and <c>StartupFailure</c> are <c>internal</c> and the
-/// App grants no <c>InternalsVisibleTo</c>, so they are reached by reflection here, in this one place. A signature change
-/// fails every lifecycle check loudly at <see cref="RunMethod"/>. The requested seam is
-/// <c>[assembly: InternalsVisibleTo("DialShift.Tests")]</c> in DialShift.App.
+/// <para><b>Seams.</b> <c>App.Run</c>, <c>StartupFailure</c> and <c>App.Tray</c> are internal; DialShift.App grants
+/// <c>InternalsVisibleTo("DialShift.Tests")</c>, so they are called directly.</para>
+/// <para><b>Overrides</b> (registered after the app's own through the <c>configure</c> seam, so they win): the doubles above;
+/// the dialog service, whose production owner lookup reads <c>Application.ApplicationLifetime</c>, which the headless platform
+/// does not set; the production <see cref="SettingsService"/> wrapped in a <see cref="JournalingSettingsService"/>; the
+/// settings when a scenario seeds them; and the main window view model, only to inject UTC as the computer's zone (production
+/// passes <see cref="TimeZoneInfo.Local"/>; QA-B2) or a failing factory (HS-08). Everything else (the settings store,
+/// <see cref="PlaybackHost"/>, the UI dispatcher, the shell, <see cref="ViewModelServices"/>) is the production registration,
+/// and the whole graph is validated on build.</para>
 /// </remarks>
 public sealed class AppHarness : IAsyncDisposable
 {
-    private static readonly MethodInfo RunMethod = typeof(DialShift.App.App).GetMethod("Run", BindingFlags.Instance | BindingFlags.NonPublic)
-        ?? throw new MissingMethodException("DialShift.App.App.Run(lifetime, services, launch, pendingFailure) was not found.");
-
-    private static readonly Type StartupFailureType = typeof(DialShift.App.App).Assembly.GetType("DialShift.App.StartupFailure")
-        ?? throw new TypeLoadException("DialShift.App.StartupFailure was not found.");
-
     private readonly ServiceProvider provider;
 
     private AppHarness(string? settingsJson, Action<Settings>? seed, bool realCoordinator, Func<MainWindowViewModel>? viewModel,
@@ -44,49 +42,43 @@ public sealed class AppHarness : IAsyncDisposable
         Power = new FakePowerEvents(Journal);
         Lifetime = FakeDesktopLifetime.Create(Journal);
 
-        var services = new ServiceCollection();
-        services.AddSingleton(Paths);
-        services.AddSingleton<IAppLog>(Log);
-        services.AddSingleton<ISingleInstanceService>(SingleInstance);
-        services.AddSingleton<IClock>(Clock);
-        services.AddSingleton<IMonotonicClock>(Mono);
-        services.AddSingleton<IStartupRegistration>(Startup);
-        services.AddSingleton<ISystemPowerEvents>(Power);
-        services.AddSingleton<IFileRevealService>(Reveal);
-        services.AddSingleton(_ => new SettingsStore(Paths.DataDirectory));
-        services.AddSingleton(sp =>
+        provider = AppComposition.BuildServiceProvider(Paths, services =>
         {
-            var settings = sp.GetRequiredService<SettingsStore>().Load();
-            seed?.Invoke(settings);
-            return settings;
-        });
-        services.AddSingleton<IPlaybackCoordinator>(sp =>
-        {
-            var settings = sp.GetRequiredService<Settings>();
-            if (!realCoordinator)
+            services.AddSingleton<IAppLog>(Log);
+            services.AddSingleton<ISingleInstanceService>(SingleInstance);
+            services.AddSingleton<IClock>(Clock);
+            services.AddSingleton<IMonotonicClock>(Mono);
+            services.AddSingleton<IStartupRegistration>(Startup);
+            services.AddSingleton<ISystemPowerEvents>(Power);
+            services.AddSingleton<IFileRevealService>(Reveal);
+            if (seed != null)
+                services.AddSingleton(sp =>
+                {
+                    var settings = sp.GetRequiredService<SettingsStore>().Load();
+                    seed(settings);
+                    return settings;
+                });
+            services.AddSingleton<IPlaybackCoordinator>(sp =>
             {
-                Fake = new FakeCoordinator(Journal, PlaybackSnapshot.Initial(settings.Volume));
-                configureFake?.Invoke(Fake);
-                return Fake;
-            }
-            Engine = new FakePlaybackEngine();
-            return Real = new PlaybackCoordinator(settings, Engine, Clock, Mono, Log, TimeZoneInfo.Utc);
+                var settings = sp.GetRequiredService<Settings>();
+                if (!realCoordinator)
+                {
+                    Fake = new FakeCoordinator(Journal, PlaybackSnapshot.Initial(settings.Volume));
+                    configureFake?.Invoke(Fake);
+                    return Fake;
+                }
+                Engine = new FakePlaybackEngine();
+                return Real = new PlaybackCoordinator(settings, Engine, Clock, Mono, Log, TimeZoneInfo.Utc);
+            });
+            services.AddSingleton(_ => new AvaloniaDialogService(() => Lifetime.MainWindow));
+            services.AddSingleton<ISettingsService>(sp => new JournalingSettingsService(new SettingsService(sp.GetRequiredService<Settings>(),
+                sp.GetRequiredService<SettingsStore>(), sp.GetRequiredService<IPlaybackCoordinator>(), sp.GetRequiredService<IDialogService>(), Log), Journal));
+            services.AddSingleton(sp => viewModel?.Invoke() ?? new MainWindowViewModel(
+                sp.GetRequiredService<IPlaybackCoordinator>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<IDialogService>(),
+                sp.GetRequiredService<IEditorDialogService>(), sp.GetRequiredService<IStartupRegistration>(), sp.GetRequiredService<IFileRevealService>(),
+                sp.GetRequiredService<IUiDispatcher>(), sp.GetRequiredService<IAppShell>(), sp.GetRequiredService<IAppLog>(), sp.GetRequiredService<IClock>(),
+                TimeZoneInfo.Utc, new AppInfo(UiRig.Version, Paths.DataDirectory)));
         });
-        services.AddSingleton<PlaybackHost>();
-        services.AddSingleton<IUiDispatcher, AvaloniaUiDispatcher>();
-        services.AddSingleton(_ => new AvaloniaDialogService(() => Lifetime.MainWindow));
-        services.AddSingleton<IDialogService>(sp => sp.GetRequiredService<AvaloniaDialogService>());
-        services.AddSingleton<IEditorDialogService>(sp => sp.GetRequiredService<AvaloniaDialogService>());
-        services.AddSingleton<ISettingsService>(sp => new JournalingSettingsService(new SettingsService(sp.GetRequiredService<Settings>(),
-            sp.GetRequiredService<SettingsStore>(), sp.GetRequiredService<IPlaybackCoordinator>(), sp.GetRequiredService<IDialogService>(), Log), Journal));
-        services.AddSingleton<IAppShell>(_ => Application.Current as IAppShell ?? throw new InvalidOperationException("The DialShift app is not running."));
-        services.AddSingleton<ViewModelServices>();
-        services.AddSingleton(sp => viewModel?.Invoke() ?? new MainWindowViewModel(
-            sp.GetRequiredService<IPlaybackCoordinator>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<IDialogService>(),
-            sp.GetRequiredService<IEditorDialogService>(), sp.GetRequiredService<IStartupRegistration>(), sp.GetRequiredService<IFileRevealService>(),
-            sp.GetRequiredService<IUiDispatcher>(), sp.GetRequiredService<IAppShell>(), sp.GetRequiredService<IAppLog>(), sp.GetRequiredService<IClock>(),
-            TimeZoneInfo.Utc, new AppInfo(UiRig.Version, Paths.DataDirectory)));
-        provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
         App = (DialShift.App.App)Application.Current!;
     }
 
@@ -122,8 +114,8 @@ public sealed class AppHarness : IAsyncDisposable
         Action<FakeCoordinator>? configureFake = null)
     {
         var harness = new AppHarness(settingsJson, seed, realCoordinator, viewModel, configureFake);
-        var failure = pendingFailure is { } f ? Activator.CreateInstance(StartupFailureType, f.Reason, f.ExitCode) : null;
-        RunMethod.Invoke(harness.App, [harness.Lifetime.Lifetime, harness.provider, new LaunchOptions(startInTray, SmokeTest: false), failure]);
+        var failure = pendingFailure is { } f ? new StartupFailure(f.Reason, f.ExitCode) : null;
+        harness.App.Run(harness.Lifetime.Lifetime, harness.provider, new LaunchOptions(startInTray, SmokeTest: false), failure);
         if (!await Headless.WaitAsync(() => harness.Started || Headless.OpenedWindows.OfType<DialShift.App.Views.Dialogs.MessageDialog>().Any()))
             throw new TimeoutException("App startup did not finish.");
         return harness;

@@ -28,11 +28,13 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 ## Listen
 
 - **Stations → Add station:** name, optional description, direct HTTP/HTTPS audio URL. MP3, AAC and HLS streams play on both platforms, and so do `.pls`/`.m3u` playlist files (the first entry plays). Ordinary webpage URLs are not supported; use the direct stream URL.
-- **Schedule → Add time slot:** choose a station, 24-hour start time and days. Optional show label and enabled toggle. Conflicting enabled slots on the same day/time are rejected.
+- **Schedule → Add time slot:** choose a station, 24-hour start time, time zone and days. Optional show label and enabled toggle. Enabled slots with the same start time, day and time zone conflict and are rejected. This check compares zone names, so two differently named zones that share a clock (such as Europe/Athens and Europe/Helsinki) are not flagged.
+- **Time zones:** each slot has its own time zone and defaults to **Local time** (this computer's zone). Pick another zone to follow a station's program guide abroad: type a city, region or offset (for example `Athens`, `new york` or `UTC+2`) or use **Browse**. The start time and days are in that zone, and DialShift switches at the matching moment on this computer. A slot with a zone shows it on the Schedule page with its next start in your time, for example `Next: Sun 11:00 your time`. A slot can fire on a different local day than its tab: a Monday 01:00 slot in `Asia/Kolkata` plays on Sunday evening in New York. **UP NEXT** adds the slot's own time and zone.
 - Turn on **Follow my schedule** to immediately tune into the latest matching slot, even if that slot began on a previous day.
 - Each station continues until the next scheduled start. There are no end-time/stop slots in this version.
 - Manual station selection and Pause last until the next scheduled switch. Pause disconnects the live stream; Play rejoins live rather than replaying buffered audio.
-- The schedule repeats weekly in your local time zone. Sleep/resume and missed starts catch up to the current slot. It does not wake a sleeping computer. During a repeated daylight-saving hour, a slot fires once per running session; skipped starts catch up after the jump.
+- The schedule repeats weekly, each slot in its own time zone. Sleep/resume and missed starts catch up to the current slot. It does not wake a sleeping computer. During a repeated daylight-saving hour, a slot fires once per running session, at the first of the two times; a start inside a skipped hour fires when the clock jumps.
+- **Changed your computer's time zone?** Restart DialShift. Time zone rules are read at startup, so a zone change (or an operating system time zone update) takes effect after a restart.
 - A failed or stalled stream retries, then uses your optional fallback after three failures. While playing a fallback, the original is retried every two minutes. With no fallback, retries continue every 30 seconds after the initial quick retries.
 - Closing or minimizing the window keeps DialShift running in the tray (notification area on Windows, menu bar on macOS). The tray menu has playback, stations, volume, the schedule toggle and **Quit DialShift**. On Windows, clicking the tray icon opens the window; on macOS, clicking it opens the menu.
 - **Settings:** optional launch at sign-in, start in tray, fallback station and local settings folder. Launch at sign-in is off by default. No playback starts on first launch until you press Play or enable a populated schedule.
@@ -52,7 +54,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 | Log | `dialshift.log` in the same folder (rotated to `dialshift.log.1` at 1 MiB) | same |
 | Launch at sign-in | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `DialShift` | `~/Library/LaunchAgents/com.tsiger.dialshift.plist` |
 
-Writes are atomic. An unreadable settings file is preserved as `settings.json.unreadable-*` before defaults are used. Back up the settings folder to move stations and schedules. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
+Writes are atomic. An unreadable settings file is preserved as `settings.json.unreadable-*` before defaults are used. Back up the settings folder to move stations and schedules. Settings move between Windows and macOS: slot time zones are saved as IANA names (such as `Europe/Athens`), which both systems understand. If this computer doesn't recognize a saved zone, the slot runs on local time and shows `(unknown zone)` in the warning color. Editing the slot keeps the saved zone unless you pick another one. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
 ## Radio station catalog
 

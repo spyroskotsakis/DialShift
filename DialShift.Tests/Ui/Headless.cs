@@ -131,15 +131,25 @@ public static class Headless
     /// A real left click through the headless input pipeline at the control's center. It first brings the control into
     /// view and checks the hit test lands on it (or inside it), so a covered or clipped button fails loudly.
     /// </summary>
+    /// <remarks>
+    /// Hit testing reads the rendered scene. After <see cref="Control.BringIntoView"/> scrolls, the scene can lag the layout
+    /// by a frame, so the check is retried (re-laying out and re-rendering) until it lands, for at most <see cref="WaitTimeout"/>.
+    /// </remarks>
     public static async Task ClickAsync(Control control)
     {
         var window = TopLevel.GetTopLevel(control) as Window ?? throw new InvalidOperationException("The control is not in a window.");
         control.BringIntoView();
-        Layout(window);
-        var center = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)
-            ?? throw new InvalidOperationException("The control has no position in its window.");
-        var hit = window.InputHitTest(center) as Visual;
-        if (hit == null || (hit != control && !control.IsVisualAncestorOf(hit)))
+        Point center = default;
+        Visual? hit = null;
+        bool Lands()
+        {
+            Layout(window);
+            center = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)
+                ?? throw new InvalidOperationException("The control has no position in its window.");
+            hit = window.InputHitTest(center) as Visual;
+            return hit != null && (hit == control || control.IsVisualAncestorOf(hit));
+        }
+        if (!await WaitAsync(Lands))
             throw new InvalidOperationException($"A click at the center of {control.GetType().Name} would hit {hit?.GetType().Name ?? "nothing"}.");
         window.MouseDown(center, MouseButton.Left);
         window.MouseUp(center, MouseButton.Left);

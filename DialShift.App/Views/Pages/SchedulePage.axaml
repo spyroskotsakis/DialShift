@@ -15,6 +15,22 @@
     <Style Selector="TextBlock.slotTime.on">
       <Setter Property="Foreground" Value="{StaticResource DsAccentBrush}" />
     </Style>
+    <Style Selector="Border.zoneTag">
+      <Setter Property="Background" Value="{StaticResource DsTileBrush}" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Padding" Value="7,2" />
+    </Style>
+    <Style Selector="Border.zoneTag TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource DsTextBrush}" />
+    </Style>
+    <Style Selector="Border.zoneTag.unknown">
+      <Setter Property="Background" Value="{StaticResource DsWarningTintBrush}" />
+    </Style>
+    <Style Selector="Border.zoneTag.unknown TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource DsWarningBrush}" />
+    </Style>
   </UserControl.Styles>
 
   <StackPanel>
@@ -50,6 +66,15 @@
               <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
                 <TextBlock Classes="rowTitle" Text="{Binding StationName}" />
                 <TextBlock Classes="secondary" Text="{Binding Subtitle}" Margin="0,4,0,0" />
+                <!-- QA-N6: the zone and the next start on this computer, which can fall on another day than the tab. -->
+                <WrapPanel IsVisible="{Binding HasZone}" Margin="0,6,0,0">
+                  <Border Classes="zoneTag" Classes.unknown="{Binding IsZoneUnknown}" Margin="0,0,8,2" VerticalAlignment="Center"
+                          ToolTip.Tip="{Binding ZoneToolTip}">
+                    <TextBlock Text="{Binding ZoneText}" />
+                  </Border>
+                  <TextBlock Classes="secondary" Classes.warning="{Binding IsZoneUnknown}" Text="{Binding NextStartText}"
+                             VerticalAlignment="Center" Margin="0,0,0,2" />
+                </WrapPanel>
               </StackPanel>
             </DockPanel>
           </Border>

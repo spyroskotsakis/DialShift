@@ -107,11 +107,13 @@ public static class SettingsStoreTests
     {
         var document = Baseline();
         document["Future"] = 1;
+        document["Schedule"]![0]!["FutureSlotField"] = "x";
         document["Schedule"]![0]!["TimeZone"] = "Europe/Athens";
         var store = StoreWith(directory, document);
         var loaded = store.Load();
-        Check("CT-SET-03 unknown root/entry properties are ignored (forward compatibility)",
-            store.Warning == null && Backups(directory).Length == 0 && loaded.Schedule.Count == 1 && loaded.Schedule[0].Time == "08:00");
+        Check("CT-SET-03 unknown root/entry properties are ignored (forward compatibility); the known TimeZone field loads beside them",
+            store.Warning == null && Backups(directory).Length == 0 && loaded.Schedule.Count == 1 && loaded.Schedule[0].Time == "08:00"
+            && loaded.Schedule[0].TimeZone == "Europe/Athens");
     }
 
     private static void VolumeClamp(string root)

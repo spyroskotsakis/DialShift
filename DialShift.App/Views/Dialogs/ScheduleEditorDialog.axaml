@@ -44,6 +44,30 @@
       <TextBox x:Name="TimeField" Text="{Binding Time}" MaxLength="{x:Static vm:ScheduleEditorViewModel.TimeMaxLength}" Width="120" HorizontalAlignment="Left"
                AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.TimeLabel}" />
 
+      <TextBlock Classes="fieldLabel" Text="{x:Static vm:ScheduleEditorViewModel.TimeZoneLabel}" />
+      <!-- Type-to-search over ~420 zones; Down or "Browse" opens the whole list. The filter is set in code-behind. -->
+      <DockPanel>
+        <Button x:Name="BrowseTimeZones" DockPanel.Dock="Right" Content="Browse" MinWidth="92" Margin="8,0,0,0" Padding="12,8"
+                AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.BrowseTimeZonesName}"
+                ToolTip.Tip="{x:Static vm:ScheduleEditorViewModel.BrowseTimeZonesName}" />
+        <AutoCompleteBox x:Name="TimeZoneField" Classes="zonePicker" Classes.unknown="{Binding IsTimeZoneUnknown}"
+                         ItemsSource="{Binding TimeZones}" SelectedItem="{Binding SelectedTimeZone}"
+                         FilterMode="Custom" MinimumPrefixLength="0" MaxDropDownHeight="288"
+                         PlaceholderText="{x:Static vm:ScheduleEditorViewModel.TimeZonePlaceholder}"
+                         AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.TimeZoneLabel}">
+          <AutoCompleteBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:TimeZoneOption">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Classes="zoneDetail" Classes.warning="{Binding IsUnknown}"
+                           Text="{Binding Detail}" Margin="12,0,0,0" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              </DockPanel>
+            </DataTemplate>
+          </AutoCompleteBox.ItemTemplate>
+        </AutoCompleteBox>
+      </DockPanel>
+      <TextBlock Classes="hint" Classes.warning="{Binding IsTimeZoneUnknown}" Text="{Binding TimeZoneHint}" Margin="0,6,0,14" />
+
       <TextBlock Classes="fieldLabel" Text="Repeat on" />
       <ItemsControl ItemsSource="{Binding Days}">
         <ItemsControl.ItemsPanel>

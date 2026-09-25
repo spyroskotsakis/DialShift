@@ -63,9 +63,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         volume = snapshot.Volume;
         LocalTimeText = UiText.LocalTime(localZone);
 
-        var today = TimeZoneInfo.ConvertTime(clock.UtcNow, localZone).DayOfWeek;
         Stations = new StationsPageViewModel(services);
-        Schedule = new SchedulePageViewModel(services, today);
+        Schedule = new SchedulePageViewModel(services, clock, localZone);
         Settings = new SettingsPageViewModel(services, startup, reveal, info);
 
         TogglePlayCommand = new AsyncRelayCommand(async () => { await coordinator.ToggleAsync(); await settings.SaveAsync(); }, services.ReportError);

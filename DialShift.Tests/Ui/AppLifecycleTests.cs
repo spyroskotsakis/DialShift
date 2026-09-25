@@ -61,6 +61,11 @@ public static class AppLifecycleTests
         Check("HS-13 DOD-09 the App's startup reads the verified launch-at-login status and logs startup_registration.result",
             app.Startup.GetCalls == 1 && app.Log.HasEvent("startup_registration.result"));
         Check("HS-07 BHV-03 a readable settings file shows no recovery notice", !app.Log.HasEvent("settings.recovered") && !OpenedWindows.OfType<MessageDialog>().Any());
+        var tray = app.App.Tray;
+        Check("HS-03 BHV-19 BHV-22 the App's own tray (App.Tray): created at startup, the only registered icon, visible, showing its RootMenu",
+            tray != null && TrayIcon.GetIcons(app.App) is { Count: 1 } icons && ReferenceEquals(icons[0], tray.TrayIcon)
+            && tray.TrayIcon.IsVisible && ReferenceEquals(tray.TrayIcon.Menu, tray.RootMenu));
+        await new HeadlessUiTests.TrayProbe(tray!, live!).CheckAfter("App startup (the App's own tray)");
 
         window!.Close();
         await PumpAsync();
@@ -90,6 +95,7 @@ public static class AppLifecycleTests
         Check("HS-04 BHV-11 Quit stopped and disposed the engine, the power events and the single-instance lock",
             app.Engine.IsDisposed && app.Engine.ActiveSessionId == null && app.Power.DisposeCount == 1 && app.SingleInstance.DisposeCount == 1 && !app.Power.HasSubscribers);
         Check("HS-04 BHV-11 app.exit is logged, clean", app.Log.Entries.Any(e => e.EventName == "app.exit" && e.Message == "code=0 clean=True"));
+        Check("HS-04 BHV-11 Quit disposed the App's own tray: its icon is hidden", !tray!.TrayIcon.IsVisible);
         app.App.Quit();
         await PumpAsync();
         Check("HS-04 BHV-11 quitting twice shuts down once, and the shutdown-request handler is gone",

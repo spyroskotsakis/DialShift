@@ -45,13 +45,30 @@ public static class UiText
         return text.Length > TrayTooltipMaxLength ? text[..TrayTooltipMaxLength] : text;
     }
 
-    /// <summary>Footer, left (BHV-29). <c>Next.At</c> is computer-local wall time.</summary>
+    /// <summary>
+    /// Footer, left (BHV-29). <c>Next.At</c> is computer-local wall time. A zoned slot adds its own time and zone, with
+    /// the zone's day when it differs from the local one (QA-N6): "UP NEXT · Sun 22:30  /  Jazz · Mon 01:00 Asia/Kolkata".
+    /// </summary>
     public static string UpNext(bool scheduleEnabled, PlaybackSnapshot snapshot, CultureInfo culture)
     {
         if (!scheduleEnabled) return "SCHEDULE OFF · You're in control";
         if (snapshot.Next is not { } next) return "SCHEDULE ON · Add your first time slot";
-        return $"UP NEXT · {next.At.ToString("ddd HH:mm", culture)}  /  {snapshot.NextStationName}";
+        var text = $"UP NEXT · {next.At.ToString("ddd HH:mm", culture)}  /  {snapshot.NextStationName}";
+        if (ZoneName(next.Entry.TimeZone) is not { } zone) return text;
+        if (next.ZoneResolution == ZoneResolution.Unknown) return $"{text} · {TimeZoneChoices.UnknownZone(zone)}";
+        var zoneTime = next.ZoneWall.ToString(next.ZoneWall.DayOfWeek == next.At.DayOfWeek ? "HH:mm" : "ddd HH:mm", culture);
+        return $"{text} · {zoneTime} {zone}";
     }
+
+    /// <summary>
+    /// A stored zone id as shown to the user: trimmed, as the user or another computer wrote it; null for local time.
+    /// Never <c>TimeZoneInfo.Id</c>, whose spelling is whichever one .NET cached first for the zone.
+    /// </summary>
+    public static string? ZoneName(string? storedId) => string.IsNullOrWhiteSpace(storedId) ? null : storedId.Trim();
+
+    /// <summary>A zoned slot row's next start on this computer (QA-N6): "Next: Sun 08:30 your time".</summary>
+    public static string NextStart(DateTime at, bool enabled, CultureInfo culture) =>
+        $"{(enabled ? "Next" : "When enabled")}: {at.ToString("ddd HH:mm", culture)} your time";
 
     /// <summary>Footer, right (BHV-29): the standard name, even during DST, as today.</summary>
     public static string LocalTime(TimeZoneInfo localZone) => "LOCAL TIME · " + localZone.StandardName;
@@ -65,7 +82,7 @@ public static class UiText
         $"Delete {station.Name}" + (slotCount > 0 ? $" and its {slotCount} schedule slot(s)?" : "?");
 
     public static string DeleteSlotQuestion(ScheduleEntry entry, string stationName) =>
-        $"Delete the {entry.Time} switch to {stationName}? It repeats on {Days(entry.Days)}.";
+        $"Delete the {entry.Time}{(ZoneName(entry.TimeZone) is { } zone ? " " + zone : "")} switch to {stationName}? It repeats on {Days(entry.Days)}.";
 
     /// <summary>"Mon, Wed, Fri" in week order.</summary>
     public static string Days(IEnumerable<DayOfWeek> days)
