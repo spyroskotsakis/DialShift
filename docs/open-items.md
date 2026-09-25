@@ -337,7 +337,6 @@ reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApprove
   - NC-09, and NC-05 (b) until a build is signed ([§2.2](#22-signing-credentials-and-certificates-2-items-release-only-not-performed)).
   - The dev builds with the power-event source disabled, for NC-02 step 4 and NC-08 step 4. The kit asks for their path.
   - The thread `Resumed` arrives on (SR-02, D30). The kit only records what the tester observed from such a build or a debugger.
-  - The upgrade-path steps added after the kit was written (D55): NC-01's older-WPF-app dialog, NC-04 step 6 (`Install.ps1`), NC-07's translocated copy, and NC-10 steps 5–6. Until the kit prompts for them, run them from matrix §9 and record them as a note on the check.
 
 ---
 

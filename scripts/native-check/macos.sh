@@ -533,7 +533,7 @@ ts_ms() {   # 2026-09-25T10:11:12.1234567+00:00 → epoch milliseconds
 ms_to_s() { printf '%d.%d' $(($1 / 1000)) $((($1 % 1000) / 100)); }
 timeline() {   # jsonl → one line per event the checks read, with seconds since the first
     local line ts first=""
-    grep -E '"event":"(app\.(start|exit|render_timer_fallback|startup_failed)|playback\.(state|failed|fallback|engine_error)|wake\.|power_events\.|schedule\.fired|single_instance\.(activated|socket)|settings\.recovered|startup_registration\.)' "$1" 2>/dev/null |
+    grep -E '"event":"(app\.(start|exit|render_timer_fallback|startup_failed|legacy_instance_running|translocated)|playback\.(state|failed|fallback|engine_error)|wake\.|power_events\.|schedule\.fired|single_instance\.(activated|socket)|settings\.recovered|startup_registration\.)' "$1" 2>/dev/null |
         while IFS= read -r line; do
             ts=$(log_field "$line" ts)
             if [ -z "$first" ]; then first=$(ts_ms "$ts"); fi
@@ -579,7 +579,7 @@ real_begin() {   # owner [install|aside]: install puts the build under test in /
     say "The kit moves your originals aside and puts them back when $owner ends (or with menu option r):"
     say "  $(tilde "$REAL_DATA")   moved aside; the check starts with default settings"
     say "  $(tilde "$AGENT_PLIST")   copied, then restored with its launchctl enable/disable state"
-    say "  $(tilde "$LEGACY_AGENT_PLIST")   (an older DialShift's entry) copied and restored, if present"
+    say "  $(tilde "$LEGACY_AGENT_PLIST")   (an older DialShift's entry) copied and restored if present; one the test leaves is moved aside"
     if [ -n "$app_mode" ]; then say "  $INSTALLED_APP   moved aside if present"; fi
     if [ "$app_mode" = install ]; then say "  and the build under test is copied to $INSTALLED_APP"; fi
     ask_yn "Continue?" n || return 1
@@ -611,7 +611,7 @@ real_restore() {
     original=$(mget agent)
     if [ -n "$original" ]; then cp -p "$original" "$AGENT_PLIST"; elif [ -e "$AGENT_PLIST" ]; then mv "$AGENT_PLIST" "$aside/"; fi
     original=$(mget legacy_agent)
-    if [ -n "$original" ]; then cp -p "$original" "$LEGACY_AGENT_PLIST"; fi
+    if [ -n "$original" ]; then cp -p "$original" "$LEGACY_AGENT_PLIST"; elif [ -e "$LEGACY_AGENT_PLIST" ]; then mv "$LEGACY_AGENT_PLIST" "$aside/"; fi
     original=$(mget agent_state)
     current=$(agent_state)
     if [ "$original" = disabled ] && [ "$current" != disabled ]; then launchctl disable "gui/$(id -u)/$AGENT_LABEL"; fi
@@ -837,6 +837,42 @@ second_open() {   # app log label: a second 'open -n' must reach the running ins
     auto_step "$3 One DialShift process remains" "$(pf [ "$(dialshift_count)" -eq 1 ])" "$(dialshift_count) running"
     ask_step "$3 The second open brought the DialShift window to the front"
 }
+# Asks for an older DialShift.app that only the tester can have; prints its path, or nothing when skipped.
+ask_app_path() {   # prompt state-name
+    local saved answer
+    saved=$(state_get "$2")
+    while true; do
+        answer=$(ask_line "$1${saved:+ [$saved]} (s = skip):")
+        case $answer in [Ss]) return 0 ;; esac
+        answer=${answer:-$saved}
+        [ -n "$answer" ] || return 0
+        answer=${answer/#\~/$HOME}
+        answer=${answer%/}
+        if [ -d "$answer/Contents/MacOS" ] && ! [ "$answer" -ef "$INSTALLED_APP" ] && ! [ "$answer" -ef "$APP" ]; then
+            state_set "$2" "$answer"
+            printf '%s' "$answer"
+            return 0
+        fi
+        printf 'Not an app bundle, or it is the build under test. Try again.\n' >&2
+    done
+}
+file_fingerprint() { if [ -e "$1" ]; then shasum "$1" | cut -d' ' -f1; else echo absent; fi; }
+absent() { local f; for f in "$@"; do [ ! -e "$f" ] || return 1; done; }
+only_pid_left() { pid_alive "$1" && [ "$(dialshift_count)" -eq 1 ]; }   # pid: it runs, and no other DialShift does
+started_normally() { [ "$1" -ge 1 ] && [ "$2" -eq 0 ] && [ "$(dialshift_count)" -eq 1 ]; }   # app.start count, legacy count
+legacy_agent_ok() { plutil -lint -s "$LEGACY_AGENT_PLIST" && grep -qF "<string>$INSTALLED_APP</string>" "$LEGACY_AGENT_PLIST"; }
+only_legacy_entry() { [ -f "$LEGACY_AGENT_PLIST" ] && absent "$AGENT_PLIST"; }
+enabled_with_diagnostic() { grep -qF 'enabled=True' <<<"$1" && grep -qF 'diagnostic=True' <<<"$1"; }   # a startup_registration.result line
+pid_alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+wait_pid_exit() {   # pid seconds; returns 1 if it is still running
+    local n=$2
+    while [ "$n" -gt 0 ]; do
+        pid_alive "$1" || return 0
+        sleep 1
+        n=$((n - 1))
+    done
+    return 1
+}
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Procedures and pass criteria (a summary of acceptance matrix §9; §9 wins if they disagree)
@@ -888,12 +924,14 @@ Procedure (with the bundled app in /Applications):
 (2) Move DialShift.app elsewhere and log in again: the checkbox shows off with the stale diagnostic, and turning it on repairs it.
 (3) In System Settings > General > Login Items, switch DialShift off under "Allow in the Background", then reopen DialShift's Settings. Record whether launchctl print-disabled gui/$UID lists "com.tsiger.dialshift" => disabled, and whether the checkbox shows off with the Login Items diagnostic. If it still shows on, print-disabled does not see that switch, and D39 and the README must record the limit.
 (4) launchctl disable gui/$UID/com.tsiger.dialshift: the checkbox shows off; turning it on runs launchctl enable (the override is gone from print-disabled) without starting a second instance, and the next login starts DialShift.
+(5) An older DialShift still running (SW-S2, D55): quit DialShift, start an older one (DialShift.Mac from tag legacy-last-known-good, or upstream v0.2.0's app), then open the new app from Terminal (/Applications/DialShift.app/Contents/MacOS/DialShift, press OK, then echo $?): the "DialShift couldn't start. An older DialShift is still running. Quit it from its tray icon, then open DialShift again." dialog appears, the exit code is 1, the log has app.legacy_instance_running, and only the older app plays. Quit the older app: the new one then starts normally.
+(6) Upstream v0.2.0's launch-at-login entry (SW-S1, D55): with no com.tsiger.dialshift.plist, put v0.2.0's ~/Library/LaunchAgents/com.dialshift.radio.plist in place (turn launch at login on in v0.2.0 installed at /Applications/DialShift.app, then install the new app over it). Settings shows the checkbox on with "Launch at login was set up by an older DialShift..."; log out and in: DialShift starts once, in the menu bar. Turn launch at login off and on: only com.tsiger.dialshift.plist remains, and the next login starts DialShift once.
 
 Pass: each step as described; ~/Library/LaunchAgents/com.tsiger.dialshift.plist passes plutil -lint and targets the current bundle; no second instance is ever started.
 
 NC-13's remaining half runs after the first login: the socket must be mode 600, the log must have single_instance.socket, and a second open must activate the window.
 
-The kit moves your real install aside and installs the build under test in /Applications. After each login it checks the plist, the launchd state, the process start time and the socket. It moves the bundle for step 2, runs launchctl disable for step 4, and restores everything at the end. It needs three log-out and log-in cycles: after each login, run the kit again and it continues.
+The kit moves your real install aside and installs the build under test in /Applications. After each login it checks the plist, the launchd state, the process start time and the socket. It moves the bundle for step 2 and runs launchctl disable for step 4. For step 5 it starts the older app you point it to, runs the new executable, reads its exit code and the log, and checks that only the older app is left. For step 6 it copies v0.2.0 to /Applications for a moment, checks the com.dialshift.radio.plist it writes, then puts the build under test back over it. It restores everything at the end. Steps 1-4 need three log-out and log-in cycles and step 6 two more: after each login, run the kit again and it continues. Steps 5 and 6 need the older apps; without them they are recorded as SKIP.
 EOF
             ;;
         NC-13) cat <<'EOF'
@@ -925,10 +963,11 @@ EOF
             ;;
         NC-07) cat <<'EOF'
 Procedure (an Apple Silicon Mac with no Rosetta and no developer tools): download the CI DialShift-osx-arm64-native-avplayer.zip with Safari, unzip it in Finder, move DialShift.app to /Applications and double-click it. Expected first: Gatekeeper blocks it (ad-hoc signed, not notarized): the quarantine flag is set, codesign -dv shows Signature=adhoc, and spctl -a -vv reports it rejected. Open it with System Settings > Privacy & Security > Open Anyway. Then: the menu-bar icon appears and there is no Dock icon; an https:// and an http:// station play audibly; Quit, then relaunch without a prompt; a second open activates the window. Also extract the same zip with unzip in Terminal: codesign --verify --deep --strict must pass, and that copy must open after the same Open Anyway step.
+App Translocation (SW-S3, D55): quit DialShift, unzip the downloaded zip again in Finder and open that copy from Downloads without moving it (after the same Open Anyway step). macOS runs it translocated: the log has app.translocated naming a path under /AppTranslocation/. Turning on "Launch DialShift in the tray when I log in" is refused with "Move DialShift to Applications first, then turn this on again.", the checkbox stays off, and no ~/Library/LaunchAgents/com.tsiger.dialshift.plist is written. Quit it and delete that copy.
 
-Pass: each observation holds; app.start shows rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine; no Rosetta prompt ever appears.
+Pass: each observation holds; app.start shows rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine; no Rosetta prompt ever appears; the translocated copy refuses launch at login.
 
-The kit checks that the Mac is clean (pgrep oahd and arch -x86_64 /usr/bin/true must both fail, and no developer tools), checks the quarantine flag on the download, runs the xattr, codesign and spctl checks, reads app.start from the log, runs the second open and makes the unzip copy. Your real DialShift data and any /Applications/DialShift.app are moved aside first and restored at the end.
+The kit checks that the Mac is clean (pgrep oahd and arch -x86_64 /usr/bin/true must both fail, and no developer tools), checks the quarantine flag on the download, runs the xattr, codesign and spctl checks, reads app.start from the log, runs the second open and makes the unzip copy. For the translocated copy it checks the quarantine flag, the process path, app.translocated and the startup_registration.result line, and compares com.tsiger.dialshift.plist before and after; then it moves that copy into its test-leftovers folder. Your real DialShift data and any /Applications/DialShift.app are moved aside first and restored at the end.
 EOF
             ;;
         NC-16) cat <<'EOF'
@@ -1114,13 +1153,15 @@ check_nc10() {
         1) nc10_after_login_1 ;;
         2) nc10_after_login_2 ;;
         3) nc10_after_login_3 ;;
+        4) nc10_after_login_4 ;;
+        5) nc10_after_login_5 ;;
     esac
 }
 
 nc10_logout() {   # next phase: records the log-out time and exits; the next run continues
     printf '%s\n' "$1" > "$CUR_DIR/phase"
     date +%s > "$CUR_DIR/logout-at"
-    title "Log out and back in (NC-10, login $1 of 3)"
+    title "Log out and back in (NC-10, login $1; steps 1-4 need 3, step 6 two more)"
     say "1. Apple menu → Log Out $(id -un). In the dialog, turn off 'Reopen windows when logging back in'."
     say "2. Log back in and wait about 20 seconds."
     say "3. Open Terminal and run the kit again; it continues NC-10 from here:"
@@ -1250,11 +1291,136 @@ nc10_after_login_3() {
     sleep 5
     login_start_checks "4f. Next login:"
     agent_checks "4g." "$INSTALLED_APP"
-    save_cmd agent-plist-final.txt plutil -p "$AGENT_PLIST"
-    save_excerpt log "$REAL_DATA/dialshift.log" 0
+    save_cmd agent-plist-step4.txt plutil -p "$AGENT_PLIST"
+    nc10_step5
+    nc10_step6_setup || nc10_finish   # step 6 logs out twice more; skipped, NC-10 ends here
+}
+
+nc10_finish() {
+    local log="$REAL_DATA/dialshift.log"
+    save_excerpt log "$log" 0
+    add_step auto INFO "startup_registration.error lines in the log" \
+        "$(count_ev "$EXCERPT" startup_registration.error)$(grep -F '"event":"startup_registration.error"' "$EXCERPT" | while IFS= read -r l; do printf '; %s' "$(log_msg "$l")"; done || true)"
     rm -f "$CUR_DIR/phase" "$CUR_DIR/logout-at"
     finish_check
     offer_restore
+}
+
+# Step 5: an older DialShift (DialShift.Mac or upstream v0.2.0) still running; the new app must refuse to start (SW-S2).
+nc10_step5() {
+    local old log="$REAL_DATA/dialshift.log" pid mark rc line starts legacy
+    title "Step 5: an older DialShift still running (SW-S2)"
+    say "This step needs an older DialShift.app: DialShift.Mac (a build of tag legacy-last-known-good; it needs Rosetta) or upstream v0.2.0's app (github.com/tsiger/DialShift/releases/tag/v0.2.0). It must not be $INSTALLED_APP."
+    old=$(ask_app_path "Path to the older DialShift.app" legacy_app)
+    if [ -z "$old" ]; then add_step manual SKIP "5. An older DialShift still running" "no older DialShift app available"; return 0; fi
+    add_step auto INFO "5. Older app" "$(tilde "$old"), version $(app_version "$old")"
+    ask_user_quit
+    require_no_dialshift
+    open -n "$old"
+    say "If macOS blocks it, use System Settings → Privacy & Security → Open Anyway."
+    wait_running 60
+    pid=$(first_dialshift_pid)
+    if [ -z "$pid" ]; then add_step auto SKIP "5. An older DialShift still running" "the older app did not start"; return 0; fi
+    sleep 3
+    add_step auto INFO "5a. The older app's single-instance marker" \
+        "DialShift.Mac's pipe socket: $(yes_no_of test -S "${TMPDIR%/}/CoreFxPipe_DialShift.App.Pipe"); v0.2.0's running.lock: $(yes_no_of test -e "$REAL_DATA/running.lock")"
+    do_step "In the older DialShift start a station (Play or Listen), so you can hear which app plays."
+    mark=$(log_lines "$log")
+    say "The kit now starts the new app from Terminal and waits for it to exit. Press OK in the 'DialShift couldn't start' dialog."
+    rc=0
+    "$INSTALLED_APP/Contents/MacOS/DialShift" >/dev/null 2>&1 || rc=$?
+    auto_step "5b. The new app exits 1" "$(pf [ "$rc" -eq 1 ])" "exit code $rc"
+    save_excerpt legacy-running "$log" "$mark"
+    line=$(grep -F '"event":"app.legacy_instance_running"' "$EXCERPT" | tail -n 1 || true)
+    auto_step "5c. The log has app.legacy_instance_running" "$(pf [ -n "$line" ])" "$(log_msg "$line")"
+    auto_step "5d. The older app is still running, and no new DialShift is left" \
+        "$(pf only_pid_left "$pid")" "$(dialshift_count) DialShift process(es)"
+    ask_step "5e. The dialog says 'DialShift couldn't start. An older DialShift is still running. Quit it from its tray icon, then open DialShift again.', and only the older app plays"
+    pause "Quit the older DialShift from its menu-bar icon, then press Enter."
+    if ! wait_pid_exit "$pid" 15; then
+        warn "the older DialShift is still running."
+        if ask_yn "Send it SIGTERM?" y; then kill -TERM "$pid" 2>/dev/null || true; wait_pid_exit "$pid" 15 || true; fi
+    fi
+    auto_step "5f. The older app has quit" "$(pf wait_pid_exit "$pid" 1)"
+    mark=$(log_lines "$log")
+    open "$INSTALLED_APP"
+    wait_running 30
+    sleep 3
+    starts=$(log_since "$log" "$mark" | grep -cF '"event":"app.start"' || true)
+    legacy=$(log_since "$log" "$mark" | grep -cF '"event":"app.legacy_instance_running"' || true)
+    auto_step "5g. With the older app gone, the new app starts normally (app.start, no app.legacy_instance_running)" \
+        "$(pf started_normally "${starts:-0}" "${legacy:-0}")" \
+        "app.start: ${starts:-0}; app.legacy_instance_running: ${legacy:-0}; $(dialshift_count) running"
+}
+
+# Step 6, before its first login: v0.2.0 writes com.dialshift.radio.plist, then the build under test is installed over
+# it. Returns 1 when step 6 is skipped; otherwise it logs out (and the kit exits).
+nc10_step6_setup() {
+    local v020 log="$REAL_DATA/dialshift.log" leftovers mark line
+    title "Step 6: upstream v0.2.0's launch-at-login entry (SW-S1)"
+    say "This step needs upstream v0.2.0's DialShift.app (github.com/tsiger/DialShift/releases/tag/v0.2.0) and two more log-outs. The kit copies it to $INSTALLED_APP for a moment and, after you turn its launch at login on, puts the build under test back over it."
+    v020=$(ask_app_path "Path to upstream v0.2.0's DialShift.app" v020_app)
+    if [ -z "$v020" ]; then add_step manual SKIP "6. Upstream v0.2.0's launch-at-login entry" "no upstream v0.2.0 app available"; return 1; fi
+    add_step auto INFO "6. v0.2.0 app" "$(tilde "$v020"), version $(app_version "$v020")"
+    if [ "$(dialshift_count)" -eq 0 ]; then open "$INSTALLED_APP"; wait_running 30; fi
+    do_step "In DialShift open Settings and turn launch at login off, so neither entry is left."
+    auto_step "6a. Turning it off left no com.tsiger.dialshift.plist and no com.dialshift.radio.plist" "$(pf absent "$AGENT_PLIST" "$LEGACY_AGENT_PLIST")"
+    ask_user_quit
+    require_no_dialshift
+    mkdir -p "$WORK_ROOT/moved"
+    mv "$INSTALLED_APP" "$WORK_ROOT/moved/DialShift.app"
+    ditto "$v020" "$INSTALLED_APP"
+    # A quarantined copy that Finder didn't move runs translocated, and v0.2.0 would register the translocated path.
+    xattr -dr com.apple.quarantine "$INSTALLED_APP" 2>/dev/null || true
+    say "Copied v0.2.0 to $INSTALLED_APP without its quarantine flag (the build under test waits in $(tilde "$WORK_ROOT/moved"))."
+    open "$INSTALLED_APP"
+    say "If macOS blocks it, use System Settings → Privacy & Security → Open Anyway."
+    wait_running 60
+    do_step "This is upstream v0.2.0. Open its window, go to its settings and turn on launch at login."
+    auto_step "6b. v0.2.0 wrote com.dialshift.radio.plist" "$(pf [ -f "$LEGACY_AGENT_PLIST" ])" "$(tilde "$LEGACY_AGENT_PLIST")"
+    auto_step "6c. It passes plutil -lint and targets $INSTALLED_APP" "$(pf legacy_agent_ok)" \
+        "target: $(sed -n 's|.*<string>-a</string><string>\([^<]*\)</string>.*|\1|p' "$LEGACY_AGENT_PLIST" 2>/dev/null | redact)"
+    auto_step "6d. There is no com.tsiger.dialshift.plist" "$(pf absent "$AGENT_PLIST")"
+    save_cmd legacy-agent-plist.txt plutil -p "$LEGACY_AGENT_PLIST"
+    ask_user_quit
+    require_no_dialshift
+    leftovers="$WORK_ROOT/test-leftovers/$(date +%Y%m%d-%H%M%S)-NC-10-v0.2.0"
+    mkdir -p "$leftovers"
+    mv "$INSTALLED_APP" "$leftovers/DialShift.app"
+    mv "$WORK_ROOT/moved/DialShift.app" "$INSTALLED_APP"
+    say "Installed the build under test over v0.2.0 at $INSTALLED_APP (v0.2.0's copy is in $(tilde "$leftovers"))."
+    mark=$(log_lines "$log")
+    open "$INSTALLED_APP"
+    wait_running 30
+    do_step "Open the window (menu-bar icon → Open) and go to Settings."
+    sleep 2
+    ask_step "6e. The checkbox shows on with 'Launch at login was set up by an older DialShift…'"
+    line=$(log_since "$log" "$mark" | grep -F '"event":"startup_registration.result"' | grep -F '"msg":"check ' | tail -n 1 || true)
+    auto_step "6f. startup_registration.result reads it as enabled, with a diagnostic" \
+        "$(pf enabled_with_diagnostic "$line")" "$(log_msg "$line")"
+    ask_user_quit
+    nc10_logout 4
+}
+
+nc10_after_login_4() {
+    sleep 5
+    login_start_checks "6g. v0.2.0's entry at login:"
+    auto_step "6h. Only v0.2.0's entry is registered (com.dialshift.radio.plist, no com.tsiger.dialshift.plist)" \
+        "$(pf only_legacy_entry)"
+    do_step "Open the window (menu-bar icon → Open), go to Settings and turn launch at login off, then on again."
+    agent_checks "6i." "$INSTALLED_APP"
+    auto_step "6j. v0.2.0's com.dialshift.radio.plist is gone" "$(pf absent "$LEGACY_AGENT_PLIST")"
+    ask_user_quit
+    nc10_logout 5
+}
+
+nc10_after_login_5() {
+    sleep 5
+    login_start_checks "6k. Next login:"
+    agent_checks "6l." "$INSTALLED_APP"
+    auto_step "6m. Only com.tsiger.dialshift.plist remains" "$(pf absent "$LEGACY_AGENT_PLIST")"
+    save_cmd agent-plist-step6.txt plutil -p "$AGENT_PLIST"
+    nc10_finish
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1507,10 +1673,64 @@ check_nc07() {
     else
         add_step manual SKIP "9. The unzip copy" "the downloaded zip is no longer there"
     fi
-    check_clean_exit "$log" "10."
+
+    title "App Translocation (SW-S3)"
+    ask_user_quit
+    if [ -f "$zip" ]; then nc07_translocated "$zip" "$quarantine"; else add_step manual SKIP "10. App Translocation" "the downloaded zip is no longer there"; fi
+    check_clean_exit "$log" "11."
     save_excerpt log "$log" 0
     finish_check
     offer_restore
+}
+
+# A copy opened where Finder unzipped it runs translocated and must refuse launch at login (SW-S3, D55).
+nc07_translocated() {   # zip quarantine-flag-of-the-download
+    local folder copy flag mark pid cmd line agent_before agent_after leftovers log="$REAL_DATA/dialshift.log"
+    folder=$(dirname "$1")
+    do_step "In Finder open $(tilde "$folder") and double-click $(basename "$1") again. Leave the DialShift.app it unzips where it is: don't move it."
+    copy=$(ask_line "Path of that new copy (Finder may call it 'DialShift 2.app') [$(tilde "$folder")/DialShift.app] (s = skip):")
+    if [ "$copy" = s ]; then add_step manual SKIP "10. App Translocation" "skipped"; return 0; fi
+    copy=${copy:-$folder/DialShift.app}
+    copy=${copy/#\~/$HOME}
+    copy=${copy%/}
+    if [ ! -d "$copy/Contents/MacOS" ] || [ "$copy" -ef "$INSTALLED_APP" ]; then
+        add_step manual SKIP "10. App Translocation" "no new copy at $(tilde "$copy")"
+        return 0
+    fi
+    flag=$(xattr -p com.apple.quarantine "$copy" 2>/dev/null || true)
+    auto_step "10a. The copy carries the quarantine flag (macOS translocates only quarantined apps)" "$(pf [ -n "$flag" ])" "${flag:-none}"
+    if [ -z "$flag" ] && [ -n "$2" ]; then
+        xattr -w com.apple.quarantine "$2" "$copy"
+        add_step auto INFO "10a. Gave the copy the download's quarantine flag, so the rest of the step can run" "$2"
+    fi
+    agent_before=$(file_fingerprint "$AGENT_PLIST")
+    mark=$(log_lines "$log")
+    do_step "Double-click that DialShift in Finder, where it is. If macOS blocks it, use Open Anyway again (System Settings → Privacy & Security)."
+    wait_running 60
+    sleep 3
+    pid=$(first_dialshift_pid)
+    cmd=""
+    if [ -n "$pid" ]; then cmd=$(ps -o command= -p "$pid" | redact || true); fi
+    auto_step "10b. It runs translocated (its executable is under /AppTranslocation/)" "$(pf grep -qF /AppTranslocation/ <<<"$cmd")" "${cmd:-not running}"
+    line=$(log_since "$log" "$mark" | grep -F '"event":"app.translocated"' | tail -n 1 || true)
+    auto_step "10c. The log has app.translocated naming a path under /AppTranslocation/" "$(pf grep -qF /AppTranslocation/ <<<"$line")" "$(log_msg "$line")"
+    do_step "Open the window (menu-bar icon → Open), go to Settings and turn on 'Launch DialShift in the tray when I log in'."
+    sleep 2
+    ask_step "10d. It is refused with 'Move DialShift to Applications first, then turn this on again.', and the checkbox stays off"
+    save_excerpt translocated "$log" "$mark"
+    line=$(grep -F '"event":"startup_registration.result"' "$EXCERPT" | grep -F 'requested=True' | tail -n 1 || true)
+    auto_step "10e. startup_registration.result: requested=True enabled=False with a diagnostic" \
+        "$(pf grep -qF 'requested=True enabled=False diagnostic=True' <<<"$line")" "$(log_msg "$line")"
+    agent_after=$(file_fingerprint "$AGENT_PLIST")
+    auto_step "10f. No LaunchAgent was written (com.tsiger.dialshift.plist unchanged)" "$(pf [ "$agent_after" = "$agent_before" ])" \
+        "before: $agent_before; after: $agent_after"
+    ask_user_quit
+    if ask_yn "Move the translocated copy $(tilde "$copy") into the kit's test-leftovers folder (the matrix says delete it)?" y; then
+        leftovers="$WORK_ROOT/test-leftovers/$(date +%Y%m%d-%H%M%S)-NC-07-translocated"
+        mkdir -p "$leftovers"
+        mv "$copy" "$leftovers/"
+        say "Moved it to $(tilde "$leftovers")."
+    fi
 }
 
 # ---------------------------------------------------------------------------------------------------------------------

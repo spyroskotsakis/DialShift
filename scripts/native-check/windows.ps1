@@ -44,6 +44,9 @@ $RealData = Join-Path $env:LOCALAPPDATA 'DialShift'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $ApprovedKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
 $EntryName = 'DialShift'
+$InstalledDir = Join-Path $env:LOCALAPPDATA 'Programs\DialShift'                      # where Install.ps1 installs
+$StartMenuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'DialShift.lnk'   # the shortcut it creates
+$LegacyMutexName = 'Local\DialShift.App'   # held by the older WPF DialShift while it runs (sweep S2)
 $WakeTaskName = 'DialShift native-check wake'
 $CheckOrder = @('NC-01', 'NC-06', 'NC-04', 'NC-02', 'NC-03', 'NC-15', 'NC-05')   # docs/open-items.md section 3
 $Titles = @{
@@ -59,7 +62,7 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $Dot = [char]0x00B7   # the middle dot in DialShift's window, dialog and tooltip texts
 $LogPattern = [regex]'^\{"ts":"(?<ts>[^"]+)","level":"(?<level>[^"]+)","event":"(?<event>[^"]+)","msg":"(?<msg>(?:[^"\\]|\\.)*)"'
-$TimelineEvents = '^(app\.(start|exit|startup_failed)|playback\.(state|failed|fallback|engine_error)|wake\.|power_events\.|schedule\.fired|single_instance\.(activated|socket)|settings\.recovered|startup_registration\.)'
+$TimelineEvents = '^(app\.(start|exit|startup_failed|legacy_instance_running)|playback\.(state|failed|fallback|engine_error)|wake\.|power_events\.|schedule\.fired|single_instance\.(activated|socket)|settings\.recovered|startup_registration\.)'
 
 # The corpus (docs/spikes.md) with the LibVLC outcome each case is expected to give.
 function New-CorpusEntry([string]$Id, [string]$Url, [string]$What, [string]$Expect) {
@@ -605,6 +608,27 @@ function Backup-RealData([string]$Owner) {
     return $true
 }
 
+# NC-04 step 6: moves an existing Install.ps1 install and its Start menu shortcut aside before Install.ps1 replaces them.
+function Backup-Install {
+    $manifest = Read-Manifest
+    if ($manifest.installRan) { return }   # already saved by an earlier run of step 6
+    $programs = $null
+    if (Test-Path -LiteralPath $InstalledDir) {
+        $programs = Join-Path $manifest.dir 'Programs-DialShift'
+        Move-Item -LiteralPath $InstalledDir -Destination $programs
+    }
+    $shortcut = $null
+    if (Test-Path -LiteralPath $StartMenuShortcut) {
+        $shortcut = Join-Path $manifest.dir 'DialShift.lnk'
+        Copy-Item -LiteralPath $StartMenuShortcut -Destination $shortcut
+    }
+    $manifest | Add-Member -NotePropertyName installRan -NotePropertyValue $true -Force
+    $manifest | Add-Member -NotePropertyName programs -NotePropertyValue $programs -Force
+    $manifest | Add-Member -NotePropertyName shortcut -NotePropertyValue $shortcut -Force
+    Save-Manifest $manifest
+    Write-Host "Saved the existing install and shortcut (if any) in $(Hide-Home $manifest.dir)."
+}
+
 function Restore-RealData {
     if (-not (Test-Path -LiteralPath $ManifestPath)) { Write-Host 'Nothing to restore.'; return }
     $manifest = Read-Manifest
@@ -618,12 +642,18 @@ function Restore-RealData {
     $approved = $null
     if ($manifest.approved) { $approved = [Convert]::FromBase64String($manifest.approved) }
     Set-EntryValue $ApprovedKey 'Binary' $approved
+    if ($manifest.installRan) {   # NC-04 step 6 ran Install.ps1: put back the install and shortcut it replaced
+        if (Test-Path -LiteralPath $InstalledDir) { Move-Item -LiteralPath $InstalledDir -Destination (Join-Path $aside 'Programs-DialShift') }
+        if ($manifest.programs) { Move-Item -LiteralPath $manifest.programs -Destination $InstalledDir }
+        if (Test-Path -LiteralPath $StartMenuShortcut) { Move-Item -LiteralPath $StartMenuShortcut -Destination (Join-Path $aside 'DialShift.lnk') }
+        if ($manifest.shortcut) { Copy-Item -LiteralPath $manifest.shortcut -Destination $StartMenuShortcut }
+    }
     if ($manifest.folderFrom -and (Test-Path -LiteralPath $manifest.folderTo) -and -not (Test-Path -LiteralPath $manifest.folderFrom)) {
         Move-Item -LiteralPath $manifest.folderTo -Destination $manifest.folderFrom
         Set-App (Join-Path $manifest.folderFrom 'DialShift.exe') (Get-State 'source')
     }
     Move-Item -LiteralPath $ManifestPath -Destination (Join-Path $aside 'manifest.restored.json')
-    Write-Host "Restored. The test's data folder is in $(Hide-Home $aside)."
+    Write-Host "Restored. What the test left behind (its data folder, and the Install.ps1 copy if step 6 ran) is in $(Hide-Home $aside)."
 }
 function Request-Restore { if ((Test-Path -LiteralPath $ManifestPath) -and (Confirm-Choice 'Restore your real DialShift files now?' $true)) { Restore-RealData } }
 
@@ -906,7 +936,12 @@ normally and check by hand:
     Explorer at %LOCALAPPDATA%\DialShift; Tab shows a visible focus ring on every control.
 (5) Recovery and failure: settings.json replaced with { gives one "DialShift $Dot Settings recovered" dialog naming the
     settings.json.unreadable-* copy; a folder named .single-instance.lock in the data folder gives the "DialShift
-    couldn't start" dialog about its lock file, and the process exits 1.
+    couldn't start" dialog about its lock file, and the process exits 1. Then start an older DialShift, the WPF app
+    (upstream v0.2.0 from tsiger/DialShift's releases, or the WPF build at tag legacy-last-known-good; it holds the
+    mutex Local\DialShift.App), and launch the new DialShift.exe the same way: the "DialShift couldn't start. An older
+    DialShift is still running. Quit it from its tray icon, then open DialShift again." dialog appears, the process
+    exits 1, the log has app.legacy_instance_running, and only the older app plays. Quit the older app from its tray:
+    the new one then starts normally (SW-S2, D55).
 (6) Look: the three pages, both editors and the compact 780x650 size show no clipped or overlapping text (QG-03).
 (7) Quit from the tray.
 
@@ -914,8 +949,9 @@ Pass: every observation holds; the log has app.exit ... code=0 clean=true and no
 
 The kit runs the smoke and reads results.json, moves your real DialShift data aside (so %LOCALAPPDATA%\DialShift is
 the folder under test), starts and restarts the app, prepares the broken settings file and the lock folder, reads the
-exit code, checks the log, and restores your data at the end. DIALSHIFT_AUDIO_OUTPUT must not be set: this check needs
-real audio.
+exit code, checks the log, and restores your data at the end. For the older app it asks for its DialShift.exe (or
+records SKIP), starts it, checks that it holds the mutex, reads the new app's exit code and the log, and checks that
+only the older app is left. DIALSHIFT_AUDIO_OUTPUT must not be set: this check needs real audio.
 "@
         }
         'NC-02' {
@@ -970,13 +1006,19 @@ Procedure (the extracted CI zip):
     "Turned off in Task Manager's Startup apps...".
 (4) Turn it on in DialShift: Task Manager shows DialShift Enabled after a refresh, and the next sign-in starts it.
 (5) Turn it off in DialShift: both registry values are gone.
+(6) Upgrade with Install.ps1: turn launch at sign-in on from an extracted copy outside
+    %LOCALAPPDATA%\Programs\DialShift, quit it, then run that folder's Install.ps1: the Run value now names
+    %LOCALAPPDATA%\Programs\DialShift\DialShift.exe, the installed app's Settings shows the checkbox on with no
+    diagnostic, and the next sign-in starts it (README "Upgrading from an earlier DialShift", SW-S5).
 
 Pass: the startup_registration.result lines match each step; HKCU\...\Run\DialShift is "<exe>" --tray;
 StartupApproved\Run\DialShift starts with 03 after (3) and 02 after (4) (D39).
 
 The kit saves your DialShift data and both registry values and restores them at the end. It reads the registry after
-each step, checks what started after each sign-in, and moves the folder for step 2 (back at the end). It needs three
-sign-out and sign-in cycles: after each sign-in, run the kit again and it continues.
+each step, checks what started after each sign-in, and moves the folder for step 2 (back at the end). For step 6 it
+moves an existing %LOCALAPPDATA%\Programs\DialShift and Start menu shortcut aside (they are put back at the end), runs
+Install.ps1 with -NoLaunch so it can wait for it, reads the Run value and starts the installed copy. It needs four
+sign-out and sign-in cycles (three if you skip step 6): after each sign-in, run the kit again and it continues.
 "@
         }
         'NC-05' {
@@ -1005,7 +1047,7 @@ the log has single_instance.activated ... delivered.
 The kit moves your real DialShift data aside (Start menu and Explorer launches use the real data folder), opens Notepad
 to hold the focus, opens Explorer at DialShift.exe, starts one more second launch itself to read its exit code, counts
 the activations in the log, and restores your data at the end. The Start menu variant needs the entry Install.ps1
-creates; the kit does not run Install.ps1.
+creates; the kit runs Install.ps1 only in NC-04 step 6, and undoes it when it restores.
 "@
         }
         'NC-15' {
@@ -1103,9 +1145,10 @@ function Test-NC01 {
     Remove-Item -LiteralPath $lock -Recurse -Force
     Add-AutoStep '5d. The lock failure exits 1' ($code -eq 1) "exit code $code"
     Read-Step "5e. The 'DialShift couldn't start' dialog says it couldn't create its lock file"
+    Test-LegacyInstance $log
 
     Write-Title 'Step 6: look'
-    [void](Start-DialShift)
+    if ((Get-DialShiftCount) -eq 0) { [void](Start-DialShift) }
     Invoke-Step 'Open the window. Look at the three pages (Stations, Schedule, Settings), both editors (add a station, add a slot) and the compact size (resize the window to its smallest, 780x650).'
     Save-Screenshot 'window' 'the DialShift window'
     Read-Step '6. No clipped or overlapping text (QG-03)'
@@ -1120,6 +1163,80 @@ function Test-NC01 {
 }
 function Test-AudioOverride { [bool][Environment]::GetEnvironmentVariable('DIALSHIFT_AUDIO_OUTPUT', 'User') }
 
+# True while a process holds the older WPF app's mutex. Only opens it, as DialShift's own check does; never owns it.
+function Test-LegacyMutex {
+    $mutex = $null
+    try {
+        if ([System.Threading.Mutex]::TryOpenExisting($LegacyMutexName, [ref]$mutex)) { $mutex.Dispose(); return $true }
+        return $false
+    } catch [System.UnauthorizedAccessException] { return $true }   # it exists, but its security denies us
+}
+# Asks for the older WPF DialShift.exe, which only the tester can have. Returns its full path, or '' to skip.
+function Read-LegacyExe {
+    $saved = Get-State 'legacy_exe'
+    $hint = ''
+    if ($saved) { $hint = " [$saved]" }
+    while ($true) {
+        $answer = (Read-Line "Path to the older DialShift.exe$hint (s = skip)").Trim('"')
+        if ($answer -match '^[Ss]$') { return '' }
+        if (-not $answer) { $answer = $saved }
+        if (-not $answer) { return '' }
+        if ((Test-Path -LiteralPath $answer -PathType Leaf) -and ((Resolve-Path -LiteralPath $answer).ProviderPath -ne $script:Exe)) {
+            $answer = (Resolve-Path -LiteralPath $answer).ProviderPath
+            Set-State 'legacy_exe' $answer
+            return $answer
+        }
+        Write-Host 'Not found, or it is the build under test. Try again.'
+    }
+}
+# NC-01 step 5, the older-app part (SW-S2, D55): with the WPF app running, the new app refuses to start and exits 1.
+function Test-LegacyInstance([string]$Log) {
+    Write-Title 'Step 5, continued: an older DialShift still running (SW-S2)'
+    Write-Host 'This needs the older WPF DialShift: upstream v0.2.0 from github.com/tsiger/DialShift/releases, or the WPF'
+    Write-Host 'build at tag legacy-last-known-good. Extract it to its own folder (not the folder under test).'
+    $legacyExe = Read-LegacyExe
+    if (-not $legacyExe) { Add-Step 'manual' 'SKIP' '5f. An older DialShift still running' 'no older WPF DialShift available'; return }
+    Add-Step 'auto' 'INFO' '5f. Older app' ('{0}, version {1}' -f (Hide-Home $legacyExe), (Get-Item -LiteralPath $legacyExe).VersionInfo.ProductVersion)
+    Request-Quit
+    Assert-NoDialShift
+    Write-Host 'The kit starts the older DialShift. If SmartScreen asks, choose More info > Run anyway.'
+    $legacy = Start-Process -FilePath $legacyExe -PassThru
+    $held = $false
+    for ($n = 0; $n -lt 60 -and -not $held; $n++) { Start-Sleep -Seconds 1; $held = Test-LegacyMutex }
+    if (-not $held) {
+        Add-Step 'auto' 'SKIP' "5g. The older app holds the mutex $LegacyMutexName" 'not held after 60 s: not the WPF app, or it did not start'
+        Invoke-Step 'Quit the older DialShift if it is running (its tray icon).'
+        return
+    }
+    Add-AutoStep "5g. The older app holds the mutex $LegacyMutexName" $true "pid $($legacy.Id)"
+    Invoke-Step 'In the older DialShift start a station, so you can hear which app plays.'
+    $mark = Get-LogMark $Log
+    Write-Host "The kit starts the new DialShift.exe and waits for it to exit. Press OK in the `"DialShift couldn't start`" dialog."
+    $code = (Start-Process -FilePath $script:Exe -Wait -PassThru).ExitCode
+    Add-AutoStep '5h. The new DialShift exits 1' ($code -eq 1) "exit code $code"
+    $lines = @(Read-Log $Log $mark | Where-Object { $_.Event -eq 'app.legacy_instance_running' })
+    $msg = ''
+    if ($lines.Count) { $msg = $lines[-1].Msg }
+    Add-AutoStep '5i. The log has app.legacy_instance_running naming the mutex' ($msg.Contains('DialShift.App')) $msg
+    $legacy.Refresh()
+    $others = @(Get-Process -Name DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $legacy.Id }).Count
+    Add-AutoStep '5j. The older app is still running, and no new DialShift is left' ((-not $legacy.HasExited) -and $others -eq 0) "other DialShift processes: $others"
+    Read-Step "5k. The dialog says 'DialShift couldn't start. An older DialShift is still running. Quit it from its tray icon, then open DialShift again.', and only the older app plays"
+    Wait-Enter 'Quit the older DialShift from its tray icon, then press Enter'
+    if (-not $legacy.WaitForExit(15000)) {
+        Write-Warn 'The older DialShift is still running.'
+        if (Confirm-Choice 'Stop it with Stop-Process (not a clean quit; note it)?' $false) { Stop-Process -Id $legacy.Id -Force; [void]$legacy.WaitForExit(10000) }
+    }
+    Add-AutoStep '5l. The older app has quit' $legacy.HasExited
+    $mark = Get-LogMark $Log
+    [void](Start-DialShift)
+    Start-Sleep -Seconds 3
+    $entries = @(Read-Log $Log $mark)
+    $starts = Get-EventCount $entries 'app.start'
+    $refusals = Get-EventCount $entries 'app.legacy_instance_running'
+    Add-AutoStep '5m. With the older app gone, the new DialShift starts normally (app.start, no app.legacy_instance_running)' ($starts -ge 1 -and $refusals -eq 0 -and (Get-DialShiftCount) -eq 1) "app.start: $starts; app.legacy_instance_running: $refusals; $(Get-DialShiftCount) running"
+}
+
 # ---------------------------------------------------------------------------------------------------------------------
 # NC-06: second-launch foreground (real data folder)
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1133,7 +1250,7 @@ function Test-NC06 {
     Invoke-Step 'Open the window once (click the tray icon), then close it with X so DialShift is hidden in the tray.'
 
     Write-Title 'Launch 1: the Start menu'
-    $installed = Join-Path $env:LOCALAPPDATA 'Programs\DialShift\DialShift.exe'
+    $installed = Join-Path $InstalledDir 'DialShift.exe'
     if (Test-Path -LiteralPath $installed) {
         Start-Process -FilePath notepad.exe
         Start-Sleep -Seconds 2
@@ -1144,7 +1261,7 @@ function Test-NC06 {
         Read-Step '1. From the Start menu, the window came to the foreground (not just a flashing taskbar button)'
         Invoke-Step 'Close the DialShift window with X again, and close Notepad without saving.'
     } else {
-        Add-Step 'manual' 'SKIP' '1. Second launch from the Start menu' 'no Start menu entry (Install.ps1 was not run; the kit does not run it)'
+        Add-Step 'manual' 'SKIP' '1. Second launch from the Start menu' 'no Start menu entry (Install.ps1 was not run; the kit runs it only in NC-04 step 6)'
     }
 
     Write-Title 'Launch 2: an Explorer double-click'
@@ -1189,27 +1306,28 @@ function Test-NC04 {
         1 { Resume-NC04SignIn1 }
         2 { Resume-NC04SignIn2 }
         3 { Resume-NC04SignIn3 }
+        4 { Resume-NC04SignIn4 }
     }
 }
 function Exit-ForSignOut([int]$Next) {   # records the sign-out time and exits; the next run continues
     Write-Utf8 (Join-Path $script:CurDir 'phase') "$Next"
     Write-Utf8 (Join-Path $script:CurDir 'signout-at') ([DateTime]::UtcNow.ToString('o', $Invariant))
-    Write-Title "Sign out and back in (NC-04, sign-in $Next of 3)"
+    Write-Title "Sign out and back in (NC-04, sign-in $Next of 4; 3 without step 6)"
     Write-Host '1. Start > your account picture > Sign out.'
     Write-Host '2. Sign back in and wait about 20 seconds.'
     Write-Host '3. Open PowerShell and run the kit again; it continues NC-04 from here:'
     Write-Host "     powershell -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     exit 0
 }
-function Test-SignInStart([string]$Prefix) {   # what launch at sign-in started
+function Test-SignInStart([string]$Prefix, [string]$Exe = $script:Exe) {   # what launch at sign-in started
     $process = Get-Process -Name DialShift -ErrorAction SilentlyContinue | Select-Object -First 1
     Add-AutoStep "$Prefix DialShift started at sign-in" ($null -ne $process)
     if (-not $process) { return }
     $signOut = [DateTime]::Parse(([IO.File]::ReadAllText((Join-Path $script:CurDir 'signout-at'))).Trim(), $Invariant, [Globalization.DateTimeStyles]::RoundtripKind)
     Add-AutoStep "$Prefix It started after the sign-out (not a leftover process)" ($process.StartTime.ToUniversalTime() -gt $signOut) $process.StartTime.ToString('o', $Invariant)
     $commandLine = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$($process.Id)").CommandLine
-    $ok = $commandLine.IndexOf($script:Exe, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $commandLine.Contains('--tray')
-    Add-AutoStep "$Prefix It runs this copy with --tray" $ok (Hide-Home $commandLine)
+    $ok = $commandLine.IndexOf($Exe, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $commandLine.Contains('--tray')
+    Add-AutoStep "$Prefix It runs $(Hide-Home $Exe) with --tray" $ok (Hide-Home $commandLine)
     Add-AutoStep "$Prefix Exactly one DialShift instance" ((Get-DialShiftCount) -eq 1) "$(Get-DialShiftCount) running"
 }
 function Test-RunValue([string]$Prefix) {
@@ -1282,12 +1400,63 @@ function Resume-NC04SignIn3 {
     if ($null -ne $run) { $runText = Hide-Home $run }
     Add-AutoStep '5. Both registry values are gone' ($null -eq $run -and (Get-ApprovedByte) -eq 'absent') "Run: $runText; StartupApproved: $(Get-ApprovedByte)"
     Save-Command 'registry-step5.txt' { Get-StartupEntries }
+    if (Start-NC04Install) { Exit-ForSignOut 4 }
+    Complete-NC04
+}
+function Complete-NC04 {
     $entries = @(Save-LogExcerpt 'log' (Join-Path $RealData 'dialshift.log') 0)
     Add-Step 'auto' 'INFO' 'The startup_registration.result lines' ((@($entries | Where-Object { $_.Event -eq 'startup_registration.result' } | ForEach-Object { $_.Msg })) -join ' | ')
+    $errors = @($entries | Where-Object { $_.Event -eq 'startup_registration.error' } | ForEach-Object { $_.Msg })
+    Add-Step 'auto' 'INFO' 'startup_registration.error lines in the log' ("$($errors.Count)" + (@($errors | ForEach-Object { "; $_" }) -join ''))
     Request-Quit
     Remove-Item -LiteralPath (Join-Path $script:CurDir 'phase'), (Join-Path $script:CurDir 'signout-at') -Force
     Complete-Check
     Request-Restore
+}
+# Step 6 (SW-S5): Install.ps1 moves launch at sign-in to the installed copy. Returns $true when the next sign-in is due,
+# $false when the step is skipped.
+function Start-NC04Install {
+    Write-Title 'Step 6: upgrade with Install.ps1'
+    $folder = Split-Path -Parent $script:Exe
+    $install = Join-Path $folder 'Install.ps1'
+    $installedExe = Join-Path $InstalledDir 'DialShift.exe'
+    $log = Join-Path $RealData 'dialshift.log'
+    if (-not (Test-Path -LiteralPath $install)) { Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' "no Install.ps1 in $(Hide-Home $folder)"; return $false }
+    if ($folder.TrimEnd('\') -ieq $InstalledDir.TrimEnd('\')) { Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' 'the copy under test is the installed copy; step 6 needs an extracted copy outside it'; return $false }
+    Write-Host "Install.ps1 replaces $(Hide-Home $InstalledDir) and the Start menu shortcut DialShift.lnk. The kit moves an"
+    Write-Host 'existing install and shortcut aside first and puts them back when it restores your files.'
+    if (-not (Confirm-Choice 'Run step 6 (one more sign-out)?' $true)) { Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' 'not run'; return $false }
+    if ((Get-DialShiftCount) -eq 0) { [void](Start-DialShift) }
+    Invoke-Step 'Open the window of this extracted copy (click the tray icon), go to Settings and turn "Launch DialShift in the tray when I sign in" on again.'
+    Test-RunValue '6a. Before Install.ps1:'
+    Request-Quit
+    Assert-NoDialShift
+    Backup-Install
+    Write-Host "The kit runs this folder's Install.ps1 with -NoLaunch (so it can wait for it), then starts the installed copy."
+    $global:LASTEXITCODE = -1
+    Save-Command 'install-ps1.txt' { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $install -NoLaunch 2>&1 }
+    $code = $global:LASTEXITCODE
+    Add-AutoStep '6b. Install.ps1 finishes with exit code 0' ($code -eq 0) "exit code $code"
+    $value = [string](Get-EntryValue $RunKey)
+    Add-AutoStep '6c. Run\DialShift now names %LOCALAPPDATA%\Programs\DialShift\DialShift.exe with --tray' ($value -ieq ('"{0}" --tray' -f $installedExe)) (Hide-Home $value)
+    Save-Command 'registry-step6.txt' { Get-StartupEntries }
+    if (-not (Test-Path -LiteralPath $installedExe)) { Add-AutoStep '6d. The installed copy exists' $false (Hide-Home $installedExe); return $false }
+    $mark = Get-LogMark $log
+    [void](Start-DialShift -Exe $installedExe)
+    Invoke-Step 'Open the installed DialShift window (click the tray icon) and go to Settings.'
+    Start-Sleep -Seconds 2
+    Read-Step '6d. The installed copy shows the checkbox on, with no message under it'
+    $check = @(Read-Log $log $mark | Where-Object { $_.Event -eq 'startup_registration.result' -and $_.Msg.StartsWith('check ') }) | Select-Object -Last 1
+    $msg = ''
+    if ($check) { $msg = $check.Msg }
+    Add-AutoStep '6e. startup_registration.result: check enabled=True with no diagnostic' ($msg -match 'enabled=True' -and $msg -match 'diagnostic=False') $msg
+    Request-Quit
+    return $true
+}
+function Resume-NC04SignIn4 {
+    Start-Sleep -Seconds 5
+    Test-SignInStart '6f. Next sign-in:' (Join-Path $InstalledDir 'DialShift.exe')
+    Complete-NC04
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
