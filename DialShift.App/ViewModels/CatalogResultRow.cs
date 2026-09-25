@@ -1,4 +1,3 @@
-using System.Globalization;
 using Avalonia.Media.Imaging;
 using DialShift.Core.Catalog;
 
@@ -20,6 +19,7 @@ public sealed class CatalogResultRow : ObservableObject
         FrequencyText = UiText.FrequencyText(entry.FrequencyFm);
         var country = entry.CountryLabel.Length > 0 ? entry.CountryLabel : entry.Country;
         Subtitle = Join(" · ", entry.City, FrequencyText, country);
+        Place = Join(" · ", entry.City, country);
         Kind = Join(" · ", entry.Type, string.Equals(entry.Genre, entry.Type, StringComparison.Ordinal) ? "" : entry.Genre);
         Location = string.Join(", ", new[] { entry.City, entry.Region, country }.Where(p => p.Length > 0).Distinct(StringComparer.Ordinal));
         LanguageText = entry.Language;
@@ -27,7 +27,7 @@ public sealed class CatalogResultRow : ObservableObject
         {
             null => "",
             1 => "1 vote",
-            { } votes => votes.ToString(CultureInfo.InvariantCulture) + " votes"
+            { } votes => UiText.Count(votes) + " votes"
         };
         Notes = entry.Notes;
         AutomationName = $"{Name}, {Subtitle}";
@@ -40,8 +40,11 @@ public sealed class CatalogResultRow : ObservableObject
     /// <summary>Shown in the logo's place until (or unless) the logo loads.</summary>
     public string Monogram { get; }
 
-    /// <summary>"City · 101.5 FM · Country", empty parts left out.</summary>
+    /// <summary>"City · 101.5 FM · Country", empty parts left out: the spoken row (<see cref="AutomationName"/>).</summary>
     public string Subtitle { get; }
+
+    /// <summary>"City · Country", empty parts left out: the row's title after the name; the frequency has its own column.</summary>
+    public string Place { get; }
 
     /// <summary>"Type · Genre", empty parts left out; the genre is left out when it repeats the type.</summary>
     public string Kind { get; }

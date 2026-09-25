@@ -130,7 +130,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// <summary>The catalog loaded; search, filters and Clear work. False while loading and in degraded mode.</summary>
     public bool IsCatalogAvailable { get => isCatalogAvailable; private set => SetProperty(ref isCatalogAvailable, value); }
 
-    /// <summary>Loading, unavailable, or "8274 stations · catalog updated 2026-09-25" (§5.3).</summary>
+    /// <summary>Loading, unavailable, or "8,274 stations · catalog updated 2026-09-25" (§5.3).</summary>
     public string CatalogStatusText { get => catalogStatusText; private set => SetProperty(ref catalogStatusText, value); }
 
     /// <summary>The search text; a change searches after the debounce delay (D72). Typed during the load, it is searched when the load completes.</summary>
@@ -164,14 +164,27 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     public int TotalCount { get => totalCount; private set => SetProperty(ref totalCount, value); }
 
-    /// <summary>The results footer (§5.3): "Showing 50 of 214 matches".</summary>
+    /// <summary>The results footer (§5.3, D85): "Top 50 of 8,274 stations by votes" unfiltered, else "Showing 50 of 214 matches".</summary>
     public string TotalCountText { get => totalCountText; private set => SetProperty(ref totalCountText, value); }
 
     /// <summary>The catalog is available, a search was applied, and nothing matched.</summary>
     public bool HasNoMatches { get => hasNoMatches; private set => SetProperty(ref hasNoMatches, value); }
 
-    /// <summary>The results overlay is showing. A search or filter change opens it; a pick closes it; the view may close it.</summary>
-    public bool IsResultsOpen { get => isResultsOpen; set => SetProperty(ref isResultsOpen, value); }
+    /// <summary>
+    /// The results overlay is showing. A search or filter change opens it; a pick closes it; the view may open or close it.
+    /// Opening it highlights the first row when nothing is highlighted, so typing then Enter picks the top match; closing
+    /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85).
+    /// </summary>
+    public bool IsResultsOpen
+    {
+        get => isResultsOpen;
+        set
+        {
+            if (!SetProperty(ref isResultsOpen, value)) return;
+            if (!value) HighlightedResult = null;
+            else if (highlighted == null && results.Count > 0) HighlightedResult = results[0];
+        }
+    }
 
     /// <summary>The row under the keyboard highlight or the pointer; the list selection.</summary>
     public CatalogResultRow? HighlightedResult
@@ -200,7 +213,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     internal Task PendingSearch => pendingSearch?.Task ?? Task.CompletedTask;
 
     /// <summary>Walks the results (§5.5): from no highlight, down goes to the first row and up stays; otherwise it moves and
-    /// stops at the first and last row.</summary>
+    /// stops at the first and last row. Results the user asked for already open on the first row (D85).</summary>
     public void MoveHighlight(int delta)
     {
         if (results.Count == 0 || delta == 0) return;
@@ -250,12 +263,14 @@ public sealed class StationEditorViewModel : EditorViewModel
     private async Task LoadCatalogAsync(ICatalogProvider catalog)
     {
         LoadedCatalog loaded;
+        // Read once, before the first await: the source is disposed when the dialog closes.
+        var token = lifetime.Token;
         try
         {
-            var result = await catalog.GetCatalogAsync(lifetime.Token).ConfigureAwait(false);
+            var result = await catalog.GetCatalogAsync(token).ConfigureAwait(false);
             // The filter lists sort thousands of values: built here, off the UI thread.
             loaded = result.State == CatalogLoadState.Loaded
-                ? await Task.Run(() => LoadedCatalog.From(result), lifetime.Token).ConfigureAwait(false)
+                ? await Task.Run(() => LoadedCatalog.From(result), token).ConfigureAwait(false)
                 : new LoadedCatalog(result, null);
         }
         catch (OperationCanceledException)
@@ -318,7 +333,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     {
         if (!isCatalogAvailable || closed) return;
         var generation = ++searchGeneration;
-        searchCts?.Cancel();
+        CancelAndDispose(ref searchCts);
         var cts = searchCts = new CancellationTokenSource();
         if (pendingSearch == null || pendingSearch.Task.IsCompleted)
             pendingSearch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -368,10 +383,14 @@ public sealed class StationEditorViewModel : EditorViewModel
         var rows = outcome.Result.Items.Select(e => new CatalogResultRow(e)).ToList();
         Results = rows;
         TotalCount = outcome.Result.TotalCount;
-        TotalCountText = UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
+        var browsing = string.IsNullOrWhiteSpace(outcome.Request.Text) && outcome.Request.Filters == CatalogFilters.None;
+        TotalCountText = browsing
+            ? UiText.BrowseCount(rows.Count, outcome.Result.TotalCount)
+            : UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
         HasNoMatches = outcome.Result.TotalCount == 0;
-        HighlightedResult = null;
         if (outcome.Request.Open) IsResultsOpen = true;
+        // D85: new rows in an open overlay highlight the top match again, so typing then Enter picks it; closed, none.
+        HighlightedResult = isResultsOpen && rows.Count > 0 ? rows[0] : null;
         LoadRowLogos(rows);
         pendingSearch?.TrySetResult();
     }
@@ -389,7 +408,6 @@ public sealed class StationEditorViewModel : EditorViewModel
         SelectedEntry = entry;
         IsResultsOpen = false;
         HighlightedResult = null;
-        UpdateDetail();
     }
 
     private void UpdateDetail()
@@ -403,8 +421,7 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     private async Task LoadDetailLogoAsync(CatalogResultRow? row)
     {
-        detailLogoCts?.Cancel();
-        detailLogoCts = null;
+        CancelAndDispose(ref detailLogoCts);
         DetailLogo = row?.Logo;
         if (closed || row == null || row.Logo != null || row.Entry.Logo.Length == 0) return;
         var cts = detailLogoCts = new CancellationTokenSource();
@@ -414,7 +431,7 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     private void LoadRowLogos(IReadOnlyList<CatalogResultRow> rows)
     {
-        rowLogosCts?.Cancel();
+        CancelAndDispose(ref rowLogosCts);
         var cts = rowLogosCts = new CancellationTokenSource();
         foreach (var row in rows)
             if (row.Entry.Logo.Length > 0) _ = LoadRowLogoAsync(row, cts.Token);
@@ -429,12 +446,27 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// <summary>The dialog closed: cancel the load wait, the search and the logos; nothing is applied afterwards.</summary>
     private void Shutdown()
     {
+        if (closed) return;
         closed = true;
         lifetime.Cancel();
-        searchCts?.Cancel();
-        rowLogosCts?.Cancel();
-        detailLogoCts?.Cancel();
+        lifetime.Dispose();
+        CancelAndDispose(ref searchCts);
+        CancelAndDispose(ref rowLogosCts);
+        CancelAndDispose(ref detailLogoCts);
         pendingSearch?.TrySetResult();
+    }
+
+    /// <summary>
+    /// Cancels and disposes <paramref name="cts"/> (UI thread) and clears the field, so it is never cancelled twice. The
+    /// work still holding its token only reads it: a cancelled token's state stays readable after the dispose, and a late
+    /// registration on it runs at once, so cancelling first makes the dispose safe.
+    /// </summary>
+    private static void CancelAndDispose(ref CancellationTokenSource? cts)
+    {
+        if (cts is not { } source) return;
+        cts = null;
+        source.Cancel();
+        source.Dispose();
     }
 
     /// <summary>The first <paramref name="max"/> characters, without splitting a surrogate pair.</summary>

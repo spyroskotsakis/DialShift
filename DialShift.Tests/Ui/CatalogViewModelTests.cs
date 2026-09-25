@@ -86,18 +86,33 @@ internal static class CatalogViewModelTests
             && UiText.CatalogUnavailable == "Catalog unavailable — enter stream details manually"
             && UiText.CatalogNoMatch == "No stations match — adjust filters or enter the stream manually"
             && UiText.ManualEntrySeparator == "Or enter stream details manually");
-        Check("CAT-09 §5.3 ResultCount: 0 → \"\", 1 of 1 → \"1 match\", 50 of 50 → \"50 matches\", 50 of 214 → \"Showing 50 of 214 matches\"",
-            UiText.ResultCount(0, 0) == "" && UiText.ResultCount(1, 1) == "1 match" && UiText.ResultCount(50, 50) == "50 matches"
-            && UiText.ResultCount(50, 214) == "Showing 50 of 214 matches" && UiText.ResultCount(1, 2) == "Showing 1 of 2 matches");
-        Check("CAT-17 §5.3 CatalogStatus: \"8274 stations · catalog updated 2026-09-25\"; without generated_utc \"8274 stations\"",
-            UiText.CatalogStatus(8274, Generated) == "8274 stations · catalog updated 2026-09-25" && UiText.CatalogStatus(8274, null) == "8274 stations");
+        Check("CAT-09 §5.3 ResultCount (text or a filter): 0 → \"\", 1 of 1 → \"1 match\", 50 of 50 → \"50 matches\", 50 of 214 → \"Showing 50 of 214 matches\"",
+            UiText.ResultCount(0, 0) == "" && UiText.ResultCount(1, 1) == "1 match"
+            && UiText.ResultCount(50, 50) == "50 matches" && UiText.ResultCount(50, 214) == "Showing 50 of 214 matches"
+            && UiText.ResultCount(1, 2) == "Showing 1 of 2 matches");
+        Check("CAT-09 D85 BrowseCount (no text, every filter All): 50 of 8274 → \"Top 50 of 8,274 stations by votes\", 7 of 7 → \"All 7 stations by votes\", 1 of 1 → \"1 station\", 0 → \"\"",
+            UiText.BrowseCount(50, 8274) == "Top 50 of 8,274 stations by votes" && UiText.BrowseCount(7, 7) == "All 7 stations by votes"
+            && UiText.BrowseCount(1, 1) == "1 station" && UiText.BrowseCount(0, 0) == "");
+        Check("CAT-17 §5.3 CatalogStatus: \"8,274 stations · catalog updated 2026-09-25\"; without generated_utc \"8,274 stations\"",
+            UiText.CatalogStatus(8274, Generated) == "8,274 stations · catalog updated 2026-09-25" && UiText.CatalogStatus(8274, null) == "8,274 stations");
         Check("CAT-17 CatalogStatus is singular for one station: \"1 station\", \"1 station · catalog updated 2026-09-25\"",
             UiText.CatalogStatus(1, null) == "1 station" && UiText.CatalogStatus(1, Generated) == "1 station · catalog updated 2026-09-25");
         Check("CAT-17 the date is generated_utc's UTC date, whatever its offset or the host's zone (23:30 −05:00 → 2026-09-26; 01:00 +03:00 → 2026-09-25)",
             UiText.CatalogStatus(10, new DateTimeOffset(2026, 9, 25, 23, 30, 0, TimeSpan.FromHours(-5))) == "10 stations · catalog updated 2026-09-26"
             && UiText.CatalogStatus(10, new DateTimeOffset(2026, 9, 26, 1, 0, 0, TimeSpan.FromHours(3))) == "10 stations · catalog updated 2026-09-25");
-        Check("CAT-17 counts are invariant integers without grouping (12345 stations)", UiText.CatalogStatus(12345, null) == "12345 stations"
-            && UiText.ResultCount(50, 12345) == "Showing 50 of 12345 matches");
+        // D85: grouped the invariant way, whatever the computer's culture (German groups with a dot).
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+        try
+        {
+            Check("CAT-17 D85 counts are grouped with the invariant comma under a de-DE culture (12,345 stations; 824,571 votes)",
+                UiText.CatalogStatus(12345, null) == "12,345 stations" && UiText.ResultCount(50, 12345) == "Showing 50 of 12,345 matches"
+                && new CatalogResultRow(new StationCatalogEntry { Name = "Many votes", Country = "GR", StreamUrl = "https://streams.example.org/many", Votes = 824571 }).VotesText == "824,571 votes");
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
     }
 
     private static void FrequencyLabels()
@@ -215,8 +230,8 @@ internal static class CatalogViewModelTests
         var sixty = new EditorRig(Loaded(numbered));
         await sixty.Settled();
         var vm = sixty.Vm;
-        Check("CAT-13 CAT-09 empty search shows every station ranked, capped at 50: \"Showing 50 of 60 matches\", overlay closed until the user asks",
-            vm.Results.Count == 50 && vm.TotalCount == 60 && vm.TotalCountText == "Showing 50 of 60 matches" && !vm.HasNoMatches && !vm.IsResultsOpen
+        Check("CAT-13 CAT-09 D85 empty search shows every station ranked, capped at 50: \"Top 50 of 60 stations by votes\", overlay closed until the user asks",
+            vm.Results.Count == 50 && vm.TotalCount == 60 && vm.TotalCountText == "Top 50 of 60 stations by votes" && !vm.HasNoMatches && !vm.IsResultsOpen
             && sixty.Shown.SequenceEqual(numbered.Take(50)));
         Check("CAT-17 the status line names the station count and the catalog date: \"60 stations · catalog updated 2026-09-25\"",
             vm.CatalogStatusText == "60 stations · catalog updated 2026-09-25");
@@ -232,13 +247,13 @@ internal static class CatalogViewModelTests
             vm.HasNoMatches && vm.Results.Count == 0 && vm.TotalCount == 0 && vm.TotalCountText == "" && vm.IsResultsOpen);
         vm.SearchText = "";
         await sixty.Settled();
-        Check("CAT-13 emptying the search shows all again (\"Showing 50 of 60 matches\") and clears HasNoMatches",
-            !vm.HasNoMatches && vm.TotalCountText == "Showing 50 of 60 matches" && vm.Results.Count == 50);
+        Check("CAT-13 D85 emptying the search shows all again (\"Top 50 of 60 stations by votes\") and clears HasNoMatches",
+            !vm.HasNoMatches && vm.TotalCountText == "Top 50 of 60 stations by votes" && vm.Results.Count == 50);
 
         var one = new EditorRig(Loaded([Kosmos], generated: null));
         await one.Settled();
-        Check("CAT-17 a one-station catalog without generated_utc: status \"1 station\", count \"1 match\"",
-            one.Vm.CatalogStatusText == "1 station" && one.Vm.TotalCountText == "1 match");
+        Check("CAT-17 D85 a one-station catalog without generated_utc: status \"1 station\", count \"1 station\"",
+            one.Vm.CatalogStatusText == "1 station" && one.Vm.TotalCountText == "1 station");
 
         var empty = new EditorRig();
         await empty.Settled();
@@ -303,10 +318,10 @@ internal static class CatalogViewModelTests
         var clearMark = rig.Changes.Count;
         vm.ClearFiltersCommand.Execute(null);
         await rig.Settled();
-        Check("CAT-08 Clear: search \"\" and every filter All, in one search (one Results change), overlay open, all stations listed",
+        Check("CAT-08 D85 Clear: search \"\" and every filter All, in one search (one Results change), overlay open, all stations listed (\"All 7 stations by votes\")",
             vm.SearchText == "" && new[] { vm.SelectedCountry, vm.SelectedCity, vm.SelectedType, vm.SelectedGenre, vm.SelectedLanguage }.All(o => o == CatalogFilterOption.All)
             && rig.ChangesOf(nameof(StationEditorViewModel.Results)) == resultsChanges + 1 && vm.IsResultsOpen
-            && rig.Shown.SequenceEqual(rig.Expected("").Items) && vm.TotalCountText == "7 matches");
+            && rig.Shown.SequenceEqual(rig.Expected("").Items) && vm.TotalCountText == "All 7 stations by votes");
         Check("CAT-08 Clear announces the cleared search and filters (PropertyChanged for each)",
             new[] { "SearchText", "SelectedCountry", "SelectedCity", "SelectedType", "SelectedLanguage" }.All(rig.Changes.Skip(clearMark).Contains));
         vm.CancelCommand.Execute(null);
@@ -382,8 +397,10 @@ internal static class CatalogViewModelTests
         vm.SearchText = "radio";
         await rig.Settled();
         var rows = vm.Results;
-        Check("CAT-12 fixture: \"radio\" lists Radio Thessaloniki, Radio Köln AM, Radio Shortwave (votes order), nothing highlighted",
-            rig.Shown.SequenceEqual([Thessaloniki, KolnAm, Shortwave]) && vm.HighlightedResult == null && vm.DetailRow == null);
+        Check("CAT-12 D85 \"radio\" lists Radio Thessaloniki, Radio Köln AM, Radio Shortwave (votes order), the overlay open on the first row, the detail pane following it",
+            rig.Shown.SequenceEqual([Thessaloniki, KolnAm, Shortwave]) && vm.IsResultsOpen && vm.HighlightedResult == rows[0] && vm.DetailRow == rows[0]);
+        vm.IsResultsOpen = false;
+        Check("CAT-12 D85 closing the overlay drops the highlight and the detail of an unpicked row", vm.HighlightedResult == null && vm.DetailRow == null);
         vm.MoveHighlight(-1);
         Check("CAT-12 §5.5 Up with no highlight stays none", vm.HighlightedResult == null);
         vm.MoveHighlight(1);
@@ -400,7 +417,9 @@ internal static class CatalogViewModelTests
         Check("CAT-12 §5.5 Up past the first row clamps to the first", vm.HighlightedResult == rows[0]);
         vm.SearchText = "radio s";
         await rig.Settled();
-        Check("CAT-12 a new result list clears the highlight (and the detail of an unpicked row)", vm.HighlightedResult == null && vm.DetailRow == null);
+        Check("CAT-12 D85 a new result list moves the highlight to its first row (Radio Shortwave)",
+            vm.HighlightedResult?.Entry == Shortwave && vm.DetailRow == vm.HighlightedResult);
+        vm.IsResultsOpen = false;
         vm.SelectEntryCommand.Execute(null);
         Check("CAT-12 SelectEntryCommand with no highlight does nothing", vm.Name == "" && vm.Url == "" && vm.SelectedEntry == null);
         vm.SearchText = "nothing matches this";
@@ -435,8 +454,8 @@ internal static class CatalogViewModelTests
         Check("CAT-10 the pick goes through the normal setters: the stale validation message clears", vm.Error == null && !vm.HasError);
 
         var d = vm.DetailRow!;
-        Check("CAT-10 detail texts: full notes, \"4210 votes\", \"93.6 FM\", \"Greek\", \"Athens, Attica, Greece\", \"Public · World\"",
-            d.Notes == KosmosNotes && d.VotesText == "4210 votes" && d.FrequencyText == "93.6 FM" && d.LanguageText == "Greek"
+        Check("CAT-10 detail texts: full notes, \"4,210 votes\", \"93.6 FM\", \"Greek\", \"Athens, Attica, Greece\", \"Public · World\"",
+            d.Notes == KosmosNotes && d.VotesText == "4,210 votes" && d.FrequencyText == "93.6 FM" && d.LanguageText == "Greek"
             && d.Location == "Athens, Attica, Greece" && d.Kind == "Public · World" && d.Name == "Kosmos 93.6");
         Check("CAT-10 §5.2 the row's subtitle and automation name: \"Athens · 93.6 FM · Greece\", \"Kosmos 93.6, Athens · 93.6 FM · Greece\"",
             d.Subtitle == "Athens · 93.6 FM · Greece" && d.AutomationName == "Kosmos 93.6, Athens · 93.6 FM · Greece");
@@ -582,11 +601,12 @@ internal static class CatalogViewModelTests
         await rig.Settled();
         var vm = rig.Vm;
         var count = entries.Count;
-        Check($"CAT-17 real catalog: the status line is \"{vm.CatalogStatusText}\": the station count and generated_utc's UTC date",
+        var grouped = count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        Check($"CAT-17 D85 real catalog: the status line is \"{vm.CatalogStatusText}\": the station count (grouped) and generated_utc's UTC date",
             real.GeneratedUtc is { } generated
-            && vm.CatalogStatusText == $"{count} stations · catalog updated {generated.UtcDateTime:yyyy-MM-dd}" && vm.CatalogStatusText == UiText.CatalogStatus(count, generated));
-        Check($"CAT-13 real catalog: the empty search lists the 50 most-voted of {count}: \"Showing 50 of {count} matches\"",
-            vm.Results.Count == 50 && vm.TotalCount == count && vm.TotalCountText == $"Showing 50 of {count} matches"
+            && vm.CatalogStatusText == $"{grouped} stations · catalog updated {generated.UtcDateTime:yyyy-MM-dd}" && vm.CatalogStatusText == UiText.CatalogStatus(count, generated));
+        Check($"CAT-13 D85 real catalog: the empty search lists the 50 most-voted of {count}: \"Top 50 of {grouped} stations by votes\"",
+            vm.Results.Count == 50 && vm.TotalCount == count && vm.TotalCountText == $"Top 50 of {grouped} stations by votes"
             && rig.Shown.SequenceEqual(StationCatalogQuery.Search(real.Catalog, "", CatalogFilters.None).Items));
         foreach (var field in Enum.GetValues<CatalogField>())
         {
