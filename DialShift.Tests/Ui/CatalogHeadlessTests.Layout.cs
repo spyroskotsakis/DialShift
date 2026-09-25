@@ -27,7 +27,7 @@ namespace DialShift.Tests.Ui;
 /// The Add dialog's D85 geometry, tiles and ink on the headless platform (docs/catalog-contracts.md §5.5, §8 CAT-10,
 /// CAT-14): the overlay covers exactly the form column (B1), the monogram hides behind a logo (B2) on a light tile (P8),
 /// the detail pane is a Group control element (B3) whose name is a live region (P4), the overlay's shadow is the theme's
-/// (B4), the highlighted row's texts reach 4.5:1 (B5), the frequency column is never trimmed (P1), Clear is 36 px tall
+/// (B4), a result row's texts reach 4.5:1 in every state (B5), the frequency column is never trimmed (P1), Clear is 36 px tall
 /// (P7), the filter drop-downs are at most 280 px wide with an ellipsis (D83, D44), and the Edit dialog (D83).
 /// </summary>
 internal static partial class CatalogHeadlessTests
@@ -157,7 +157,7 @@ internal static partial class CatalogHeadlessTests
         static TextBlock MonogramOf(Border tile) => Find<TextBlock>(tile).Single();
     }
 
-    // ─── CAT-14 D85 B5: the highlighted row's contrast ───
+    // ─── CAT-14 D85 B5: a result row's contrast in every state ───
 
     /// <summary>An ink over a background: the colour a text is drawn in, and how opaque it is (brush and element opacity).</summary>
     private readonly record struct Ink(Color Color, double Alpha);
@@ -221,9 +221,9 @@ internal static partial class CatalogHeadlessTests
     }
 
     /// <summary>
-    /// The highlighted row's five texts (the name, the separator, the place, line 2 and the frequency), each with its ink
-    /// composited over the highlight composited over the card, as the brushes resolve on the live controls; plus, for the
-    /// record, the rendered frame's darkest-to-lightest glyph pixel of each against the same background.
+    /// A result row's five texts (the name, the separator, the place, line 2 and the frequency), each with its ink
+    /// composited over the row's fill composited over the card, as the brushes resolve on the live controls; plus the
+    /// rendered frame's most contrasting glyph pixel of each against the same background.
     /// </summary>
     private static List<(string Part, string Text, double Contrast, double Rendered)> RowContrast(Window dialog, ListBoxItem item)
     {
@@ -256,37 +256,96 @@ internal static partial class CatalogHeadlessTests
         return parts;
     }
 
+    /// <summary>The pseudo-classes a result row's fill and inks are styled on, as the row has them now.</summary>
+    private static string RowState(ListBoxItem item) =>
+        string.Concat(new[] { ":selected", ":pointerover", ":pressed" }.Where(item.Classes.Contains)) is { Length: > 0 } state ? state : "normal";
+
+    /// <summary>
+    /// Measures <paramref name="item"/> in its current state, prints its line of the contrast table, and checks that every
+    /// text reaches 4.5:1 both as the brushes resolve and in the rendered pixels. Returns the row's fill over the card.
+    /// </summary>
+    private static Color CheckRowContrast(Window dialog, ListBoxItem item, string how)
+    {
+        var card = ((ISolidColorBrush)Overlay(dialog).Background!).Color;
+        var presenter = Find<ContentPresenter>(item).First(p => p.Name == "PART_ContentPresenter" && p.TemplatedParent == item);
+        var fill = Over(InkOf(presenter.Background, presenter, item), card);
+        var parts = RowContrast(dialog, item);
+        var state = RowState(item);
+        Console.WriteLine($"  row {state} ({how}) on {fill}, brush contrast / rendered pixels: " +
+                          string.Join("; ", parts.Select(p => $"{p.Part} \"{p.Text}\" {p.Contrast:F2}:1 / {p.Rendered:F2}:1")));
+        Check($"CAT-14 D85 B5 row {state} ({how}): every text reaches 4.5:1 against the row's fill over the card, as the brushes resolve and in the rendered pixels: " +
+              string.Join(", ", parts.Select(p => $"{p.Part} {p.Contrast:F2}/{p.Rendered:F2}")),
+            parts.Count == 5 && parts.All(p => p.Contrast >= MinContrast && p.Rendered >= MinContrast));
+        return fill;
+    }
+
     private static async Task HighlightContrast()
     {
         await using var rig = await UiRig.CreateHeadlessAsync();
         rig.Catalog.Result = Loaded(Small);
         var (dialog, editor) = await OpenAddAsync(rig);
         await SearchAsync(dialog, editor, "radio");
-        var item = Items(dialog).Single(i => i.IsSelected);
-        Check("CAT-14 fixture: the first row (Radio Thessaloniki) is highlighted by the keyboard, with a place, a line 2 and a frequency",
-            item.DataContext == editor.Results[0] && editor.Results[0] is { Entry.Name: "Radio Thessaloniki", Place.Length: > 0, Kind.Length: > 0, FrequencyText.Length: > 0 });
-        var keyboard = RowContrast(dialog, item);
-        Console.WriteLine("  highlighted row (keyboard), brush contrast / rendered pixels: " +
-                          string.Join("; ", keyboard.Select(p => $"{p.Part} \"{p.Text}\" {p.Contrast:F2}:1 / {p.Rendered:F2}:1")));
-        Check("CAT-14 D85 B5 on the keyboard-highlighted row every text reaches 4.5:1 against the highlight over the card, as the brushes resolve: " +
-              string.Join(", ", keyboard.Select(p => $"{p.Part} {p.Contrast:F2}")),
-            keyboard.Count == 5 && keyboard.All(p => p.Contrast >= MinContrast));
+        var items = Items(dialog);
+        var item = items.Single(i => i.IsSelected);
+        Check("CAT-14 fixture: the first row (Radio Thessaloniki) is highlighted by the keyboard; three rows, each with a place, a line 2 and a frequency",
+            item.DataContext == editor.Results[0] && editor.Results[0] is { Entry.Name: "Radio Thessaloniki" } && items.Count >= 3
+            && editor.Results.Take(3).All(r => r is { Place.Length: > 0, Kind.Length: > 0, FrequencyText.Length: > 0 }));
+        var other = items[2];
+
+        // Normal, and the keyboard highlight.
+        var card = CheckRowContrast(dialog, other, "neither highlighted nor under the pointer");
+        var highlight = CheckRowContrast(dialog, item, "highlighted by the keyboard");
         Png(dialog, "catalog-d85-highlight");
 
-        // The pointer highlights the row it moves over: the same row, now selected and under the pointer.
+        // The pointer highlights the row it moves over: the same row, now selected and under the pointer, keeps the
+        // keyboard's highlight (Fluent's lighter selected + pointer-over fill measured the separator 4.14:1, the place and
+        // line 2 3.93:1 before).
         var center = item.TranslatePoint(new Point(item.Bounds.Width / 2, item.Bounds.Height / 2), dialog)!.Value;
         dialog.MouseMove(center, RawInputModifiers.None);
         await PumpAsync();
         Layout(dialog);
         Check("CAT-14 fixture: the pointer is over the highlighted row", item.IsPointerOver && item.IsSelected && editor.HighlightedResult == editor.Results[0]);
-        var pointer = RowContrast(dialog, item);
-        Console.WriteLine("  highlighted row (pointer), brush contrast / rendered pixels: " +
-                          string.Join("; ", pointer.Select(p => $"{p.Part} \"{p.Text}\" {p.Contrast:F2}:1 / {p.Rendered:F2}:1")));
-        var low = pointer.Where(p => p.Contrast < MinContrast).Select(p => p.Part).ToList();
-        Check("CAT-14 D85 B5 [quirk] under the pointer the highlight is lighter (selected + pointer over) and only the name and the frequency reach 4.5:1: " +
-              string.Join(", ", pointer.Select(p => $"{p.Part} {p.Contrast:F2}")) + " (design review finding: separator and place/line 2 fall under 4.5:1)",
-            low.SequenceEqual(["separator", "place", "line 2"]));
+        var pointer = CheckRowContrast(dialog, item, "highlighted, under the pointer");
+        Check("CAT-14 D85 B5 the highlighted row under the pointer has the keyboard highlight's fill", pointer == highlight);
         Png(dialog, "catalog-d85-highlight-pointer");
+
+        // The keyboard moves on while the pointer rests: that row keeps only the hover, the next row the highlight.
+        await PressAsync(dialog, Key.Down);
+        Layout(dialog);
+        Check("CAT-14 fixture: Down moved the highlight to the second row; the pointer still rests on the first",
+            item.IsPointerOver && !item.IsSelected && items[1].IsSelected && editor.HighlightedResult == editor.Results[1]);
+        var hover = CheckRowContrast(dialog, item, "under the pointer, the highlight on the next row");
+        Check("CAT-14 D85 B5 the hover fill differs from both the highlight and the card, so the highlighted row stays the one that stands out",
+            hover != highlight && hover != card);
+        CheckRowContrast(dialog, items[1], "highlighted by the keyboard, the pointer on the row above");
+        Png(dialog, "catalog-d85-hover-and-highlight");
+
+        // Every combination of the three states the row's styles read, on the third row (really in the normal state): the
+        // pressed ones do not hold still under real input.
+        var pseudo = (IPseudoClasses)other.Classes;
+        foreach (var selected in new[] { false, true })
+        foreach (var over in new[] { false, true })
+        foreach (var pressed in new[] { false, true })
+        {
+            pseudo.Set(":selected", selected);
+            pseudo.Set(":pointerover", over);
+            pseudo.Set(":pressed", pressed);
+            await PumpAsync();
+            Layout(dialog);
+            CheckRowContrast(dialog, other, "state set directly");
+        }
+        pseudo.Set(":selected", false);
+        pseudo.Set(":pointerover", false);
+        pseudo.Set(":pressed", false);
+
+        // A real press on the row under the pointer.
+        dialog.MouseDown(center, MouseButton.Left);
+        await PumpAsync();
+        Layout(dialog);
+        Check("CAT-14 fixture: the row under the pointer is pressed", item.Classes.Contains(":pressed"));
+        CheckRowContrast(dialog, item, "pressed by the pointer");
+        dialog.MouseUp(center, MouseButton.Left);
+        await PumpAsync();
         dialog.Close();
         await PumpAsync();
     }
