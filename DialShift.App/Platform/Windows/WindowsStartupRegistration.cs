@@ -6,7 +6,7 @@ namespace DialShift.App.Platform.Windows;
 
 /// <summary>
 /// Windows launch at login via <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</c>, value <c>DialShift</c> =
-/// <c>"&lt;exe&gt;" --tray</c> (acceptance matrix §8.2.1), the same value the WPF app wrote.
+/// <c>"&lt;exe&gt;" --tray</c> (acceptance matrix §8.2.1), the same value earlier Windows releases wrote.
 /// </summary>
 /// <remarks>
 /// Status is read from the registry, never from settings: enabled only when the value is a string equal to what this

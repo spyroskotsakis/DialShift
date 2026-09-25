@@ -15,7 +15,7 @@ namespace DialShift.App.Smoke;
 
 /// <summary>
 /// The native UI smoke run (<c>--smoke-test [--recovery-test] [--output &lt;dir&gt;]</c>; brief 1 §4.5 level 3, §7.7). It
-/// replaces the WPF <c>SmokeChecks</c> and adopts upstream's <c>EditorSmokeChecks</c> (acceptance matrix §4): the real
+/// replaces the legacy Windows app's smoke checks and adopts upstream's <c>EditorSmokeChecks</c> (acceptance matrix §4): the real
 /// app, window, tray, dialogs and playback engine, in an isolated data folder (D21). Every check is recorded as
 /// <c>{name, passed, detail}</c> in <c>&lt;output&gt;/results.json</c>; the exit code is 0 only when all of them pass.
 /// </summary>

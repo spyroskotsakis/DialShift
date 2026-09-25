@@ -1,5 +1,7 @@
 # Single Codebase Refactor — Windows + macOS via Avalonia
 
+> **Status (2026-09-25): Executed on branch `refactor/single-codebase-timezone`; see [docs/acceptance-matrix.md](acceptance-matrix.md) and [docs/decisions.md](decisions.md) for status.** The rest of this document is the historical specification as frozen, including its "Deferred" status line.
+
 > **Status: Deferred — not a priority yet. This document is a bootstrap: a ready-to-execute plan for when we want to collapse the two front-ends into one.**
 >
 > **Updated 2026-09-16 — final revision (frozen).** One Avalonia UI, one coordinator, two deliberately small playback adapters (LibVLC on Windows / AVPlayer on macOS), isolated OS capabilities; explicit state machine + cancellation + transition serialization; `IClock`/`IMonotonicClock` split; canonical data locations; AVPlayer adapter acceptance criteria; Intel Mac policy; media compatibility corpus; definition of done + acceptance matrix.

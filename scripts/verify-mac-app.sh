@@ -63,7 +63,7 @@ vlc="$(find "$APP" \( -name 'libvlc*' -o -name '*vlc*.dylib' -o \( -name 'vlc' -
 archs="$(lipo -archs "$EXE" 2>/dev/null)" || fail "$EXE is not a Mach-O executable"
 [ "$archs" = "arm64" ] || fail "$EXE architectures are '$archs', expected exactly 'arm64' (D2)"
 
-# Every native library must carry an arm64 slice (universal is fine; x86_64-only would need Rosetta).
+# Every native library must carry an arm64 slice (universal is fine; the arm64 process can't load an x86_64-only one).
 while IFS= read -r -d '' lib; do
     lib_archs="$(lipo -archs "$lib" 2>/dev/null)" || fail "$lib is not a Mach-O library"
     [[ " $lib_archs " == *" arm64 "* ]] || fail "no arm64 slice in $lib (has: $lib_archs)"

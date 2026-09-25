@@ -6,7 +6,7 @@ namespace DialShift.App.ViewModels;
 
 /// <summary>
 /// Every user-visible text that is derived from state, in one place so the view models, the tray and the tests agree.
-/// The wording is today's (WPF + Mac) unless noted.
+/// The wording is the legacy Windows and macOS apps' (tag <c>legacy-last-known-good</c>) unless noted.
 /// </summary>
 public static class UiText
 {
@@ -58,7 +58,7 @@ public static class UiText
 
     public static string SaveFailed(string reason) => "Couldn't save your changes: " + reason;
 
-    /// <summary>Startup-failure dialog (BHV-04, HS-08), WPF wording.</summary>
+    /// <summary>Startup-failure dialog (BHV-04, HS-08), the legacy Windows app's wording.</summary>
     public static string StartupFailed(string reason, string logFile) => $"DialShift couldn't start. {reason}\n\nDetails: {logFile}";
 
     public static string DeleteStationQuestion(Station station, int slotCount) =>

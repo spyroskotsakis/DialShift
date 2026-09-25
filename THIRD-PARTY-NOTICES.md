@@ -1,11 +1,11 @@
 # Third-party components
 
-DialShift is released as two self-contained packages built from the single `DialShift.App` project. Each package contains only the components listed for it below. All third-party components are unmodified and dynamically linked.
+DialShift is released as two self-contained packages built from the single `DialShift.App` project. Each package contains only the components listed for it below. All third-party components are unmodified and dynamically linked. There is no Intel Mac package.
 
 | Package | Artifact | Playback |
 |---|---|---|
 | Windows (`win-x64`) | `DialShift-win-x64.zip` | LibVLC (bundled) |
-| macOS Apple Silicon (`osx-arm64`) | `DialShift.app`, zipped | Apple AVFoundation / AVPlayer (part of macOS, not bundled) |
+| macOS Apple Silicon (`osx-arm64`) | `DialShift-osx-arm64-native-avplayer.zip` (`DialShift.app`) | Apple AVFoundation / AVPlayer (part of macOS, not bundled) |
 
 ## Both packages
 
@@ -45,6 +45,5 @@ The texts are in [`licenses/`](licenses/) in the repository. Each package carrie
 | `LibVLC-LGPL-2.1.txt` | LibVLCSharp (both); LibVLC runtime (Windows) | Yes | Yes (managed `LibVLCSharp.dll` only) |
 | `VLC-GPL-2.0.txt` | GPL-licensed VLC plugins | Yes | No |
 | `ANGLE-LICENSE.txt` | ANGLE (`av_libglesv2.dll`) | Yes | No |
-| `WindowsDesktop-LICENSE.txt` | WPF and Windows Forms, used only by the legacy `DialShift` WPF project, which is built from source and not packaged | No | No |
 
 No changes to these third-party libraries were made. Station names, broadcasts and programming belong to the respective providers. The included links are for personal listening.

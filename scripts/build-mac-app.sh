@@ -6,9 +6,10 @@
 #   dist/DialShift-osx-arm64-<label>.zip     the distributable (ditto keeps permissions + signature)
 #
 # The bundle carries no VLC libraries: macOS playback uses Apple's AVPlayer through system
-# framework linkage. <label> comes from MACOS_LABEL (default "preview"). Honest labeling rule
-# (brief 1 §4.3): switch to "native-avplayer" only once MacAvPlayerPlaybackEngine passes the
-# SP-01/SP-02 acceptance rows.
+# framework linkage. <label> comes from MACOS_LABEL (default "native-avplayer", the same value
+# CI sets). Honest labeling rule (brief 1 §4.3): the label says which macOS build this is; the
+# native osx-arm64 AVPlayer build earned "native-avplayer" by passing SP-01/SP-02 and the
+# native smoke (docs/acceptance-matrix.md).
 #
 # Requires: macOS with the .NET 10 SDK (on PATH or at ~/.dotnet) and the built-in
 # sips, iconutil, codesign, ditto, lipo, plutil and PlistBuddy tools.
@@ -28,7 +29,7 @@ CSPROJ="DialShift.App/DialShift.App.csproj"
 ICON_SRC="DialShift.App/Assets/icon-512.png"
 PUBLISH="publish/osx-arm64"
 APP="dist/DialShift.app"
-LABEL="${MACOS_LABEL:-preview}"
+LABEL="${MACOS_LABEL:-native-avplayer}"
 # Decision D22: macOS 14.0 (upstream precedent). The binaries would load on 12.0 (.NET 10
 # runtime floor), but the AVPlayer format corpus is verified on macOS 26.5 only
 # (docs/spikes.md), so older versions are not claimed. verify-mac-app.sh checks this value.

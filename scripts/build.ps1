@@ -19,7 +19,7 @@ if (-not $SkipTests) {
 }
 $output = Join-Path $root 'artifacts\DialShift-win-x64'
 $archive = Join-Path $root 'artifacts\DialShift-win-x64.zip'
-# A fresh folder keeps files from an earlier build (or the retired WPF app) out of the package.
+# A fresh folder keeps files from an earlier build out of the package.
 if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Recurse -Force }
 & $dotnet publish (Join-Path $root 'DialShift.App\DialShift.App.csproj') -c Release -r win-x64 --self-contained true -p:DebugType=None -p:DebugSymbols=false -o $output
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }

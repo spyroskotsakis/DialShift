@@ -1,5 +1,5 @@
-# Compile, test, package and verify DialShift on native runners (brief 1 §4.5, §8; decisions D2, D7, D8).
-# Phases per job: build -> test -> package -> verify the downloadable zip -> upload.
+# Compile, test, smoke, package and verify DialShift on native runners (brief 1 §4.5, §8; decisions D2, D7, D8, D13).
+# Phases per job: build -> test -> native UI smoke -> package -> verify the downloadable zip -> upload.
 # New checks (for example headless smokes) go in as steps of the matching phase.
 name: CI
 
@@ -18,10 +18,10 @@ concurrency:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # Honest-labeling suffix of the macOS artifact (brief 1 §4.3). Keep "preview" until
-  # MacAvPlayerPlaybackEngine passes SP-01 and SP-02 in docs/acceptance-matrix.md, then set
-  # "native-avplayer". scripts/build-mac-app.sh reads the same variable for the zip name.
-  MACOS_LABEL: preview
+  # Honest-labeling suffix of the macOS artifact (brief 1 §4.3). "native-avplayer": the native
+  # osx-arm64 AVPlayer build, which passed SP-01/SP-02 (docs/acceptance-matrix.md) and the native
+  # smoke below. scripts/build-mac-app.sh reads the same variable for the zip name.
+  MACOS_LABEL: native-avplayer
 
 jobs:
   build-test-package:
@@ -53,20 +53,9 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # Build: projects one by one (no RID, warnings as errors), not DialShift.slnx,
-      # because the solution still lists the Windows-only WPF project.
-      - name: Build DialShift.Core
-        run: dotnet build DialShift.Core/DialShift.Core.csproj -c Release -warnaserror
-
-      - name: Build DialShift.Tests
-        run: dotnet build DialShift.Tests/DialShift.Tests.csproj -c Release -warnaserror
-
-      - name: Build DialShift.App
-        run: dotnet build DialShift.App/DialShift.App.csproj -c Release -warnaserror
-
-      - name: Build legacy WPF DialShift (until its retirement, D8)
-        if: runner.os == 'Windows' && hashFiles('DialShift/DialShift.csproj') != ''
-        run: dotnet build DialShift/DialShift.csproj -c Release -warnaserror
+      # Build: the whole solution (Core, Tests, App), no RID, warnings as errors.
+      - name: Build DialShift.slnx
+        run: dotnet build DialShift.slnx -c Release -warnaserror
 
       # Test: a non-zero exit code fails the job.
       - name: Test DialShift.Tests
