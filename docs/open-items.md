@@ -7,7 +7,7 @@
 > - [README.md](../README.md): the project and how to build, test and run it.
 > - [Acceptance matrix §9](acceptance-matrix.md#9-remaining-native-checks): the full procedure and pass criteria for every native check (NC-*).
 > - [Matrix §9.1](acceptance-matrix.md#91-native-checks-that-require-the-user): the same checks grouped by what they need.
-> - [docs/decisions.md](decisions.md): decisions D1–D55.
+> - [docs/decisions.md](decisions.md): decisions D1–D56.
 >
 > This file sums up and orders the work. If this file and matrix §9 disagree, §9 is right.
 
@@ -34,11 +34,11 @@
 | Packaging | Both downloadable zips verified: `win-x64` by `verify-win-package.ps1`, `osx-arm64` by `verify-mac-app.sh --zip` after both `ditto` and `unzip` extraction | Same run |
 | Acceptance matrix §3 (106 rows) | **62 GREEN / 44 NATIVE-PENDING / 0 TODO** | [Matrix §3](acceptance-matrix.md#3-acceptance-matrix) |
 | Timezone QA tracker | QA-B1..B4 (blocking) all GREEN. QA-N1..N9: 8 GREEN, 1 NATIVE-PENDING (QA-N1). §9.2: 14 of 15 GREEN, TZ-12 NATIVE-PENDING (the unit half is green) | [Matrix §6](acceptance-matrix.md#6-timezone-qa-tracker-brief-2) |
-| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING, and SW-N4 (open, [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items)). The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
-| Decisions | D1–D55 recorded | [docs/decisions.md](decisions.md) |
+| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING, and SW-N4 (GREEN-pending-CI, [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items)). The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
+| Decisions | D1–D56 recorded | [docs/decisions.md](decisions.md) |
 | Rollback point | Tag `legacy-last-known-good` (commit `82281e5`) keeps the last build of both old front-ends, including the last Intel Mac build | `git show legacy-last-known-good` |
 
-**Release status:** the first release is planned as the pre-release **`v0.3.0-rc.1`** through the D53 pipeline: a dry run by pushing the tag to the private repository (`release.yml` builds, verifies and publishes there), then a manual public push of `main` and the tag by the maintainer (README "Releasing (maintainers)"). It stays a pre-release because the checks below are open. `CHANGELOG.md` has its `[0.3.0-rc.1] - 2026-09-25` section.
+**Release status:** the first pre-release, **`v0.3.0-rc.1`**, is tagged at `9b47afb`. The next, **`v0.3.0-rc.2`** (`CHANGELOG.md` section `[0.3.0-rc.2]`), carries the SW-N4 `Install.ps1` fix (D56). Each goes through the D53 pipeline: a dry run by pushing the tag to the private repository (`release.yml` builds, verifies and publishes there), then a manual public push of `main` and the tag by the maintainer (README "Releasing (maintainers)"). Releases stay pre-releases while the checks below are open. `CHANGELOG.md` has the `[0.3.0-rc.1]` and `[0.3.0-rc.2]` sections.
 
 ### What keeps the phase from sign-off
 
@@ -199,7 +199,7 @@ NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-clos
 
 | Item | What's left | Severity | Owner | Done when |
 |---|---|---|---|---|
-| SW-N4 | **`Install.ps1` robustness.** `scripts/Install.ps1` deletes `%LOCALAPPDATA%\Programs\DialShift` (`Remove-Item $destination -Recurse -Force`) before it copies the new build. A locked file leaves the old install half-deleted, and a zip extracted inside `%LOCALAPPDATA%\Programs\DialShift\…` is deleted before it is copied. Copy into a staging folder beside the destination first, then swap (move the old install aside, move the new one in, delete the old one; on failure restore the old one), and refuse a source inside the destination with a clear message | SHOULD-FIX before the full release `v0.3.0`; not a native check | release | The script is changed, `build.ps1` and `verify-win-package.ps1` still pass in CI, and NC-04 step 6 (the upgrade through `Install.ps1`) passes on hardware. Matrix §7.10 SW-N4 is GREEN |
+| SW-N4 | **GREEN-pending-CI: `Install.ps1` robustness, fixed in `58b813a` (D56).** `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now copies into `DialShift.new-<id>` beside the install, renames the old install to `DialShift.old-<id>`, renames the new one in and deletes the old one (a failed delete is a warning); a failed copy or swap restores the old install and exits non-zero. A source inside or equal to the install folder, or an install folder inside the source, is refused before anything changes. The new `build.yml` step "Install.ps1 (fresh install, upgrade, refusals)" checks this on `windows-latest` under Windows PowerShell 5.1. Left: its first green CI run | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | The `build.yml` step "Install.ps1 (fresh install, upgrade, refusals)" passes, with `build.ps1` and `verify-win-package.ps1`, in a CI run at or after `58b813a`. Matrix §7.10 SW-N4 is GREEN. NC-04 step 6 then runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
 | Legacy tag on the public repository | The README ("Upgrading", "Earlier versions") and CHANGELOG name the tag `legacy-last-known-good`, which exists on the private remote only. Push it to the public repository with the first release (`git push origin legacy-last-known-good`), a manual maintainer step like the release push | Before the public `v0.3.0-rc.1` push | maintainer | `git ls-remote --tags origin` lists `legacy-last-known-good` |
 
 ---
@@ -222,7 +222,7 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
 | 11 | **Signing: NC-05 (b), NC-09** | Release pipeline | Getting the certificates is outside the team and can take days to weeks. Then about half a day to a day of release-lane script work (Developer ID signing, hardened runtime, entitlements, notarization, Authenticode), plus about 1 h to verify each | Release gate only. No §3 row depends on it |
 
-The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items (SW-N4 and the legacy tag) need no hardware. They can run in parallel with any step, and SW-N4 should land before the Windows hardware block so that NC-04 step 6 tests the fixed `Install.ps1`.
+The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items (SW-N4 and the legacy tag) need no hardware. They can run in parallel with any step. SW-N4 has landed (`58b813a`): run the Windows hardware block from a CI zip built at or after that commit, so that NC-04 step 6 tests the fixed `Install.ps1`.
 
 ---
 
