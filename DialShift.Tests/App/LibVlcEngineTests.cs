@@ -208,12 +208,12 @@ public static partial class LibVlcEngineTests
     // ─── LV-08 the corpus transport cases: plays and normalized failure kinds ───
 
     /// <remarks>
-    /// Basic auth runs in two protection spaces of the same host and port. LibVLC 3 keeps credentials that succeeded in a
-    /// memory keystore for the life of the LibVLC instance, keyed by scheme, host, port, realm and auth type, and answers a
-    /// later 401 challenge from the same protection space with them (see the <see cref="LibVlcPlaybackEngine"/> header).
-    /// So the 401 case uses a second realm, which must fail whatever ran before it, and "same realm, no credentials" runs
-    /// right after the user-info station to record which behavior this LibVLC build has. Every case reports the requests
-    /// the server received, with or without an Authorization header (never its value).
+    /// Basic auth runs on two paths of the same host and port, each with its own realm. LibVLC 3 keeps credentials from a
+    /// URL's user-info for the life of the LibVLC instance, and 3.0.23.1 sends them with the first request of a later
+    /// station on the same scheme://host:port and path, before any challenge (see the <see cref="LibVlcPlaybackEngine"/>
+    /// header). So the 401 case uses the other path and realm, which must fail whatever ran before it, and "same realm, no
+    /// credentials" runs right after the user-info station to record which behavior this LibVLC build has. Every case
+    /// reports the requests the server received, with or without an Authorization header (never its value).
     /// </remarks>
     [SupportedOSPlatform("windows")]
     private static async Task CorpusChecksAsync(Rig rig)
@@ -268,16 +268,18 @@ public static partial class LibVlcEngineTests
         Check($"HS-17 LV-08 user-info credentials reach the server only as a Basic Authorization header ({authRequests.Count} requests)",
             authRequests.Any(r => r.Header("Authorization") == LocalMediaServer.ExpectedAuthorization));
 
-        // Same realm, no credentials in the URL, right after the user-info station: either LibVLC answers the 401 with the
-        // credentials it kept (its memory keystore), or it has none and fails. Never credentials before a challenge.
+        // Same path and realm, no credentials in the URL, right after the user-info station. Either LibVLC reuses the
+        // credentials it kept (3.0.23.1: preemptively, on the first request) and plays, or it kept none and fails with
+        // HttpError. Both pass; the check names the behavior. Credentials elsewhere fail the protection-space check below.
         var (_, _, reuse, reuseRequests) = results.Single(r => r.Station == rig.AuthSameRealm);
-        var answered = reuse.Status == PlaybackStatus.Playing;
-        Check($"HS-17 LV-08 {rig.AuthSameRealm.Name}: credentials only after a 401 challenge; LibVLC "
-            + (answered ? "answered it with the credentials kept from the user-info station" : "kept no credentials")
-            + $" (got {reuse}; {ServerSaw(reuseRequests)})",
-            reuseRequests.FirstOrDefault(r => r.Path == AuthPath) is { } first && first.Header("Authorization") is null
-            && (answered
-                ? reuseRequests.Any(r => r.Header("Authorization") == LocalMediaServer.ExpectedAuthorization)
+        var reused = reuseRequests.Any(r => r.Header("Authorization") == LocalMediaServer.ExpectedAuthorization);
+        var behavior = !reused ? "kept no credentials: no request carried an Authorization header"
+            : reuseRequests[0].Header("Authorization") is not null ? "reused the user-info station's credentials preemptively, on the first request"
+            : "reused the user-info station's credentials after the server's 401 challenge";
+        Check($"HS-17 LV-08 {rig.AuthSameRealm.Name}: LibVLC {behavior} (got {reuse}; {ServerSaw(reuseRequests)})",
+            reuseRequests.Count > 0 && reuseRequests.All(r => r.Path == AuthPath)
+            && (reused
+                ? reuse.Status == PlaybackStatus.Playing && reuseRequests.All(r => r.Header("Authorization") is not { } a || a == LocalMediaServer.ExpectedAuthorization)
                 : reuse.Kind == nameof(PlaybackFailureKind.HttpError) && reuseRequests.All(r => r.Header("Authorization") is null)));
 
         // No credentials outside the protection space they were given for: not the other realm, not any other path.
@@ -375,7 +377,7 @@ public static partial class LibVlcEngineTests
     private const string AuthPath = "/auth/live.wav";
 
     /// <summary>The same-realm case accepts both LibVLC behaviors; its check records which one this build has.</summary>
-    private const string SameRealmExpectation = "Playing with the kept credentials, or HttpError";
+    private const string SameRealmExpectation = "Playing with the kept credentials (same path), or HttpError";
 
     /// <summary>"server saw [/auth/live.wav (no Authorization), …]": the requests of one attempt, for check names and CI output.</summary>
     private static string ServerSaw(IReadOnlyList<ServerRequest> requests) => $"server saw [{string.Join(", ", requests)}]";

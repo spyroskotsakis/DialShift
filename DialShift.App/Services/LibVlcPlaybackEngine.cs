@@ -16,16 +16,17 @@
 // was retried with it and delivered the title. Stations without a title show the station tag instead.
 //
 // ─── Credentials ──────────────────────────────────────────────────────────────────────────────────────────────────────
-// LibVLC answers an HTTP 401 Basic challenge with the URL's user-info. Credentials that succeed stay in LibVLC 3's memory
-// keystore for the life of the LibVLC instance, which is this engine's and so the app's lifetime. Entries are keyed by
-// scheme, host, port, realm and auth type. A later station on the same scheme://host:port whose server challenges with
-// the same realm is therefore answered with them, even when its URL carries none. They are sent only after a challenge,
-// and never to another scheme, host, port or realm. AVPlayer does the same, for the process lifetime; measured on macOS 26
-// against the engine tests' server. LibVLC 3 has no option that disables or scopes the memory keystore: its only keystore
-// option, --keystore, selects the persistent store. A LibVLC instance per session would repeat the plugin load on every
-// station change. So the behavior is accepted and documented in the README. Observed: 3.0.23.1 (Windows CI) played the
-// same-realm station without credentials. 3.0.4 (macOS x64 under Rosetta) sent user-info with the first request, before
-// any challenge, and did not reuse it.
+// LibVLC sends a URL's user-info as HTTP Basic credentials, and keeps them for the life of the LibVLC instance, which is
+// this engine's and so the app's lifetime. It then sends them with other requests to the same scheme://host:port and path,
+// even when the station's URL carries none, and even before the server asks: in Windows CI (VideoLAN.LibVLC.Windows
+// 3.0.23.1, HS-17 LV-08) a station without credentials on the user-info station's path played, and its first and only
+// request carried the Authorization header. No request to any other path on that server carried them, including a
+// second password-protected path with another realm. A password removed from a station URL therefore keeps working until the app quits. This matches how
+// browsers treat a Basic-auth protection space, and it stays within one server and path, so it is accepted and
+// documented in the README. LibVLC 3 has no option that disables or scopes this store (its only keystore option,
+// --keystore, selects the persistent store), and a LibVLC instance per session would repeat the plugin load on every
+// station change. LibVLC 3.0.4 (macOS x64, Rosetta) also sent user-info preemptively but did not reuse it. AVPlayer
+// (macOS 26) reuses user-info credentials only after a 401 from the same server and realm, for the process lifetime.
 //
 // ─── Threading ────────────────────────────────────────────────────────────────────────────────────────────────────────
 // • Public members may be called from any thread; `gate` guards the session bookkeeping and is never held across an
