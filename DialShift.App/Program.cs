@@ -1,5 +1,4 @@
 using System;
-using System.Windows.Input;
 using Avalonia;
 
 namespace DialShift.App;
@@ -31,12 +30,4 @@ internal static class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .LogToTrace();
-}
-
-/// <summary>A tiny ICommand for NativeMenu / TrayIcon actions.</summary>
-internal sealed class Command(Action action) : ICommand
-{
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-    public bool CanExecute(object? parameter) => true;
-    public void Execute(object? parameter) => action();
 }

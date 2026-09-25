@@ -12,8 +12,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using DialShift.App.Services;
-using DialShift.App.Views;
-using DialShift.App.Views.Dialogs;
+using DialShift.App.ViewModels;
+using DialShift.App.Views.Legacy;
 using DialShift.Core;
 
 namespace DialShift.App;
@@ -142,16 +142,16 @@ public partial class App : Application
     private NativeMenu BuildTrayMenu()
     {
         var menu = new NativeMenu();
-        menu.Items.Add(new NativeMenuItem("Open DialShift") { Command = new Command(ShowWindow) });
-        menu.Items.Add(new NativeMenuItem("Play / Pause") { Command = new Command(() => Radio.Toggle()) });
-        menu.Items.Add(new NativeMenuItem("Next station") { Command = new Command(() => Radio.NextStation()) });
+        menu.Items.Add(new NativeMenuItem("Open DialShift") { Command = new RelayCommand(ShowWindow) });
+        menu.Items.Add(new NativeMenuItem("Play / Pause") { Command = new RelayCommand(() => Radio.Toggle()) });
+        menu.Items.Add(new NativeMenuItem("Next station") { Command = new RelayCommand(() => Radio.NextStation()) });
 
         var stations = new NativeMenuItem("Stations");
         var submenu = new NativeMenu();
         foreach (var station in Settings.Stations)
         {
             var s = station;
-            submenu.Items.Add(new NativeMenuItem(station.Name) { Command = new Command(() => { Radio.Play(s); Save(); }) });
+            submenu.Items.Add(new NativeMenuItem(station.Name) { Command = new RelayCommand(() => { Radio.Play(s); Save(); }) });
         }
         stations.Menu = submenu;
         menu.Items.Add(stations);
@@ -160,15 +160,15 @@ public partial class App : Application
         {
             ToggleType = MenuItemToggleType.CheckBox,
             IsChecked = Settings.ScheduleEnabled,
-            Command = new Command(() => { Settings.ScheduleEnabled = !Settings.ScheduleEnabled; Radio.RefreshSchedule(); Refresh(); })
+            Command = new RelayCommand(() => { Settings.ScheduleEnabled = !Settings.ScheduleEnabled; Radio.RefreshSchedule(); Refresh(); })
         };
         menu.Items.Add(schedule);
 
         menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(new NativeMenuItem("Volume +10") { Command = new Command(() => { Radio.SetVolume(Settings.Volume + 10); Save(); }) });
-        menu.Items.Add(new NativeMenuItem("Volume −10") { Command = new Command(() => { Radio.SetVolume(Settings.Volume - 10); Save(); }) });
+        menu.Items.Add(new NativeMenuItem("Volume +10") { Command = new RelayCommand(() => { Radio.SetVolume(Settings.Volume + 10); Save(); }) });
+        menu.Items.Add(new NativeMenuItem("Volume −10") { Command = new RelayCommand(() => { Radio.SetVolume(Settings.Volume - 10); Save(); }) });
         menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(new NativeMenuItem("Quit DialShift") { Command = new Command(ExitApp) });
+        menu.Items.Add(new NativeMenuItem("Quit DialShift") { Command = new RelayCommand(ExitApp) });
         return menu;
     }
 

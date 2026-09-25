@@ -5,9 +5,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using DialShift.Core;
-using static DialShift.App.Views.MainWindow;
+using static DialShift.App.Views.Legacy.MainWindow;
 
-namespace DialShift.App.Views.Dialogs;
+namespace DialShift.App.Views.Legacy;
 
 public sealed class ScheduleDialog : EditorDialog
 {

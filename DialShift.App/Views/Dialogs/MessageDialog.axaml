@@ -1,0 +1,20 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DialShift.App.ViewModels"
+        x:Class="DialShift.App.Views.Dialogs.MessageDialog"
+        x:DataType="vm:MessageDialogViewModel"
+        Title="{Binding Title}"
+        Width="460" SizeToContent="Height" CanResize="False"
+        ShowInTaskbar="False">
+  <StackPanel Margin="26" Spacing="12">
+    <SelectableTextBlock Text="{Binding Title}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+    <SelectableTextBlock Text="{Binding Message}" FontSize="14" Foreground="{StaticResource DsMutedBrush}" TextWrapping="Wrap" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="{Binding CancelText}" Command="{Binding CancelCommand}"
+              IsCancel="True" IsVisible="{Binding IsConfirmation}" />
+      <Button x:Name="ConfirmButton" Classes="accent" MinWidth="80"
+              Content="{Binding ConfirmText}" Command="{Binding ConfirmCommand}"
+              IsDefault="True" IsCancel="{Binding IsMessage}" />
+    </StackPanel>
+  </StackPanel>
+</Window>
