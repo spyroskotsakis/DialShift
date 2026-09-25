@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from common import (DATA_DIR, classify, clean_name, dedupe_rb, fetch_radio_browser,
+from common import (DATA_DIR, city_aliases, classify, clean_name, dedupe_rb, fetch_radio_browser,
                     fetch_text, norm, norm_city, norm_freq, row_score, url_norm)
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
@@ -37,6 +37,7 @@ SSL_CTX = ssl._create_unverified_context()
 def load_country(path):
     with open(path, encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
+    cfg['city_aliases'] = city_aliases(cfg.get('city_aliases'), Path(path).name)
     # focus areas: 'focus_areas:' list (city- or region-based), or the older
     # 'focus_cities:' / single 'focus:' block (kept working for compatibility)
     cfg['focus_areas'] = cfg.get('focus_areas') or cfg.get('focus_cities') \
@@ -149,6 +150,7 @@ def match_national(cfg, name, desc):
 
 def build_country(cfg, force_refresh=False):
     code = cfg['code']
+    aliases = cfg['city_aliases']
     rb = dedupe_rb(fetch_radio_browser(code, cfg['name'], force=force_refresh))
 
     rb_by_norm = {}
@@ -179,7 +181,7 @@ def build_country(cfg, force_refresh=False):
     def make_row(wname, entry, city, region, freq, desc, stream, internet_only, source, force_pin=False):
         t, g = classify(desc, (stream or {}).get('tags', ''), code)
         entry = entry or {}
-        ccity = norm_city(entry.get('city', city), code)
+        ccity = norm_city(entry.get('city', city), aliases)
         if entry.get('no_auto_stream'):            # identity only, no public stream
             stream = None
         pinned = entry.get('url')
@@ -251,7 +253,7 @@ def build_country(cfg, force_refresh=False):
             if nat['id'] not in national_seen:
                 national_seen.add(nat['id'])
                 add(dict(country=code, name=nat.get('name', wname), name_local=nat.get('name_local', ''),
-                         city=norm_city(nat.get('city', city), code), region='National',
+                         city=norm_city(nat.get('city', city), aliases), region='National',
                          frequency_fm=str(nat.get('freq', w['freq']) or ''),
                          type=nat.get('type', 'Public'), genre=nat.get('genre', ''),
                          language=nat.get('language', lang_default),
@@ -338,7 +340,7 @@ def build_country(cfg, force_refresh=False):
         if lang == 'Ancient Greek':
             lang = lang_default or 'Greek'
         add(dict(country=code, name=s['name'], name_local='',
-                 city=norm_city(s.get('state') or '', code) or '—',
+                 city=norm_city(s.get('state') or '', aliases) or '—',
                  region=s.get('state') or '(unlisted)',
                  frequency_fm='', type=t, genre=g, language=lang,
                  political_leaning='None', internet_only='Unknown',
@@ -354,7 +356,7 @@ def build_country(cfg, force_refresh=False):
     # 'stokokkino' vs 'Sto Kokkino' merge: spaces are ignored in the name key
     deduped, best = {}, {}
     for r in rows:
-        key = (norm(r['name']).replace(' ', ''), norm_city(r['city'], code), url_norm(r['stream_url']))
+        key = (norm(r['name']).replace(' ', ''), norm_city(r['city'], aliases), url_norm(r['stream_url']))
         prev = best.get(key)
         if prev is None or row_score(r) > row_score(prev):
             best[key] = r
