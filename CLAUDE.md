@@ -4,7 +4,7 @@ Full project instructions live in **AGENTS.md** (auto-loaded alongside this file
 
 ## Team & tooling available in this repo
 
-- **Expert subagents** pre-defined in `.claude/agents/`: `spec-architect`, `core-engineer`, `playback-engineer`, `platform-engineer`, `ui-engineer`, `release-engineer`, `test-engineer`. For multi-lane work, act as orchestrator: plan → delegate via Task → review each result vs acceptance criteria → re-delegate until green. Do not implement yourself.
+- **Expert subagents** pre-defined in `.claude/agents/`: `spec-architect`, `core-engineer`, `playback-engineer`, `platform-engineer`, `ui-engineer`, `release-engineer`, `test-engineer`, and for brief 3 `data-engineer`, `app-integration-engineer`, `docs-engineer` and the read-only or measurement-only reviewers `qa-auditor`, `design-reviewer`, `perf-auditor` (implementer ≠ reviewer ≠ auditor). For multi-lane work, act as orchestrator: plan → delegate via Task → review each result vs acceptance criteria → re-delegate until green. Do not implement yourself.
 - **Project skills:** `/radio-catalog-pipeline` (station catalog edits), `/release-packaging` (macOS `.app` + Windows packaging).
 - **Path-scoped rules:** `.claude/rules/core-purity.md` (`DialShift.Core/**`), `.claude/rules/data-catalog-only.md` (`data/**`).
 - **Enforcement:** `.claude/settings.json` has a PreToolUse hook that blocks `git push` to `origin`/`upstream` — pushes go to the `private` remote only.
