@@ -97,14 +97,15 @@ internal static class SmokeUi
     }
 
     /// <summary>
-    /// Renders <paramref name="visual"/> at its screen scale to a PNG and returns its pixel size. Throws when the
-    /// render is blank (a single color everywhere), which is what a window that never rendered produces.
+    /// Renders <paramref name="visual"/> at its screen scale (or at <paramref name="scale"/>) to a PNG and returns its pixel
+    /// size. Throws when the render is blank (a single color everywhere), which is what a window that never rendered produces.
     /// </summary>
-    public static PixelSize Capture(TopLevel visual, string path)
+    public static PixelSize Capture(TopLevel visual, string path, double? scale = null)
     {
-        var scale = visual.RenderScaling;
-        var size = new PixelSize(Math.Max(1, (int)Math.Ceiling(visual.Bounds.Width * scale)), Math.Max(1, (int)Math.Ceiling(visual.Bounds.Height * scale)));
-        using var bitmap = new RenderTargetBitmap(size, new Vector(96 * scale, 96 * scale));
+        var renderScale = scale ?? visual.RenderScaling;
+        var size = new PixelSize(Math.Max(1, (int)Math.Ceiling(visual.Bounds.Width * renderScale)),
+            Math.Max(1, (int)Math.Ceiling(visual.Bounds.Height * renderScale)));
+        using var bitmap = new RenderTargetBitmap(size, new Vector(96 * renderScale, 96 * renderScale));
         bitmap.Render(visual);
         if (IsSingleColor(bitmap)) throw new InvalidOperationException($"The {size.Width}x{size.Height} render is blank.");
         bitmap.Save(path, PngBitmapEncoderOptions.Default);

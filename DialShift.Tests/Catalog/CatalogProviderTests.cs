@@ -382,8 +382,8 @@ internal static class CatalogProviderTests
             At(folder), "the path is a directory, not a file.");
         await CheckUnavailableAsync("CAT-04 a location with a Problem (relative override) → Unavailable with that Problem, logged against DIALSHIFT_CATALOG_PATH",
             new CatalogLocation(null, CatalogLocationSource.Override, MustBeAbsolute), MustBeAbsolute);
-        await CheckUnavailableAsync("CAT-04 a location with neither Path nor Problem → Unavailable \"DIALSHIFT_CATALOG_PATH has no path.\"",
-            new CatalogLocation(null, CatalogLocationSource.Override, null), "DIALSHIFT_CATALOG_PATH has no path.");
+        await CheckUnavailableAsync("CAT-04 a location with neither Path nor Problem (breaks §4.2) → Unavailable \"the file does not exist.\", no exception",
+            new CatalogLocation(null, CatalogLocationSource.Override, null), "the file does not exist.");
     }
 
     // ─── CAT-04: non-regular files are refused before opening (D81 item 4) ───
