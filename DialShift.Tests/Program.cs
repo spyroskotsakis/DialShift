@@ -15,6 +15,7 @@ if (args.Length > 0 && args[0] == "--log-child")
 return await TestHarness.RunAsync(args,
     new TestSuite("Scheduler", SchedulerTests.Run),
     new TestSuite("ScheduleSession", ScheduleSessionTests.Run),
+    new TestSuite("Timezone", TimezoneTests.RunAsync),
     new TestSuite("SettingsStore", SettingsStoreTests.Run),
     new TestSuite("RetryPolicy", RetryPolicyTests.Run),
     new TestSuite("PlaybackCoordinator", PlaybackCoordinatorTests.RunAsync),

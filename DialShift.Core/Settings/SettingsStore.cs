@@ -18,6 +18,9 @@ public sealed class SettingsStore(string directory)
             if (settings.Version != 1) throw new JsonException("Unsupported settings version.");
             if (settings.Stations is null || settings.Schedule is null || settings.Stations.Any(s => s is null || string.IsNullOrWhiteSpace(s.Name) || !ValidUrl(s.Url)) || settings.Schedule.Any(e => e is null || e.Days is null))
                 throw new JsonException("Invalid settings data.");
+            // ScheduleEntry.TimeZone is not validated: any string loads, and an id this computer cannot resolve falls back to
+            // local time at evaluation (Scheduler.TryResolveZone), so a stale id never reaches the recovery path below (QA-N3).
+            // A non-string value ("TimeZone": 123) is malformed JSON for the model, like any other mistyped field, and does.
             settings.Volume = Math.Clamp(settings.Volume, 0, 100);
             return settings;
         }

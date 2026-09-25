@@ -81,15 +81,15 @@ public static class SchedulerTests
         var occurrence = Scheduler.Evaluate(settings, Mon(9)).Current;
         Check("CT-SCH-02 Key is \"{Id}:yyyy-MM-ddTHH:mm\" (invariant culture)", occurrence?.Key == "0f0e0d0c-0b0a-0908-0706-050403020100:2026-09-14T07:05");
 
-        // The Key is built with the *current* culture: ':' is the culture's time separator (and 'yyyy' uses its calendar).
-        // Harmless in-process (culture does not change mid-session) but not invariant. A synthetic culture keeps this host-independent.
+        // CF-01: the Key ignores CurrentCulture. A culture whose time separator is '.' must still give ':'. A synthetic
+        // culture keeps this host-independent.
         var dotted = (CultureInfo)CultureInfo.InvariantCulture.Clone();
         dotted.DateTimeFormat.TimeSeparator = ".";
         var saved = CultureInfo.CurrentCulture;
         try
         {
             CultureInfo.CurrentCulture = dotted;
-            Check("[quirk] CT-SCH-02 Key follows CurrentCulture's time separator", occurrence?.Key == "0f0e0d0c-0b0a-0908-0706-050403020100:2026-09-14T07.05");
+            Check("CT-SCH-02 Key is culture-invariant (CF-01)", occurrence?.Key == "0f0e0d0c-0b0a-0908-0706-050403020100:2026-09-14T07:05");
         }
         finally { CultureInfo.CurrentCulture = saved; }
     }
