@@ -43,6 +43,10 @@ internal static class CatalogExportContractTests
     /// or other white space), and no ',' or ';'.</summary>
     private static readonly Regex LanguageName = new(@"^[^\s,;]+(?: [^\s,;]+)*$", RegexOptions.CultureInvariant);
 
+    /// <summary>The provenance label of a raw radio-browser tag note in the CSVs (<c>common.RB_TAGS_LABEL</c>), and the app's label (D86).</summary>
+    private const string RawTagsLabel = "tags:";
+    private const string TagsLabel = "Tags: ";
+
     public static async Task RunAsync()
     {
         var copied = Path.Combine(AppContext.BaseDirectory, CatalogProvider.FileName);
@@ -73,6 +77,7 @@ internal static class CatalogExportContractTests
         Entries(stations, result.Catalog.Entries);
         Order(result.Catalog.Entries);
         Languages(result.Catalog.Entries);
+        TagNotes(result.Catalog.Entries);
         LanguageFilter(result.Catalog.Entries);
         Canonical(root, result.Catalog.Entries);
     }
@@ -227,6 +232,34 @@ internal static class CatalogExportContractTests
         foreach (var i in outOfOrder.Take(5)) Console.WriteLine($"  out of order at {i}: {entries[i - 1].Name} ({entries[i - 1].Country}) before {entries[i].Name} ({entries[i].Country})");
         Check("CAT-01 order: country ascending, then votes descending (null as 0), then name, then stream_url, strings by Unicode code point",
             outOfOrder.Count == 0);
+    }
+
+    /// <summary>
+    /// D86, §2.1 <c>notes</c> and §2.3 rule 8, mirrored over the checked-in file: no note is a raw radio-browser tag list
+    /// (<c>tags: …</c>), and every formatted one reads <c>Tags: a, b</c>: tags joined by exactly <c>", "</c>, each trimmed,
+    /// single-spaced, free of <c>,</c> and <c>;</c>, with a letter or digit, and no tag repeated ignoring case.
+    /// </summary>
+    private static void TagNotes(IReadOnlyList<StationCatalogEntry> entries)
+    {
+        var raw = entries.Where(e => e.Notes.StartsWith(RawTagsLabel, StringComparison.Ordinal)).ToList();
+        foreach (var e in raw.Take(5)) Console.WriteLine($"  raw tag note: {e.Name} ({e.Country}): {CatalogFixtures.Show(e.Notes)}");
+        Check($"CAT-01 D86 rule 8: no note starts with the raw radio-browser label \"{RawTagsLabel}\" (actual {raw.Count})", raw.Count == 0);
+
+        var formatted = entries.Where(e => e.Notes.StartsWith(TagsLabel.TrimEnd(), StringComparison.Ordinal)).ToList();
+        var bad = formatted.Where(e => !WellFormed(e.Notes)).ToList();
+        foreach (var e in bad.Take(5)) Console.WriteLine($"  tag note: {e.Name} ({e.Country}): {CatalogFixtures.Show(e.Notes)}");
+        Check($"CAT-01 D86 all {formatted.Count} tag notes read \"{TagsLabel}a, b\": tags joined by \", \", trimmed, single-spaced, free of ',' and ';', " +
+              "each with a letter or digit, none repeated ignoring case",
+            formatted.Count > 0 && bad.Count == 0);
+
+        static bool WellFormed(string notes)
+        {
+            if (!notes.StartsWith(TagsLabel, StringComparison.Ordinal)) return false;
+            var tags = notes[TagsLabel.Length..].Split(", ");
+            return tags.All(t => t.Length > 0 && t == t.Trim() && !t.Contains("  ", StringComparison.Ordinal) && t.IndexOfAny([',', ';']) < 0
+                                 && t.Any(char.IsLetterOrDigit))
+                && tags.Select(t => t.Normalize(NormalizationForm.FormC)).Distinct(StringComparer.OrdinalIgnoreCase).Count() == tags.Length;
+        }
     }
 
     /// <summary>

@@ -65,7 +65,7 @@ internal static class CatalogPerfTests
         string? ungated = !optimized
             ? "the JIT optimizer is disabled (a Debug build); D69's budgets are defined for Release, so the numbers above are printed, not gated"
             : !appleSilicon
-                ? $"{RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture} is not the Apple Silicon dev box D69's budgets are defined on; other hardware is reported, not gated (contracts §8 CAT-16)"
+                ? $"{RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture} is not macOS on arm64: D69's budgets gate every optimized macOS arm64 run (this Mac and CI runners alike); other platforms are reported, not gated (contracts §8 CAT-16)"
                 : null;
 
         var realPath = Path.Combine(AppContext.BaseDirectory, CatalogProvider.FileName);

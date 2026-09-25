@@ -86,11 +86,13 @@ internal static class CatalogViewModelTests
             && UiText.CatalogUnavailable == "Catalog unavailable — enter stream details manually"
             && UiText.CatalogNoMatch == "No stations match — adjust filters or enter the stream manually"
             && UiText.ManualEntrySeparator == "Or enter stream details manually");
+        Check("CAT-13 D85 P5 the detail pane's placeholder is exact: \"Type to search, or press Down to browse the most-voted stations. Details and notes show here.\"",
+            UiText.CatalogDetailPlaceholder == "Type to search, or press Down to browse the most-voted stations. Details and notes show here.");
         Check("CAT-09 §5.3 ResultCount (text or a filter): 0 → \"\", 1 of 1 → \"1 match\", 50 of 50 → \"50 matches\", 50 of 214 → \"Showing 50 of 214 matches\"",
             UiText.ResultCount(0, 0) == "" && UiText.ResultCount(1, 1) == "1 match"
             && UiText.ResultCount(50, 50) == "50 matches" && UiText.ResultCount(50, 214) == "Showing 50 of 214 matches"
             && UiText.ResultCount(1, 2) == "Showing 1 of 2 matches");
-        Check("CAT-09 D85 BrowseCount (no text, every filter All): 50 of 8274 → \"Top 50 of 8,274 stations by votes\", 7 of 7 → \"All 7 stations by votes\", 1 of 1 → \"1 station\", 0 → \"\"",
+        Check("CAT-09 CAT-14 D85 P10 BrowseCount (no text, every filter All): 50 of 8274 → \"Top 50 of 8,274 stations by votes\", 7 of 7 → \"All 7 stations by votes\", 1 of 1 → \"1 station\", 0 → \"\"",
             UiText.BrowseCount(50, 8274) == "Top 50 of 8,274 stations by votes" && UiText.BrowseCount(7, 7) == "All 7 stations by votes"
             && UiText.BrowseCount(1, 1) == "1 station" && UiText.BrowseCount(0, 0) == "");
         Check("CAT-17 §5.3 CatalogStatus: \"8,274 stations · catalog updated 2026-09-25\"; without generated_utc \"8,274 stations\"",
@@ -472,6 +474,10 @@ internal static class CatalogViewModelTests
             d.Subtitle == "Athens · 93.6 FM · Greece" && d.AutomationName == "Kosmos 93.6, Athens · 93.6 FM · Greece");
 
         var rows = Small.ToDictionary(e => e, e => new CatalogResultRow(e));
+        var cityOnly = new CatalogResultRow(new StationCatalogEntry { Name = "City only", Country = "", City = "Athens", StreamUrl = "https://streams.example.org/city-only" });
+        var neither = new CatalogResultRow(new StationCatalogEntry { Name = "Nowhere", Country = "", StreamUrl = "https://streams.example.org/nowhere" });
+        Check("CAT-10 D85 Place (line 1 after the name): city and country label \"Athens · Greece\", a city only \"Athens\", a country only \"Germany\", neither \"\"",
+            rows[Kosmos].Place == "Athens · Greece" && cityOnly.Place == "Athens" && rows[Shortwave].Place == "Germany" && neither.Place == "");
         Check("CAT-10 §5.2 votes: \"1 vote\" singular, \"\" when unknown", rows[Melodia].VotesText == "1 vote" && rows[Shortwave].VotesText == "");
         Check("CAT-10 §5.2 kind: the genre is left out when it repeats the type (\"Commercial\"), and stands alone without a type (\"Chillout\")",
             rows[Thessaloniki].Kind == "Commercial" && rows[Chill].Kind == "Chillout" && rows[KolnAm].Kind == "Commercial · Talk");
@@ -484,6 +490,16 @@ internal static class CatalogViewModelTests
         Check("CAT-10 §5.2 DetailRow = the highlighted row while there is one", vm.DetailRow!.Entry == Thessaloniki);
         vm.HighlightedResult = null;
         Check("CAT-10 §5.2 … and the picked row again when the highlight goes", vm.DetailRow == kosmosRow);
+
+        // M1: with a station picked, reopen the list, walk to another row, close the list.
+        vm.IsResultsOpen = true;
+        Check("CAT-10 fixture: reopening the list highlights its first row (the picked Kosmos 93.6)", vm.HighlightedResult == vm.Results[0] && vm.Results[0] == kosmosRow);
+        vm.MoveHighlight(1);
+        var walked = vm.HighlightedResult;
+        Check("CAT-10 fixture: Down walks to Bayern 3, which the detail pane shows", walked?.Entry == Bayern && vm.DetailRow == walked);
+        vm.IsResultsOpen = false;
+        Check("CAT-10 D85 M1 closing the list clears the highlight and the detail pane shows the picked station again, not the row it left",
+            vm.HighlightedResult == null && vm.DetailRow == kosmosRow && vm.SelectedEntry == Kosmos);
 
         // Truncation to the field limits, never splitting a surrogate pair.
         var longName = new string('a', 99) + " " + new string('b', 60);
@@ -601,7 +617,7 @@ internal static class CatalogViewModelTests
         Check("CAT-11 Edit mode Save leaves a station without notes without notes", plain.Notes == null && editPlain.Catalog.Calls == 0);
     }
 
-    // ─── the real 8,274-entry catalog ───
+    // ─── the real catalog (app-catalog.json next to the test binary; its counts are read, never spelled out) ───
 
     private static async Task RealCatalog()
     {
