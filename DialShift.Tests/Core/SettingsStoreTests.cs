@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using DialShift.Core;
+using DialShift.Tests.Fakes;
 using static DialShift.Tests.TestHarness;
 
 namespace DialShift.Tests.Core;
@@ -28,7 +29,10 @@ public static class SettingsStoreTests
         EmptyListsKept(Path.Combine(root, "empty"));
         SaveCreatesDirectory(Path.Combine(root, "nested", "a", "b"));
         FullRoundTrip(Path.Combine(root, "roundtrip"));
-        StickyWarning(Path.Combine(root, "sticky"));
+        WarningClearedByLaterLoad(Path.Combine(root, "CF-03"));
+        SameMillisecondRecoveries(Path.Combine(root, "CF-04-collision"));
+        NoBackupNameFree(Path.Combine(root, "CF-04-exhausted"));
+        ReadOnlyDirectory(Path.Combine(root, "CF-04-readonly"));
         Directory.Delete(root, recursive: true);
     }
 
@@ -179,13 +183,103 @@ public static class SettingsStoreTests
             && loaded.FallbackStationId == settings.Stations[1].Id && loaded.LastStationId == settings.Stations[2].Id);
     }
 
-    private static void StickyWarning(string directory)
+    private static void WarningClearedByLaterLoad(string directory)
     {
         var store = StoreWith(directory, Baseline().Also(d => d["Version"] = 2));
         store.Load();
+        var recovered = store.Warning != null;
         store.Save(Settings.Defaults());
         store.Load();
-        Check("[quirk] Warning is never cleared by a later successful Load on the same store", store.Warning != null);
+        Check("CF-03 Warning is cleared by a later successful Load on the same store", recovered && store.Warning == null);
+    }
+
+    /// <summary>A fixed clock, so the backup name is known: <c>settings.json.unreadable-&lt;local yyyyMMddHHmmssfff&gt;</c>.</summary>
+    private static (SettingsStore Store, string Stem) FixedClockStore(string directory, string content)
+    {
+        Directory.CreateDirectory(directory);
+        var clock = FakeClock.AtUtc(2026, 9, 25, 10, 30);
+        var store = new SettingsStore(directory, clock);
+        File.WriteAllText(store.FilePath, content);
+        return (store, store.FilePath + ".unreadable-" + clock.UtcNow.ToLocalTime().ToString("yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static void SameMillisecondRecoveries(string directory)
+    {
+        const string corrupt = "{ not json";
+        var (store, stem) = FixedClockStore(directory, corrupt);
+        File.WriteAllText(stem + "-3", "older backup");
+        var first = store.Load();
+        var firstWarning = store.Warning;
+        var second = store.Load();
+        Check("CF-04 two recoveries in the same millisecond: no exception, defaults both times",
+            first.Stations.Count == 3 && second.Stations.Count == 3);
+        Check("CF-04 the first copy takes settings.json.unreadable-<timestamp>, the second -2; a taken -3 is left alone",
+            File.ReadAllText(stem) == corrupt && File.ReadAllText(stem + "-2") == corrupt && File.ReadAllText(stem + "-3") == "older backup"
+            && Backups(directory).Length == 3);
+        Check("CF-04 each warning names its own copy",
+            firstWarning != null && firstWarning.EndsWith(stem + ".", StringComparison.Ordinal)
+            && store.Warning != null && store.Warning.EndsWith(stem + "-2.", StringComparison.Ordinal));
+        store.Load();
+        Check("CF-04 a third recovery skips the taken -3 and uses -4", File.ReadAllText(stem + "-4") == corrupt && Backups(directory).Length == 4);
+    }
+
+    /// <summary>Every backup name is taken, so no copy can be made: defaults load, and Save refuses until a copy exists.</summary>
+    private static void NoBackupNameFree(string directory)
+    {
+        const string corrupt = "{ precious but broken";
+        var (store, stem) = FixedClockStore(directory, corrupt);
+        var taken = Enumerable.Range(1, 100).Select(n => n == 1 ? stem : $"{stem}-{n}").ToList();
+        foreach (var name in taken) File.WriteAllText(name, "taken");
+        Settings? loaded = null;
+        Check("CF-04 no free backup name: Load does not throw", NoThrow(() => loaded = store.Load()));
+        Check("CF-04 no free backup name: defaults and a warning that says no copy was made",
+            loaded!.Stations.Count == 3 && store.Warning != null && store.Warning.Contains("a copy could not be made", StringComparison.Ordinal)
+            && store.Warning.Contains(store.FilePath, StringComparison.Ordinal));
+        Check("CF-04 no free backup name: Save throws IOException and leaves the original untouched",
+            Throws<IOException>(() => store.Save(Settings.Defaults())) && File.ReadAllText(store.FilePath) == corrupt
+            && !File.Exists(store.FilePath + ".tmp") && taken.All(name => File.ReadAllText(name) == "taken"));
+        File.Delete(taken[41]);
+        store.Save(Settings.Defaults());
+        Check("CF-04 once a name is free, Save preserves the original first and then writes",
+            File.ReadAllText(taken[41]) == corrupt && store.Load().Stations.Count == 3 && store.Warning == null);
+    }
+
+    /// <summary>The backup copy fails because the folder is read-only; the original survives until a copy can be made.</summary>
+    private static void ReadOnlyDirectory(string directory)
+    {
+        const string name = "CF-04 read-only folder";
+        if (OperatingSystem.IsWindows()) { Skip(name, "Unix permission bits; Windows folders have no read-only bit for files inside"); return; }
+        const string corrupt = "{ precious but broken";
+        var (store, _) = FixedClockStore(directory, corrupt);
+        var writable = File.GetUnixFileMode(directory);
+        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            if (CanCreateFile(directory)) { Skip(name, "the folder stays writable for this user (running as root)"); return; }
+            Settings? loaded = null;
+            Check($"{name}: Load does not throw", NoThrow(() => loaded = store.Load()));
+            Check($"{name}: defaults, a no-copy warning, no backup file, original intact",
+                loaded!.Stations.Count == 3 && store.Warning != null && store.Warning.Contains("a copy could not be made", StringComparison.Ordinal)
+                && Backups(directory).Length == 0 && File.ReadAllText(store.FilePath) == corrupt);
+            Check($"{name}: Save throws IOException and the original is untouched",
+                Throws<IOException>(() => store.Save(Settings.Defaults())) && File.ReadAllText(store.FilePath) == corrupt);
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory, writable);
+        }
+        store.Save(Settings.Defaults());
+        var backups = Backups(directory);
+        Check($"{name}: once writable, the next Save preserves the original first, then writes defaults",
+            backups.Length == 1 && File.ReadAllText(backups[0]) == corrupt && store.Load().Stations.Count == 3 && store.Warning == null);
+    }
+
+    private static bool CanCreateFile(string directory)
+    {
+        var probe = Path.Combine(directory, "probe-" + Guid.NewGuid());
+        try { File.WriteAllText(probe, ""); File.Delete(probe); return true; }
+        catch (UnauthorizedAccessException) { return false; }
+        catch (IOException) { return false; }
     }
 
     private static JsonObject Also(this JsonObject document, Action<JsonObject> change)
