@@ -68,8 +68,8 @@ def clean_name(n):
 def norm_city(city, aliases):
     """The canonical city: aliases[norm(city)] if present, else the city trimmed and title-cased.
     aliases is the country YAML's `city_aliases` mapping (build_stations.load_country; empty for a
-    collection). A key is compared verbatim with norm(city), so only a key already in norm() form
-    (lowercase, no accents or punctuation) can match."""
+    collection). A key is compared verbatim with norm(city); city_aliases() guarantees every key is
+    already in norm() form, so each one can match."""
     if not city:
         return ''
     c = city.strip().strip('.').title()
@@ -77,8 +77,9 @@ def norm_city(city, aliases):
 
 def city_aliases(value, source):
     """A YAML `city_aliases` block checked as a mapping of non-empty strings to non-empty strings
-    (missing or empty = {}). A bad block is a hard error naming source: YAML reads an unquoted
-    key like `no:` as a boolean, which would otherwise never match and fail silently."""
+    whose keys are already in norm() form (missing or empty = {}). A bad block is a hard error
+    naming source: an unquoted key like `no:` (YAML reads it as a boolean) or a key with capitals,
+    accents or punctuation would otherwise never match and fail silently."""
     if value is None:
         return {}
     if not isinstance(value, dict):
@@ -88,6 +89,11 @@ def city_aliases(value, source):
     if bad:
         raise ValueError(f'{source}: city_aliases entries must be non-empty strings (quote them): '
                          + ', '.join(bad))
+    unnormalized = [f'{k!r} (write it as {norm(k)!r})' if norm(k) else f'{k!r} (nothing left once normalized)'
+                    for k in value if norm(k) != k]
+    if unnormalized:
+        raise ValueError(f'{source}: city_aliases keys must be in normalized form (lowercase, no '
+                         'accents or punctuation) or they never match: ' + ', '.join(unnormalized))
     return dict(value)
 
 # ---------------------------------------------------------------- row helpers

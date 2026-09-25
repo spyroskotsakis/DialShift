@@ -6,7 +6,7 @@ description: Use when adding, editing, or fixing radio stations, collections, or
 # Radio catalog pipeline
 
 1. **Edit the YAML source of truth only:**
-   - Countries: `data/countries/<name>.yaml` (fields per `data/README.md` schema — station entries carry name, url, genre, city, language, notes, logo). City spellings are unified by the YAML's `city_aliases` only (keys in normalized form: lowercase, no accents or punctuation; see `data/README.md`); the Python holds no alias list.
+   - Countries: `data/countries/<name>.yaml` (fields per `data/README.md` schema — station entries carry name, url, genre, city, language, notes, logo). City spellings are unified by the YAML's `city_aliases` only (keys in normalized form: lowercase, no accents or punctuation; the build rejects any other key; see `data/README.md`); the Python holds no alias list.
    - Collections: `data/collections/<name>.yaml` (`code`, `name`, `description`, `stations:` with name/match/genre/url/language/notes/logo).
    - Stream URLs must be direct MP3/AAC/HLS (`http`/`https` only) and must pass `SettingsStore.ValidUrl` semantics and the app's 2,048-character limit — test that the stream actually plays before adding it.
 2. **Rebuild:** `data/.venv/bin/python data/build/build_all.py --refresh` (venv at `data/.venv`; recreate per `data/README.md` if missing). Without `--refresh` the cached `data/raw/` is reused and the country CSVs are reproduced byte-for-byte; collections still query radio-browser live.

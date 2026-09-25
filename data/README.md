@@ -133,10 +133,12 @@ notes · source`
    reads it from each YAML (`build_stations.load_country`) and has none in code. A key is
    compared with the city in the same normalized form as station names (lowercase, accents
    stripped, Greek transliterated, punctuation turned into spaces), so write keys that way:
-   `frankfurt am main`, not `Frankfurt-am-Main`. A key with capitals or punctuation never matches;
-   the keys marked *inert* in `france.yaml` and `greece.yaml` are such keys, kept as they are
-   because making them match would move about 130 rows to another city. Quote a key YAML reads as
-   a boolean or a number (`'no': …`): the build stops on a block that is not all non-empty strings.
+   `frankfurt am main`, not `Frankfurt-am-Main`. A key with capitals, accents or punctuation could
+   never match, so the build stops on one and names the file, the key and the form to write.
+   Only alias a spelling that really means that city: a region key such as
+   `auvergne rhone alpes: Lyon` would move every station in the region to Lyon. The block is
+   optional (`france.yaml` has none). Quote a key YAML reads as a boolean or a number
+   (`'no': …`): the build stops on a block that is not all non-empty strings.
 2. Optional: `wiki.url` for a Wikipedia FM list, and `focus_areas` for local shortlist tabs
    (a focus area is a city — `{city: Paris, label: Paris}` — or a region —
    `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;
