@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verifies an assembled DialShift.app, or the release zip, against the macOS packaging rules
-# (brief 1 §8; decisions D2 as amended by D13, D4, D7; acceptance rows PK-02, PK-03, PK-04,
-# HS-15, SR-03).
+# (brief 1 §8; decisions D2 as amended by D13, D4, D7, D60; acceptance rows PK-02, PK-03, PK-04,
+# HS-15, SR-03, CAT-03).
 #
 # Usage: scripts/verify-mac-app.sh path/to/DialShift.app
 #        scripts/verify-mac-app.sh --zip path/to/DialShift-osx-arm64-<label>.zip
@@ -10,7 +10,8 @@
 # ditto (Finder, Safari) and with unzip (a non-Apple extractor that drops extended
 # attributes), and verifies each extracted bundle, so the checks cover what a user downloads.
 # scripts/build-mac-app.sh runs both modes; CI runs the --zip mode again on the uploaded zip.
-# macOS built-in tools only (lipo, codesign, plutil, PlistBuddy, ditto, unzip, zipinfo).
+# macOS built-in tools only (lipo, codesign, plutil, PlistBuddy, ditto, unzip, zipinfo), plus
+# /usr/bin/python3 (Xcode Command Line Tools) for the station catalog JSON.
 set -euo pipefail
 
 fail() { echo "error: $*" >&2; exit 1; }
@@ -44,7 +45,7 @@ PLIST="$APP/Contents/Info.plist"
 EXE="$APP/Contents/MacOS/DialShift"
 PLISTBUDDY=/usr/libexec/PlistBuddy
 
-for tool in lipo codesign plutil "$PLISTBUDDY"; do
+for tool in lipo codesign plutil "$PLISTBUDDY" /usr/bin/python3; do
     command -v "$tool" >/dev/null 2>&1 || fail "required macOS tool not found: $tool"
 done
 
@@ -83,6 +84,27 @@ expect_plist LSMinimumSystemVersion 14.0
 [ -s "$APP/Contents/Resources/THIRD-PARTY-NOTICES.md" ] || fail "missing Contents/Resources/THIRD-PARTY-NOTICES.md"
 [ -s "$APP/Contents/Resources/licenses/Avalonia-LICENSE.txt" ] || fail "missing third-party license texts in Contents/Resources/licenses"
 
+# Brief 3 (D59, D60; CAT-03): the station catalog is a loose file in Contents/Resources/app, the folder
+# AppContext.BaseDirectory points at in this layout. python3 parses it because plutil rejects the JSON null
+# the catalog uses for an unknown bitrate or vote count.
+CATALOG="$APP/Contents/Resources/app/app-catalog.json"
+[ -f "$CATALOG" ] && [ ! -L "$CATALOG" ] || fail "missing $CATALOG (the station catalog must be a regular file there, D60)"
+catalog_stations="$(/usr/bin/python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        doc = json.load(f)
+except (OSError, ValueError) as e:
+    sys.exit("does not parse as JSON: %s" % e)
+version = doc.get("schema_version") if isinstance(doc, dict) else None
+if type(version) is not int or version != 1:
+    sys.exit("schema_version is %r, expected 1" % (version,))
+stations = doc.get("stations")
+if not isinstance(stations, list) or not stations:
+    sys.exit("stations is not a non-empty array")
+print(len(stations))
+' "$CATALOG" 2>&1)" || fail "$CATALOG: $catalog_stations"
+
 [ -f "$EXE" ] && [ ! -L "$EXE" ] || fail "missing executable $EXE (it must be a file, not a link)"
 [ -x "$EXE" ] || fail "executable bit not set on $EXE"
 # No VLC native runtime on macOS (PK-02). Case-sensitive on purpose: the managed
@@ -119,4 +141,4 @@ codesign --verify --deep --strict "$APP" || fail "codesign verification failed f
 signature="$(codesign -dv "$APP" 2>&1)"
 grep -qx 'Signature=adhoc' <<<"$signature" || fail "expected an ad-hoc signature (D7 development tier)"
 
-echo "verified: $APP (arm64, Mach-O-only Contents/MacOS, LSUIElement, ATS media exception, icon, no VLC, ad-hoc signature)"
+echo "verified: $APP (arm64, Mach-O-only Contents/MacOS, LSUIElement, ATS media exception, icon, no VLC, ad-hoc signature, station catalog with $catalog_stations stations)"

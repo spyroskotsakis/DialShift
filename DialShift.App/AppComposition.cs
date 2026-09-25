@@ -71,6 +71,13 @@ public static class AppComposition
         services.AddSingleton<IAppShell>(_ => Application.Current as IAppShell
             ?? throw new InvalidOperationException("The DialShift Avalonia application is not running."));
 
+        // Brief 3 station catalog (docs/catalog-contracts.md §4.4). The load is lazy: the first Add dialog starts it on the
+        // thread pool, and startup never waits for it. The file sits next to the apphost, never in the current directory (D60).
+        services.AddSingleton<ICatalogProvider>(sp => new CatalogProvider(
+            CatalogProvider.ResolveLocation(Environment.GetEnvironmentVariable, AppContext.BaseDirectory),
+            sp.GetRequiredService<IAppLog>()));
+        services.AddSingleton<ICatalogLogoLoader>(_ => new CatalogLogoLoader(new SocketsHttpHandler { ConnectTimeout = CatalogLogoLoader.Timeout }));
+
         services.AddSingleton<ViewModelServices>();
         services.AddSingleton(sp => new MainWindowViewModel(
             sp.GetRequiredService<IPlaybackCoordinator>(),

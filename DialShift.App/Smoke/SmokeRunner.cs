@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using DialShift.App.Services;
@@ -42,6 +43,8 @@ public sealed class SmokeRunner
     private static readonly TimeSpan PlayHold = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RecoveryTimeout = TimeSpan.FromSeconds(75);
     private static readonly TimeSpan ActivationTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>The catalog load takes tens of milliseconds; this only turns a hang into a failed check.</summary>
+    private static readonly TimeSpan CatalogTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SecondInstanceExitTimeout = TimeSpan.FromSeconds(20);
     /// <summary>Lets posted UI work (coalesced snapshot refreshes of the tray and the window) run before asserting.</summary>
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(150);
@@ -58,6 +61,7 @@ public sealed class SmokeRunner
     private readonly MainWindowViewModel viewModel;
     private readonly IAppShell shell;
     private readonly AppPaths paths;
+    private readonly ICatalogProvider catalog;
     private readonly string engine;
     private readonly NativeMenu initialRootMenu;
     private readonly TrayIcon initialTrayIcon;
@@ -80,6 +84,7 @@ public sealed class SmokeRunner
         viewModel = services.GetRequiredService<MainWindowViewModel>();
         shell = services.GetRequiredService<IAppShell>();
         paths = services.GetRequiredService<AppPaths>();
+        catalog = services.GetRequiredService<ICatalogProvider>();
         // Captured once: every later tray check compares against these instances (HS-03).
         initialRootMenu = tray.RootMenu;
         initialTrayIcon = tray.TrayIcon;
@@ -187,6 +192,7 @@ public sealed class SmokeRunner
             // Silent run: the engine is still asked to play and must report Playing.
             await coordinator.SetVolumeAsync(0);
             Check("Launch: window and tray", Launch());
+            await CheckAsync("Catalog loads from the app folder", CatalogLoadsAsync);
 
             var stations = Settings.Stations.ToList();
             foreach (var station in stations)
@@ -252,6 +258,26 @@ public sealed class SmokeRunner
         return new Outcome(passed,
             $"main window visible={window.IsVisible} (expected {expectVisible}); tray icon registered={registered}, visible={initialTrayIcon.IsVisible}, " +
             $"menu is RootMenu={menuBound}; engine={engine}; data folder={paths.DataDirectory} ({paths.Source})");
+    }
+
+    // ---- 1b. Station catalog (brief 3; CAT-03, CAT-04) -------------------------------------------------------------
+
+    /// <summary>
+    /// The app's own catalog provider loads the packaged app-catalog.json from the app folder: next to the apphost, and
+    /// Contents/Resources/app in the macOS bundle (D60). A set DIALSHIFT_CATALOG_PATH fails the check, because it would
+    /// not prove the packaged file.
+    /// </summary>
+    private async Task<Outcome> CatalogLoadsAsync()
+    {
+        var location = CatalogProvider.ResolveLocation(Environment.GetEnvironmentVariable, AppContext.BaseDirectory);
+        var result = await catalog.GetCatalogAsync().WaitAsync(CatalogTimeout);
+        var count = result.Catalog.Entries.Count;
+        var fromAppFolder = location.Source == CatalogLocationSource.AppFolder;
+        var generated = result.GeneratedUtc is { } utc ? utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) : "unknown";
+        return fromAppFolder && result.State == CatalogLoadState.Loaded && count > 0
+            ? new Outcome(true, $"{result.State}: {count} stations (generated {generated}) from {location.Path}")
+            : new Outcome(false, $"{result.State}: {count} stations from {location.Path ?? "no path"} ({location.Source}" +
+                $"{(fromAppFolder ? "" : ", " + CatalogProvider.PathOverrideVariable + " is set")}); reason: {result.Message ?? "none"}");
     }
 
     // ---- 2-3. Live playback, pause ---------------------------------------------------------------------------------

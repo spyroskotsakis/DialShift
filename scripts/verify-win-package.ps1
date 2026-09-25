@@ -1,6 +1,6 @@
 <#
 Verifies a DialShift win-x64 package folder against the Windows packaging rules
-(brief 1 §8; decisions D2 as amended by D13, D7; acceptance rows PK-02, PK-05, HS-15).
+(brief 1 §8; decisions D2 as amended by D13, D7, D60; acceptance rows PK-02, PK-05, HS-15, CAT-03).
 
 Usage: scripts/verify-win-package.ps1 -Path artifacts\DialShift-win-x64
 
@@ -50,4 +50,17 @@ if ($machine -ne 0x8664) { throw ('DialShift.exe machine is 0x{0:X4}, expected 0
 $subsystem = [BitConverter]::ToUInt16($exe, $peOffset + 24 + 68)
 if ($subsystem -ne 2) { throw "DialShift.exe subsystem is $subsystem, expected 2 (Windows GUI)." }
 
-Write-Host "verified: $package (x64 GUI exe, libvlc\win-x64 only, notices and licenses present)"
+# Brief 3 (D59, D60; CAT-03): the station catalog, a loose file next to DialShift.exe where AppContext.BaseDirectory
+# finds it. The integer type test matters: PowerShell's -eq alone would accept "1" and true as 1.
+$catalogFile = Join-Path $package 'app-catalog.json'
+if (-not (Test-Path -LiteralPath $catalogFile -PathType Leaf)) { throw 'Missing from the Windows package: app-catalog.json (the station catalog next to DialShift.exe, D60).' }
+try { $catalog = Get-Content -LiteralPath $catalogFile -Raw -Encoding utf8 | ConvertFrom-Json }
+catch { throw "app-catalog.json does not parse as JSON: $($_.Exception.Message)" }
+$schemaVersion = $catalog.schema_version
+if (-not (($schemaVersion -is [int] -or $schemaVersion -is [long]) -and $schemaVersion -eq 1)) {
+    throw "app-catalog.json schema_version is '$schemaVersion', expected the integer 1."
+}
+$stations = $catalog.stations
+if ($stations -isnot [array] -or $stations.Count -lt 1) { throw 'app-catalog.json has no stations array with at least one station.' }
+
+Write-Host "verified: $package (x64 GUI exe, libvlc\win-x64 only, notices and licenses present, station catalog with $($stations.Count) stations)"
