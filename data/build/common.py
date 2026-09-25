@@ -65,24 +65,30 @@ def clean_name(n):
     return n.strip()
 
 # ---------------------------------------------------------------- city alias cleanup
-CITY_ALIASES = {
-    'GR': {'in athens': 'Athens', 'athens greece': 'Athens', 'attiki': 'Athens', 'attica': 'Athens',
-           'attica, athens': 'Athens', 'patra': 'Patras', 'larisa': 'Larissa', 'heraclion': 'Heraklion',
-           'heraklion crete': 'Heraklion', 'kreta': 'Crete', 'thessaloniki-notia macedonia': 'Thessaloniki',
-           'piraeus': 'Piraeus', 'piraias': 'Piraeus', 'chalkida': 'Chalkida'},
-    'DE': {'munchen': 'Munich', 'muenchen': 'Munich', 'ismaning': 'Ismaning (Munich)',
-           'unterfohring': 'Unterföhring (Munich)', 'koln': 'Cologne', 'koeln': 'Cologne',
-           'frankfurt am main': 'Frankfurt', 'dusseldorf': 'Düsseldorf', 'nuernberg': 'Nuremberg',
-           'stuttgart': 'Stuttgart'},
-    'FR': {'ile-de-france': 'Paris', 'île-de-france': 'Paris', 'auvergne-rhone-alpes': 'Lyon',
-           'provence-alpes-cote dazur': 'Marseille'},
-}
-
-def norm_city(city, country):
+def norm_city(city, aliases):
+    """The canonical city: aliases[norm(city)] if present, else the city trimmed and title-cased.
+    aliases is the country YAML's `city_aliases` mapping (build_stations.load_country; empty for a
+    collection). A key is compared verbatim with norm(city), so only a key already in norm() form
+    (lowercase, no accents or punctuation) can match."""
     if not city:
         return ''
     c = city.strip().strip('.').title()
-    return CITY_ALIASES.get(country, {}).get(norm(city), c)
+    return aliases.get(norm(city), c)
+
+def city_aliases(value, source):
+    """A YAML `city_aliases` block checked as a mapping of non-empty strings to non-empty strings
+    (missing or empty = {}). A bad block is a hard error naming source: YAML reads an unquoted
+    key like `no:` as a boolean, which would otherwise never match and fail silently."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f'{source}: city_aliases must be a mapping of alias -> city')
+    bad = [f'{k!r}: {v!r}' for k, v in value.items()
+           if not (isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip())]
+    if bad:
+        raise ValueError(f'{source}: city_aliases entries must be non-empty strings (quote them): '
+                         + ', '.join(bad))
+    return dict(value)
 
 # ---------------------------------------------------------------- row helpers
 def row_score(r):

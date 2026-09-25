@@ -128,6 +128,15 @@ notes · source`
 1. Copy a YAML, fill in: `code` (ISO 3166-1 alpha-2), `name`, `language_default`, `city_aliases`,
    `curated` entries. `name` is the country's English name as radio-browser.info spells it: the
    build queries radio-browser by that name and uses it as the country's tab and filter label.
+   `city_aliases` maps a city spelling from the sources (radio-browser's `state`, a Wikipedia
+   prefecture) to the city to show, e.g. `munchen: Munich`. It is the only alias list: the build
+   reads it from each YAML (`build_stations.load_country`) and has none in code. A key is
+   compared with the city in the same normalized form as station names (lowercase, accents
+   stripped, Greek transliterated, punctuation turned into spaces), so write keys that way:
+   `frankfurt am main`, not `Frankfurt-am-Main`. A key with capitals or punctuation never matches;
+   the keys marked *inert* in `france.yaml` and `greece.yaml` are such keys, kept as they are
+   because making them match would move about 130 rows to another city. Quote a key YAML reads as
+   a boolean or a number (`'no': …`): the build stops on a block that is not all non-empty strings.
 2. Optional: `wiki.url` for a Wikipedia FM list, and `focus_areas` for local shortlist tabs
    (a focus area is a city — `{city: Paris, label: Paris}` — or a region —
    `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;

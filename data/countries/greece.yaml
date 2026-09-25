@@ -9,14 +9,15 @@ city_aliases:
   athens greece: Athens
   attiki: Athens
   attica: Athens
-  attica, athens: Athens
+  attica, athens: Athens  # inert: not in norm() form, never matches (see data/README.md)
   patra: Patras
   larisa: Larissa
   heraclion: Heraklion
   heraklion crete: Heraklion
   kreta: Crete
-  thessaloniki-notia macedonia: Thessaloniki
+  thessaloniki-notia macedonia: Thessaloniki  # inert: not in norm() form, never matches
   piraeus: Piraeus
+  piraias: Piraeus
   chalkida: Chalkida
 national_programmes:
 - id: first programme

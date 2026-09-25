@@ -11,6 +11,7 @@ city_aliases:
   frankfurt am main: Frankfurt
   dusseldorf: Düsseldorf
   nuernberg: Nuremberg
+  stuttgart: Stuttgart
 focus:
   city: Munich
   label: Munich

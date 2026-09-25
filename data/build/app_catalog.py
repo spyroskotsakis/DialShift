@@ -18,7 +18,7 @@ import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from common import app_tag, norm, norm_city, row_score, url_norm
+from common import app_tag, city_aliases, norm, norm_city, row_score, url_norm
 
 SCHEMA_VERSION = 1
 MAX_ENTRIES = 10_000
@@ -128,9 +128,10 @@ def build_app_catalog(sources: list[tuple[dict, list[dict]]], generated_utc: str
                 continue
             country = _text(row.get('country'))
             label = COLLECTION_LABEL if country == COLLECTION_COUNTRY else _text(cfg.get('name'))
-            # the pipeline's final dedupe key (build_stations.build_country), per country
-            key = (country, norm(row.get('name')).replace(' ', ''), norm_city(_text(row.get('city')), country),
-                   url_norm(url))
+            # the pipeline's final dedupe key (build_stations.build_country), per country, with the
+            # source YAML's city_aliases
+            key = (country, norm(row.get('name')).replace(' ', ''),
+                   norm_city(_text(row.get('city')), cfg.get('city_aliases') or {}), url_norm(url))
             prev = kept.get(key)
             if prev is not None:
                 duplicates += 1
@@ -330,6 +331,31 @@ def self_test() -> int:
     two = [e for e in st if norm(e['name']).replace(' ', '') == 'fixturetwo']
     check('dedupe: one row left, the one with a frequency', len(two) == 1 and two[0]['frequency_fm'] == '99.9')
     check('dedupe is per country', sorted(e['country'] for e in by_name['Fixture One']) == ['XA', 'XB'])
+
+    # city aliases: any country's YAML `city_aliases` block, no code per country
+    aliases = city_aliases({'fixton north': 'Fixton', 'punct-key': 'Never'}, 'fixture.yaml')
+    check('norm_city: the alias of the normalized city', norm_city(' FIXTON-north. ', aliases) == 'Fixton')
+    check('norm_city: no alias -> trimmed, title case', norm_city(' old town. ', aliases) == 'Old Town'
+          and norm_city('', aliases) == '')
+    check('norm_city: a key not in norm() form never matches', norm_city('Punct-Key', aliases) == 'Punct-Key')
+    alias_rows = [_row(country='XC', name='Alias One', city='Fixton North', stream_url='https://x.example.test/a'),
+                  _row(country='XC', name='Alias One', city='Fixton', stream_url='https://x.example.test/a')]
+    _, with_block = build_app_catalog([({'code': 'XC', 'name': 'Aliasland', 'city_aliases': aliases}, alias_rows)],
+                                      '2026-01-02T03:04:05Z')
+    _, no_block = build_app_catalog([({'code': 'XC', 'name': 'Aliasland'}, alias_rows)], '2026-01-02T03:04:05Z')
+    check('dedupe key uses the YAML city_aliases', with_block['duplicates_removed'] == 1
+          and no_block['duplicates_removed'] == 0)
+    check('city_aliases: missing block -> {}', city_aliases(None, 'fixture.yaml') == {})
+
+    def rejected(block):
+        try:
+            city_aliases(block, 'fixture.yaml')
+        except ValueError as e:
+            return 'fixture.yaml' in str(e)
+        return False
+
+    check('city_aliases: a list, a boolean key (unquoted no:), an empty or null city are hard errors',
+          all(rejected(b) for b in (['a'], {False: 'Fixton'}, {'a': ''}, {'a': None}, {' ': 'Fixton'})))
     check('country_label from the YAML name', all(e['country_label'] == 'Fixtureland'
                                                   for e in st if e['country'] == 'XA'))
     chill = by_name['Fixture Chill'][0]
