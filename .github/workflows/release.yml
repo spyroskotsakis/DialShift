@@ -1,0 +1,146 @@
+# Publishes a GitHub Release for a version tag (decision D53).
+#   resolve  checks the tag (vMAJOR.MINOR.PATCH[-prerelease]), that its MAJOR.MINOR.PATCH equals the csproj <Version>,
+#            and that CHANGELOG.md has a section for it, before anything is built.
+#   build    the same build, test, native smoke, package, zip verification and macOS bundle smoke as CI (build.yml),
+#            at the tag, with the tag's version in the packages.
+#   publish  the only job that can write: attaches DialShift-win-x64.zip, DialShift-macos-arm64.zip and SHA256SUMS.txt
+#            to a new release. A tag with a pre-release suffix (v0.3.0-rc.1) makes a pre-release; vX.Y.Z makes the
+#            latest release.
+# Nothing here names a repository: the workflow publishes to the repository it runs in, so a tag pushed to the private
+# development repository is a dry run and the same tag pushed to the public repository is the public release.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and publish, for example v0.3.0-rc.1 (delete its release first to publish again)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One run per tag, never cancelled halfway through publishing.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Check the tag, version and changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Check the tag name
+        id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error title=Release tag::'$TAG' is not vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-<prerelease> (for example v0.3.0 or v0.3.0-rc.1)."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tag
+        uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          persist-credentials: false
+
+      # The csproj <Version> is the single source of MAJOR.MINOR.PATCH (D53); the tag may only add a pre-release suffix.
+      # The package scripts enforce the same rule; checking here stops a mismatched tag before the long builds.
+      - name: Check the version against the csproj and CHANGELOG.md
+        id: version
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          version="${TAG#v}"
+          csproj="$(awk -F'[<>]' '/<Version>/ { print $3; exit }' DialShift.App/DialShift.App.csproj)"
+          if [ "${version%%-*}" != "$csproj" ]; then
+            echo "::error title=Version mismatch::$TAG is version ${version%%-*}, but DialShift.App/DialShift.App.csproj has <Version>$csproj</Version>. Bump the csproj, commit, and tag that commit."
+            exit 1
+          fi
+          if ! scripts/release-notes.sh "$version" > /dev/null; then
+            echo "::error title=CHANGELOG.md::Add a '## [$version]' section to CHANGELOG.md at the tagged commit; it becomes the release notes."
+            exit 1
+          fi
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          { echo "version=$version"; echo "prerelease=$prerelease"; } >> "$GITHUB_OUTPUT"
+          echo "Release $TAG: version $version, pre-release: $prerelease" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: resolve
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: refs/tags/${{ needs.resolve.outputs.tag }}
+      version: ${{ needs.resolve.outputs.version }}
+      # CFBundleVersion: the run number increases with every release run, so a newer build always sorts higher (D53).
+      build-number: ${{ github.run_number }}
+      # Release packages restore from nuget.org, not from a cache that branch builds wrote.
+      nuget-cache: false
+
+  publish:
+    name: Publish the GitHub Release
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          persist-credentials: false
+
+      # The two zips the build jobs verified and uploaded (DialShift-win-x64, DialShift-osx-arm64-<label>); the smoke
+      # result artifacts do not match the pattern.
+      - name: Download the verified packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: DialShift-*
+          path: ${{ runner.temp }}/packages
+          merge-multiple: true
+
+      # Stable asset names, so /releases/latest/download/<asset> links never change. The macOS build label
+      # (native-avplayer, D36) is in the release notes and the README instead of the asset name, because it changes
+      # when the build is clean-machine tested or signed.
+      - name: Name the assets and write SHA256SUMS.txt
+        working-directory: ${{ runner.temp }}/packages
+        run: |
+          shopt -s nullglob
+          mac=(DialShift-osx-arm64-*.zip)
+          if [ ! -f DialShift-win-x64.zip ] || [ "${#mac[@]}" -ne 1 ]; then
+            echo "::error title=Packages::Expected DialShift-win-x64.zip and one DialShift-osx-arm64-<label>.zip, found: $(printf '%s ' *)"
+            exit 1
+          fi
+          mv "${mac[0]}" DialShift-macos-arm64.zip
+          sha256sum DialShift-win-x64.zip DialShift-macos-arm64.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          packages="$RUNNER_TEMP/packages"
+          scripts/release-notes.sh "$VERSION" "$packages/SHA256SUMS.txt" > "$RUNNER_TEMP/release-notes.md"
+          if [ "$PRERELEASE" = true ]; then channel=(--prerelease --latest=false); else channel=(--latest); fi
+          # gh uploads the assets to a draft and publishes it only when every upload succeeded.
+          gh release create "$TAG" --verify-tag --title "DialShift $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${channel[@]}" \
+            "$packages/DialShift-win-x64.zip" "$packages/DialShift-macos-arm64.zip" "$packages/SHA256SUMS.txt"
+          echo "Published $(gh release view "$TAG" --json url --jq .url) (pre-release: $PRERELEASE)" >> "$GITHUB_STEP_SUMMARY"
