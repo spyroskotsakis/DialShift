@@ -7,7 +7,7 @@ namespace DialShift.Core.Playback;
 /// </summary>
 public interface ITrackMetadataProvider
 {
-    /// <summary>Now-playing title of the current session, or null when unknown. Reset to null on every start/stop.</summary>
+    /// <summary>Now-playing title of the current session, or null when unknown. Reset to null on every start/stop. Read from arbitrary threads, so it must be thread-safe.</summary>
     string? CurrentTitle { get; }
 
     /// <summary>Raised on an arbitrary thread when <see cref="CurrentTitle"/> changes.</summary>

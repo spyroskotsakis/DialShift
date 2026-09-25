@@ -1,11 +1,13 @@
 # Acceptance matrix: behavior inventory, verification plan, QA tracker, contracts
 
+> **Current status (2026-09-25, branch `refactor/single-codebase-timezone`).** Waves done: **spec** (inventory, this matrix, Core contracts, decisions D1–D21); **test characterization** (Phase 1 Core suites, 110 checks green locally, §7.0); **App scaffold** step A (relocation `DialShift.Mac` → `DialShift.App`, `2f0ef5c`) and step B (retarget `win-x64;osx-arm64`, Avalonia 12.1.2, §6 layout, platform/app contracts, `AppPaths`, `d83f946`); **core coordinator** (`PlaybackCoordinator`, `RetryPolicy`, Core folder split, `e875c8e`; spec review in §7.10); §7.3 spikes (`docs/spikes.md`). **In progress:** platform, CI, UI, playback, and coordinator tests (CT-PB, CT-SM).
+
 > **Living document.** This is the behavior inventory required by brief 1 §12 step 1. It is also the acceptance matrix of brief 1 §11 and the timezone QA tracker of brief 2 §9.
 >
 > - **Every lane updates the rows it touches in the same change as its code** (quality gate: docs always current).
 > - A phase is done only when every row in scope is `GREEN`. Rows that need hardware or a native desktop this environment does not have may be `NATIVE-PENDING`, and each of those must also appear in [Remaining native checks](#9-remaining-native-checks).
 >
-> Baseline for "current behavior" is tag `legacy-last-known-good` (commit `82281e5`): WPF `DialShift/` and Avalonia `DialShift.Mac/`. Upstream v0.2.0 (`upstream/main:DialShift.Desktop/`) is a reference only. Line numbers in the briefs are historical, so the evidence here is given as `file:symbol`.
+> Baseline for "current behavior" is tag `legacy-last-known-good` (commit `82281e5`): WPF `DialShift/` and Avalonia `DialShift.Mac/`. On this branch `DialShift.Mac/` no longer exists: it was relocated to `DialShift.App/` (commit `2f0ef5c`), and `DialShift.Core/Models.cs` was split into folders (commit `bc38259`). The §2 evidence key maps the old names to the current files. Upstream v0.2.0 (`upstream/main:DialShift.Desktop/`) is a reference only. Line numbers in the briefs are historical, so the evidence here is given as `file:symbol`.
 
 ## Contents
 
@@ -63,10 +65,10 @@
 | Abbreviation | Source |
 |---|---|
 | `W:` | `DialShift/` (WPF) |
-| `M:` | `DialShift.Mac/` (Avalonia) |
-| `C:` | `DialShift.Core/Models.cs` |
+| `M:` | Legacy `DialShift.Mac/` (Avalonia) at the baseline tag. On this branch the same code lives in `DialShift.App/` with the brief 1 §6 layout: `Program.cs`, `App.axaml.cs`, `AppPaths.cs`, `Views/MainWindow.cs`, `Views/Dialogs/` (`StationDialog`, `ScheduleDialog`, `EditorDialog`, `Message`), `Services/` (`RadioController` until the coordinator is wired in, `IDialogService`, `IUiDispatcher`), `Platform/Abstractions/` and `SingleInstance/`. |
+| `C:` | `DialShift.Core/`. The former `Models.cs` is split into `Models/` (`Settings`, `Station`, `ScheduleEntry`, `Occurrence`), `Scheduling/` (`Scheduler`, `ScheduleSession`) and `Settings/` (`SettingsStore`). The coordinator is in `Playback/` (`PlaybackCoordinator`, `RetryPolicy`, `Contracts/`). |
 
-`RadioController` is byte-identical on both front-ends except for the wake preamble (QA-N1) and the dispatcher type. Evidence written as `RC:` applies to both.
+`RadioController` is byte-identical on both front-ends except for the wake preamble (QA-N1) and the dispatcher type. Evidence written as `RC:` applies to both: `DialShift/RadioController.cs` (WPF) and `DialShift.App/Services/RadioController.cs` (the relocated Mac copy, deleted once the coordinator is wired in).
 
 ### 2.1 Lifecycle, startup, data
 
@@ -126,9 +128,9 @@
 | BHV-37 | **Fallback re-tries the primary after 120 s.** While the fallback plays, the retry clock restarts with `retrySeconds=120`. When that expires, `Desired` is reopened. If the primary fails again, the app waits 30 s and returns to the fallback, so the two alternate. If the fallback itself fails, the app waits 30 s and tries the primary. | RC:`Tick` (last three statements) | Same. | CT-PB-10, CT-PB-11, CT-PB-12. |
 | BHV-38 | **60 s of stable playback resets failures.** Applies only to the primary (`!fallback`), after 60 s of continuous playing. | RC:`Tick` | Same. | CT-PB-13, CT-PB-14. |
 | BHV-39 | **25 s stall watchdog.** While a session exists, activity is `Open`, `Playing` or every LibVLC `TimeChanged`. After more than 25 s with no activity, `Fail()` runs. This also acts as the connect timeout. It is checked only when no retry is due (`else if`). | RC:`Tick`, RC:`Open` | Same. | Measured as time outside the engine's `Playing` state (see the `IPlaybackEngine` progress rule). CT-PB-15, CT-PB-16. See OQ-6. |
-| BHV-40 | **Engine lifetime.** LibVLC is created asynchronously, once (`--no-video --no-osd --network-caching=1500 --http-reconnect`, media option `:no-video`). If creation fails, every `Open` fails and the retry loop runs. Old players are stopped and disposed on a background task, and the next session waits for them. | RC ctor, RC:`Retire`, RC:`Open`, RC:`ReleaseEngine` | Same. **[DIFF]** in native runtime: `VideoLAN.LibVLC.Windows` on WPF, and x86_64 `VideoLAN.LibVLC.Mac` (Rosetta) on Mac. | Windows: `LibVlcPlaybackEngine` with the same options. macOS: `MacAvPlayerPlaybackEngine`, with no LibVLC in the package (D2). |
+| BHV-40 | **Engine lifetime.** LibVLC is created asynchronously, once (`--no-video --no-osd --network-caching=1500 --http-reconnect`, media option `:no-video`). If creation fails, every `Open` fails and the retry loop runs. Old players are stopped and disposed on a background task, and the next session waits for them. | RC ctor, RC:`Retire`, RC:`Open`, RC:`ReleaseEngine` | Same. **[DIFF]** in native runtime: `VideoLAN.LibVLC.Windows` on WPF, and x86_64 `VideoLAN.LibVLC.Mac` (Rosetta) on Mac. | Windows: `LibVlcPlaybackEngine` with the same options. macOS: `MacAvPlayerPlaybackEngine`, with no LibVLC in the package (D2, D13). |
 | BHV-41 | **Stale-callback guard.** Every `Open` and `Retire` bumps `generation`. Callbacks act only if `player == session && IsActive && !disposed`. | RC:`Open` (`OnUi`) | Same. | Session id plus operation generation (brief 1 §5.4–5.5). CT-PB-19, CT-PB-22. |
-| BHV-42 | **Sleep/wake recovery.** Windows: `SystemEvents.PowerModeChanged` with `Resume` is dispatched to `ResumeFromSleep`. Mac: in `Tick`, a gap of 15 s or more **measured with `DateTime.UtcNow`** triggers `ResumeFromSleep`. `ResumeFromSleep` runs `CheckSchedule()` (not forced). Then, if active, it sets `failures=0`, `fallback=false` and reopens `Desired`. A paused app stays paused within the same slot; a slot that started during sleep begins playing. | W:`App.PowerChanged`; M:`RadioController.Tick` preamble; RC:`ResumeFromSleep` | **[DIFF] QA-N1:** the resume path differs by platform. **[BUG]** The Mac gap uses wall-clock time, so NTP or manual clock jumps look like wakes. **[BUG]** When `CheckSchedule` just started a new slot, `ResumeFromSleep` opens it a second time (upstream guards this with `before == session`). | Layered (brief 1 §4.4): OS power event plus a monotonic tick gap of 15 s or more, both feeding one idempotent, rate-limited recovery. CT-PB-29 to CT-PB-34. |
+| BHV-42 | **Sleep/wake recovery.** Windows: `SystemEvents.PowerModeChanged` with `Resume` is dispatched to `ResumeFromSleep`. Mac: in `Tick`, a gap of 15 s or more **measured with `DateTime.UtcNow`** triggers `ResumeFromSleep`. `ResumeFromSleep` runs `CheckSchedule()` (not forced). Then, if active, it sets `failures=0`, `fallback=false` and reopens `Desired`. A paused app stays paused within the same slot; a slot that started during sleep begins playing. | W:`App.PowerChanged`; M:`RadioController.Tick` preamble; RC:`ResumeFromSleep` | **[DIFF] QA-N1:** the resume path differs by platform. **[BUG]** The Mac gap uses wall-clock time, so NTP or manual clock jumps look like wakes. **[BUG]** When `CheckSchedule` just started a new slot, `ResumeFromSleep` opens it a second time (upstream guards this with `before == session`). | Layered (brief 1 §4.4): OS power event plus a tick gap of 15 s or more on a **sleep-inclusive** monotonic clock (D14), both feeding one idempotent recovery with a 10 s debounce (D15). CT-PB-29 to CT-PB-34. |
 | BHV-43 | **Dispose.** Sets the `disposed` flag, stops the timer, retires the player and releases the engine after retiring tasks finish. No playback can start afterwards. | RC:`Dispose` | Same. | `DisposeAsync`. CT-PB-35. |
 
 ### 2.5 Schedule
@@ -271,25 +273,25 @@ Every row starts as `TODO`. Test IDs are defined in §7 (`CT-*`, `HS-*`). `SMK` 
 | ID | Item | Owner lane | Verification | Status |
 |---|---|---|---|---|
 | DOD-01 | One Avalonia UI is the only maintained front-end (WPF and `DialShift.Mac` deleted; `DialShift.slnx` lists Core, Tests, App) | release | Repo tree, `DialShift.slnx`, and a grep for `System.Windows`, `WinForms`, `DialShift.Mac` and `UseWPF` returns nothing | TODO |
-| DOD-02 | No Avalonia/WPF/WinForms/OS/filesystem-location/pipe/process/UI-dispatch reference from `DialShift.Core` | spec | Grep `DialShift.Core/**` for `using Avalonia`, `System.Windows`, `Microsoft.Win32`, `System.IO.Pipes`, `System.Diagnostics.Process`, `Environment.GetFolderPath`, `Dispatcher` returns nothing. `DialShift.Core.csproj` has no `PackageReference` | TODO |
+| DOD-02 | No Avalonia/WPF/WinForms/OS/filesystem-location/pipe/process/UI-dispatch reference from `DialShift.Core` | spec | Grep `DialShift.Core/**` for `using Avalonia`, `System.Windows`, `Microsoft.Win32`, `System.IO.Pipes`, `System.Diagnostics.Process`, `Environment.GetFolderPath`, `Dispatcher` returns nothing. `DialShift.Core.csproj` has no `PackageReference`. Re-run at every Core change | GREEN at `e875c8e` (spec grep: no matches, no `PackageReference`) |
 | DOD-03 | Windows and macOS compile, test and publish in CI | release | GitHub Actions on the private remote, matrix `windows-latest` + `macos-latest` | TODO |
 | DOD-04 | Both packages launch, retain settings, show tray, play/stop/retry, obey schedule, exit cleanly | test | SMK on both OSes plus §9 | TODO |
 | DOD-05 | A second launch activates the existing instance on both OSes | platform | CT-SI-*, HS-09, MAN | TODO |
 | DOD-06 | Launch at login enabled, disabled and verified on both | platform | HS-11 plus MAN NC-04/NC-10 | TODO |
 | DOD-07 | Sleep/wake verified by the manual native checklist | platform | NC-02/NC-08 | TODO |
-| DOD-08 | Apple Silicon status published honestly (D2) | release | README and release notes say "native osx-arm64 (AVPlayer)"; no Intel artifact after `DialShift.Mac` retirement | TODO |
+| DOD-08 | Apple Silicon status published honestly (D2, D13) | release | README and release notes say "native osx-arm64 (AVPlayer)"; no Intel artifact is produced; the last Intel/Rosetta build is only at tag `legacy-last-known-good` (D13) | TODO |
 | DOD-09 | Structured, redacted logs with version, RID/arch, engine, transitions, startup-registration outcome, wake outcome, recoverable failures | platform | HS-10 | TODO |
 | DOD-10 | Legacy app removed only after equivalent checks pass (D8) | release | All §4 rows GREEN or NATIVE-PENDING before the deletion commit | TODO |
 | SP-01 | AVPlayer spike, checkpoint 1 (feasibility): compiles; start, stop, volume; plays the core MP3/AAC/HLS corpus on an M-series Mac | playback | Run on this Apple Silicon dev box. "Audio came out once" is not a pass | TODO |
 | SP-02 | AVPlayer spike, checkpoint 2 (reliability): repeated source changes, wake/reconnect, stop-while-connecting, second-instance activation, clean exit, clean-machine `.app` install | playback | Dev box plus NC-07 | TODO |
 | SP-03 | Windows `SystemEvents` spike: package resolves in `net10.0` without the `-windows` TFM; subscribe after the message loop; deterministic unsubscribe; timer-gap retained | playback, platform | CI `windows-latest` compile, plus NC-02 runtime | TODO |
 | SP-04 | macOS `NSWorkspace.DidWakeNotification` spike: all five §4.4 criteria (D3) | playback, platform | Dev box plus NC-08 (lid close) | TODO |
-| PK-01 | `DialShift.App` RIDs are `win-x64;osx-arm64` and never `osx-x64` (D2) | release | csproj review plus HS-15 | TODO |
+| PK-01 | `DialShift.App` RIDs are `win-x64;osx-arm64` and never `osx-x64` (D2, D13) | release | csproj review plus HS-15. The csproj part is verified (`RuntimeIdentifiers` = `win-x64;osx-arm64` at `d83f946`); HS-15 is pending | TODO |
 | PK-02 | LibVLC packages only for `win-x64`; the macOS package contains no `libvlc*` dylibs | release, playback | HS-15 (`find … -name 'libvlc*'` is empty) | TODO |
 | PK-03 | macOS `.app`: `Info.plist` with `CFBundleIdentifier=com.tsiger.dialshift`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement=true`; exec bit set; arm64 Mach-O slice; ad-hoc signed | release | `plutil -p`, `lipo -archs`, `codesign -dv` in CI (macos-latest) | TODO |
 | PK-04 | Icons: `.ico`, macOS template PNG, `.icns` (D4) | release, ui | Asset presence plus HS-15 | TODO |
 | PK-05 | Windows artifact = `.zip` of the `win-x64` publish directory (D7) | release | CI artifact | TODO |
-| PK-06 | Avalonia 12.1.2 in the App project (D6) | ui, release | csproj; record the actual version here | TODO |
+| PK-06 | Avalonia 12.1.2 in the App project (D6) | ui, release | csproj; record the actual version here. **Actual: 12.1.2** for `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` (D19) | GREEN (csproj at `d83f946`) |
 | PK-07 | README, THIRD-PARTY-NOTICES (conditional LibVLC wording), `data/README` updated | release | Docs review in the same change | TODO |
 | QG-01 | No dead code: grep for stale references after each retirement | spec | Grep list in DOD-01/DOD-02 plus obsolete platform branches | TODO |
 | QG-02 | Docs updated in the same change as code (this matrix included) | spec | Per-lane review | TODO |
@@ -322,7 +324,7 @@ Every check in `DialShift/SmokeChecks.cs` must be covered here, and upstream `Ed
 
 ## 5. Playback coordinator behavior spec
 
-This is the normative companion to `DialShift.Core/Playback/Contracts/IPlaybackCoordinator.cs`. The core lane copies the event-acceptance table (§5.2) into the `PlaybackCoordinator` source header (brief 1 §5.3).
+This is the normative companion to `DialShift.Core/Playback/Contracts/IPlaybackCoordinator.cs`. The core lane copies the event-acceptance table (§5.2) into the `PlaybackCoordinator` source header (brief 1 §5.3). Done in `e875c8e`: the spec review found the header consistent with this table, and this table now includes the header's extra row and footnotes.
 
 ### 5.1 Timing constants
 
@@ -336,12 +338,13 @@ These are characterized from `RadioController` and must be preserved.
 | Primary re-check while the fallback plays | 120 s after the fallback reached `Playing` | RC:`Tick` |
 | Stable-playback failure reset | 60 s continuous `Playing` on the primary only | RC:`Tick` |
 | Stall watchdog | failure on the first tick where time outside `Playing` since the last attempt start or last `Playing` is **> 25 s** | RC:`Tick` |
-| Wake tick gap | ≥ 15 s on **`IMonotonicClock`**. **[BUG fix]:** the Mac used `UtcNow` | M:`RadioController.Tick` |
+| Wake tick gap | ≥ 15 s on **`IMonotonicClock`**, which must be **sleep-inclusive** in production (D14). **[BUG fix]:** the Mac used `UtcNow` | M:`RadioController.Tick` |
 | Wake network settle | 2 s, measured on the monotonic clock and completed by the tick that observes it (OQ-7) | brief 1 §4.4 |
+| Wake debounce | 10 s after an accepted wake or a completed recovery (D15, `PlaybackCoordinator.WakeDebounce`) | brief 1 §4.4 |
 
 **Determinism rule:** every timer above is evaluated inside `OnTickAsync` against `IMonotonicClock`. There is no `Task.Delay` in coordinator policy, so tests drive time only by advancing fake clocks and calling `OnTickAsync`. Schedule evaluation uses the local time `TimeZoneInfo.ConvertTime(clock.UtcNow, localZone)` with `Kind` normalized to `Unspecified`, and `localZone` is injected (QA-B2).
 
-**Recommended constructor** (core lane):
+**Constructor** (implemented as recommended in `e875c8e`; the coordinator owns and disposes the engine, D17):
 `PlaybackCoordinator(Settings settings, IPlaybackEngine engine, IClock clock, IMonotonicClock monotonicClock, IAppLog log, TimeZoneInfo? localZone = null)`
 
 ### 5.2 Event acceptance
@@ -354,17 +357,22 @@ Rows are inputs, columns are states. `→X` means a transition to state X. `ign`
 | UserStop | ign (hold only) | ign (hold only) | →Stopped/SW¹ | →Stopped/SW¹ | →Stopped/SW¹ | →Stopped/SW¹ | →Stopped/SW¹ | ign |
 | ScheduleDue (new occurrence, or forced) | →Connecting | →Connecting | →Connecting | →Connecting | →Connecting | →Connecting | deferred to recovery² | ign |
 | Engine Playing (current session) | ign | ign | →Playing | ign (refresh) | →Playing | ign | ign | ign |
+| Engine Opening/Buffering/Ended/Stopped/Idle (current session) | ign | ign | ign (stall clock already runs from the attempt start) | stays Playing⁵ | ign | ign | ign | ign |
 | Engine Failed / EndOfStream / stall (current session) | ign | ign | →Failed | →Failed | →Failed | ign (once per attempt) | ign | ign |
 | Any engine event, stale session | ign | ign | ign | ign | ign | ign | ign | ign |
 | RetryDue (generation current) | — | — | — | primary re-check → Reconnecting (fallback only) | — | →Reconnecting | — | ign |
-| WakeDetected (OS or tick gap) | schedule check only | schedule check only | →SuspendedBySystem | →SuspendedBySystem | →SuspendedBySystem | →SuspendedBySystem | ign (idempotent) | ign |
-| Settle elapsed | — | — | — | — | — | — | schedule check → Reconnecting (one reconnect) | — |
-| SettingsChanged | revalidate | revalidate | revalidate³ | revalidate³ | revalidate³ | revalidate³ | revalidate | ign |
+| WakeDetected (OS or tick gap)⁴ | schedule check only | schedule check only | →SuspendedBySystem | →SuspendedBySystem | →SuspendedBySystem | →SuspendedBySystem | ign (idempotent) | ign |
+| Settle elapsed | — | — | — | — | — | — | schedule check, then exactly one reconnect: a new slot →Connecting, otherwise the desired station →Reconnecting | — |
+| SettingsChanged | revalidate | revalidate | revalidate³ | revalidate³ | revalidate³ | revalidate³ | revalidate³ | ign |
 | Dispose | →Disposing | →Disposing | →Disposing | →Disposing | →Disposing | →Disposing | →Disposing | ign |
 
 ¹ The target is `ScheduledWaiting` when `ScheduleEnabled` is true and a next occurrence exists, otherwise `Stopped`. UserStop always runs `HoldCurrent`.
 ² ScheduleDue while `SuspendedBySystem` is evaluated as the recovery's schedule check, so exactly one reconnect happens (the double-open fix).
-³ If the desired or current station was removed, this behaves like `ForgetStation` (→Stopped/SW). If the active desired station's URL changed, it behaves like UserPlay of that station.
+³ If the desired or current station was removed, this behaves like `ForgetStation` (→Stopped/SW). If the active desired station's URL changed, it behaves like UserPlay of that station (so in `SuspendedBySystem` it supersedes the recovery and goes →Connecting). A changed fallback applies to the next due retry, and a changed volume is re-sent.
+⁴ In every state, a wake within 10 s of the last accepted wake or of the last completed recovery is ignored (D15), so an OS notification and a tick gap for the same wake give one recovery.
+⁵ `IsPlaying=false`, the 60 s stable-playback timer resets, and the 25 s stall clock starts (OQ-6). Status stays `Playing`, and the fallback's primary re-check timer is not reset.
+
+**Serialization and ownership (implemented, D16–D18).** One `SemaphoreSlim(1,1)` state gate, never held across an await. Every attempt, retry, primary re-check, wake recovery, stop and dispose replaces the linked operation CTS and bumps the operation generation. Retry and settle timers and engine callbacks act only for the current generation (and, for callbacks, the current session id). Engine commands go through the FIFO pump of D16. The tick loop and `Settings` mutation stay on the UI thread (D18).
 
 ---
 
@@ -417,6 +425,23 @@ Phase 2 starts only after Phase 1 builds, tests and publishes green. The Phase 2
 The test lane writes these **before code moves** (brief 1 §12 step 2), in `DialShift.Tests`: console checks, `Check(name, condition)`, non-zero exit on failure, no framework.
 
 "Mirrors quirk" means the expectation copies current behavior even though it is odd. **Fix** means the expectation deliberately differs from current behavior, with the reason given.
+
+### 7.0 Implementation status
+
+"Implemented" means written and passing locally (`dotnet run --project DialShift.Tests`, 110 checks, 4/4 suites green at `e875c8e`). A row becomes CI evidence when DOD-03 is green.
+
+| IDs | Status | Location |
+|---|---|---|
+| CT-SCH-01..08 | Implemented | `DialShift.Tests/Core/SchedulerTests.cs` |
+| CT-SES-01..06, CT-SES-08 | Implemented | `DialShift.Tests/Core/ScheduleSessionTests.cs` |
+| CT-SES-07 | Implemented as the legacy DST dedup checks, kept unmodified | `DialShift.Tests/Core/ScheduleSessionTests.cs` |
+| CT-SET-01..10 | Implemented | `DialShift.Tests/Core/SettingsStoreTests.cs` |
+| CT-SET-11 | TODO (Phase 2) | — |
+| §7.1 harness fakes | Implemented, with self-tests | `DialShift.Tests/Fakes/` |
+| CT-PB-01..40, CT-SM-01..22 | TODO (test lane writing them now) | — |
+| CT-SI-*, CT-LOG-*, HS-* | TODO | — |
+
+Characterization surprises found while writing these are tracked in §7.10.
 
 ### 7.1 Test harness
 
@@ -476,7 +501,7 @@ The existing 26 checks stay as they are.
 
 ### 7.5 Playback coordinator: retry, fallback, stall, schedule, wake
 
-Expected values come from `RadioController` (`DialShift.Mac`) and upstream's `DialShift.Desktop.Tests`. The shared setup is the harness from §7.1, defaults stations A/B/C, `localZone = UTC`, and now Monday 2026-09-14 10:00.
+Expected values come from `RadioController` (legacy `DialShift.Mac`, now `DialShift.App/Services/RadioController.cs`) and upstream's `DialShift.Desktop.Tests`. The shared setup is the harness from §7.1, defaults stations A/B/C, `localZone = UTC`, and now Monday 2026-09-14 10:00.
 
 | ID | Given / When / Then | Mirrors quirk? |
 |---|---|---|
@@ -604,6 +629,20 @@ HS tests run in CI on both OSes and use `DIALSHIFT_DATA_DIR` and fake engines.
 | HS-17 | Real engine against `http://127.0.0.1:1/unavailable`: `Failed` with `NetworkUnavailable` or `Unknown`, no crash, and `StopAsync`/`DisposeAsync` are clean. Runs where the engine loads (CI). |
 | HS-18 | `AppPaths.Resolve` order: env override, then smoke temp, then OS default. A relative override is rejected. The macOS default is exactly `~/Library/Application Support/DialShift`. |
 
+### 7.10 Characterization and review findings (tracked)
+
+Findings from the Phase 1 characterization suites (`CF-*`) and from the spec review of the core lane (`CR-*`). The `[quirk]` checks named below pin the current behavior until the listed fix lands, and flip in the same change as the fix.
+
+| ID | Severity | Finding | Recommendation | Owner lane | Phase | Status |
+|---|---|---|---|---|---|---|
+| CF-01 | low | `Occurrence.Key` is culture-dependent: it formats `At` with the current culture, so `:` becomes the culture's time separator, and a non-Gregorian calendar changes `yyyy`. Harmless in-process today (keys are never persisted and the culture does not change mid-session), but not the invariant format CT-SCH-02 specifies. Pinned by `[quirk] CT-SCH-02 Key follows CurrentCulture's time separator`. | Format with `CultureInfo.InvariantCulture` (`yyyy-MM-dd'T'HH':'mm`) in Phase 2, since `Scheduler` and `Occurrence` are changed then anyway. No migration is needed because keys are in-memory only. | core | 2 | TODO |
+| CF-02 | non-blocking | A backward wall-clock jump suppresses older slots until real time passes the last fired slot (`current.At < last.At` in `ScheduleSession.TakeChange`). This is the same root cause as QA-N8. Pinned by `[quirk] Backward clock jump: Tue 09:00 slot is suppressed`. | Apply the Phase 2 fix from brief 2 §7.8: key the dedup on `Occurrence.Key`/zone-wall identity, or reset `last` on a zone change. The fix must keep the intended guard (`[quirk] Backward clock jump: Mon 12:00 does not replay last week's Wed slot` stays), and flips the Tue 09:00 check together with CT-SES-08 (QA-N8). | core | 2 | TODO |
+| CF-03 | low | `SettingsStore.Warning` is never cleared: a later successful `Load` on the same store keeps the old warning. No user impact today, because the App loads once per process. Pinned by `[quirk] Warning is never cleared by a later successful Load on the same store`. | Reset `Warning = null` at the start of `Load`. Batch it with the Phase 2 `SettingsStore` change for QA-N3/CT-SET-11. | core | 2 | TODO |
+| CF-04 | low | If a `settings.json.unreadable-<yyyyMMddHHmmssfff>` backup with the same millisecond name already exists, `File.Copy` throws `IOException` from inside the recovery `catch`, so it escapes `Load` (see the BHV-03 quirk). | In Phase 1 the ui/platform lanes' startup-failure path (BHV-04, HS-08) turns the escape into a dialog and a log instead of a crash. The Core fix in Phase 2 is a collision-free backup name (retry with a suffix) plus a test. | core (fix); ui, platform (Phase 1 mitigation) | 2 (fix), 1 (mitigation) | TODO |
+| CR-01 | low (latent) | `PlaybackCoordinator.Open` increments `startsIssued` and sets `currentSessionId` (`PlaybackCoordinator.cs:310`) **before** it builds the `StreamSource`/`Uri` and enqueues the start (`:314`). An exception in between would permanently shift the "N-th start is session N" mapping (D16), so every later session's events would be dropped as stale. More generally, a transition that throws after `NewOperation()` leaves an active attempt with `currentSessionId == 0`, which the stall watchdog (`:360`) never fails, so the coordinator would stay in `Connecting` until the next user or schedule action. This is unreachable today because `SettingsStore.ValidUrl` and `new Uri` agree. | Build the command first, then assign the id and enqueue, so that nothing can throw between the increment and the enqueue. | core | 1 | TODO |
+| CR-02 | low | `DisposeAsync` awaits the engine's `StopAsync` completion (`PlaybackCoordinator.cs:767`) with no bound, so an adapter whose stop hangs blocks quit forever. | The App's quit path (BHV-11) awaits coordinator disposal with a timeout (about 3 s), then logs `app.exit` with a timeout flag and continues the teardown. | ui | 1 | TODO |
+| CR-03 | nit | `playback.state` logs `session={startsIssued}`, the last issued id, rather than the current session. In Stopped, Failed and Suspended it names the previous attempt. | Keep it, and document it as "last issued session" in §8.2.7, or log `currentSessionId`. | core | 1 | TODO |
+
 ---
 
 ## 8. Contracts
@@ -614,19 +653,19 @@ These are defined in `DialShift.Core/Playback/Contracts/`, namespace `DialShift.
 
 | File | Contents |
 |---|---|
-| `IPlaybackEngine.cs` | `StreamSource(Uri Url, string DisplayName)`; `PlaybackEngineState {Idle, Opening, Buffering, Playing, Ended, Stopped}`; `PlaybackFailureKind {NetworkUnavailable, HttpError, TlsFailure, UnsupportedFormat, InvalidUrl, Stalled, EndOfStream, Unknown}`; `PlaybackEngineStateChangedEventArgs(long SessionId, PlaybackEngineState State)`; `PlaybackEngineFailedEventArgs(long SessionId, PlaybackFailureKind Kind, string? Diagnostic = null)`; `IPlaybackEngine : IAsyncDisposable` with `StateChanged`, `Failed`, `StartAsync(StreamSource, double volume, CancellationToken)`, `StopAsync(CancellationToken)`, `SetVolumeAsync(double, CancellationToken)`. The session-id counter rule, the "successful start = `StateChanged(Playing)`" rule, the volume 0.0–1.0 rule (`Settings.Volume / 100.0`, 0 mutes) and the threading rules are documented on the interface. |
+| `IPlaybackEngine.cs` | Adapters must tolerate overlapping calls (stop-while-connecting, D16). `StreamSource(Uri Url, string DisplayName)`; `PlaybackEngineState {Idle, Opening, Buffering, Playing, Ended, Stopped}`; `PlaybackFailureKind {NetworkUnavailable, HttpError, TlsFailure, UnsupportedFormat, InvalidUrl, Stalled, EndOfStream, Unknown}`; `PlaybackEngineStateChangedEventArgs(long SessionId, PlaybackEngineState State)`; `PlaybackEngineFailedEventArgs(long SessionId, PlaybackFailureKind Kind, string? Diagnostic = null)`; `IPlaybackEngine : IAsyncDisposable` with `StateChanged`, `Failed`, `StartAsync(StreamSource, double volume, CancellationToken)`, `StopAsync(CancellationToken)`, `SetVolumeAsync(double, CancellationToken)`. The session-id counter rule, the "successful start = `StateChanged(Playing)`" rule, the volume 0.0–1.0 rule (`Settings.Volume / 100.0`, 0 mutes) and the threading rules are documented on the interface. |
 | `ITrackMetadataProvider.cs` | Optional capability: `string? CurrentTitle { get; }`, `event EventHandler? MetadataChanged`. |
 | `IClock.cs` | `IClock { DateTimeOffset UtcNow { get; } }` and `SystemClock.Instance`. |
-| `IMonotonicClock.cs` | `IMonotonicClock { long GetTimestamp(); TimeSpan GetElapsedTime(long, long); }` and `StopwatchMonotonicClock.Instance`. |
+| `IMonotonicClock.cs` | `IMonotonicClock { long GetTimestamp(); TimeSpan GetElapsedTime(long, long); }` and `StopwatchMonotonicClock.Instance`, the Core default for tests. Production injects a per-OS **sleep-inclusive** clock (§8.2.8, D14), because `Stopwatch` on macOS stops during sleep. |
 | `IAppLog.cs` | `IAppLog { Info(eventName, message); Warn(eventName, message, ex?); Error(eventName, message, ex?) }` with the redaction rule, and `NullAppLog.Instance`. |
 | `PlaybackStatus.cs` | The `PlaybackStatus` enum (8 states, brief 1 §5.1) and the `PlaybackSnapshot` record: `Status`, `DesiredStationId/Name`, `CurrentStationId/Name`, `IsActive`, `IsPlaying`, `IsFallback`, `StatusText`, `TrackText`, `RetryInSeconds`, `Next`, `NextStationName`, `Volume`; plus `PlaybackSnapshot.Initial(volume)`. |
-| `IPlaybackCoordinator.cs` | `Snapshot`, `SnapshotChanged`, `PlayAsync(Guid)`, `ToggleAsync()`, `StopAsync()`, `NextStationAsync()`, `SetVolumeAsync(int)`, `StartScheduleAsync()`, `RefreshScheduleAsync()`, `OnTickAsync(CancellationToken)`, `NotifyWakeAsync()`, `NotifySettingsChangedAsync()`, `ForgetStationAsync(Guid)`, and `IAsyncDisposable`. The input→state mapping is in its remarks and in §5.2. |
+| `IPlaybackCoordinator.cs` | `Snapshot`, `SnapshotChanged`, `PlayAsync(Guid)`, `ToggleAsync()`, `StopAsync()`, `NextStationAsync()`, `SetVolumeAsync(int)`, `StartScheduleAsync()`, `RefreshScheduleAsync()`, `OnTickAsync(CancellationToken)`, `NotifyWakeAsync()`, `NotifySettingsChangedAsync()`, `ForgetStationAsync(Guid)`, and `IAsyncDisposable`. The input→state mapping is in its remarks and in §5.2. Its remarks also carry the 10 s wake debounce (D15), engine ownership (D17) and the UI-thread rule for the tick loop and `Settings` mutation (D18). |
 
 **Engine-selection rule** (composition root only): Windows gets `LibVlcPlaybackEngine`, macOS gets `MacAvPlayerPlaybackEngine`, and anything else fails with a clear startup error. `DialShift.App` never selects LibVLC on macOS.
 
 ### 8.2 App and platform contracts (specification)
 
-The platform lane creates these in `DialShift.App`. The signatures are normative. §8.2.1–§8.2.3 are verbatim from brief 1 §4.2.
+The platform lane creates these in `DialShift.App`. The signatures are normative. §8.2.1–§8.2.3 are verbatim from brief 1 §4.2. The platform contracts use the namespace `DialShift.App.Platform`, with the files in `Platform/Abstractions/` (D20).
 
 #### 8.2.1 `IStartupRegistration`
 
@@ -819,7 +858,7 @@ public sealed class AppPaths
 }
 ```
 
-**Resolution order.** This decision is taken here.
+**Resolution order.** This decision is taken here and recorded as D21.
 
 1. `DIALSHIFT_DATA_DIR` is set and non-blank. It must be an **absolute** path, otherwise startup fails with a clear message. It is used verbatim and created if missing. Source is `EnvironmentOverride`, logged as `app.data_dir_override`. It is intended for smoke and integration tests and CI, and is documented in the README developer section only.
 2. `--smoke-test` without an override uses `Path.Combine(Path.GetTempPath(), "DialShift-smoke-" + Guid.NewGuid().ToString("N"))`. Source is `SmokeTestTemp`.
@@ -868,6 +907,15 @@ The App implementation of `IAppLog` is `FileAppLog` plus `StreamUrlRedactor`, bo
 | `app.startup_failed` | — |
 | `app.exit` | — |
 
+#### 8.2.8 Sleep-inclusive `IMonotonicClock` (D14)
+
+Location: `DialShift.App/Platform/` (per-OS files chosen by the platform lane), namespace `DialShift.App.Platform`. Each class implements `DialShift.Core.Playback.IMonotonicClock`. The composition root injects the one for the current OS into `PlaybackCoordinator`, which uses it for every policy timer.
+
+- **macOS:** `clock_gettime_nsec_np(CLOCK_MONOTONIC)` from `libSystem` (`CLOCK_MONOTONIC_RAW` is equally acceptable). Timestamps are nanoseconds; `GetElapsedTime(a, b) = TimeSpan.FromTicks((b − a) / 100)`.
+- **Windows:** a source that keeps counting through sleep. `Stopwatch`/QPC is unverified. `QueryInterruptTime` and `GetTickCount64` (`Environment.TickCount64`) are documented as including sleep; `QueryUnbiasedInterruptTime` is not. The choice must be confirmed on hardware (NC-02) before it is relied on.
+- Other OSes: `StopwatchMonotonicClock` (the app fails at startup there anyway, §8.1).
+- Tests: unit checks that timestamps never decrease and that `GetElapsedTime` converts units correctly. The sleep behavior itself is native-only (NC-02, NC-08).
+
 ---
 
 ## 9. Remaining native checks
@@ -881,19 +929,19 @@ The macOS items NC-10 to NC-12 **can** be exercised manually on this dev box for
 | ID | Check | Why it cannot run here | Covers |
 |---|---|---|---|
 | NC-01 | Windows native UI smoke: `DialShift.exe --smoke-test` and `--recovery-test` on a Windows desktop; tray left-click opens, right-click menu, every menu item, close-to-tray, quit, start in tray. A GUI run on the `windows-latest` runner may be attempted but is not relied on. | Needs a Windows interactive desktop | BHV-09, 11–15, 19–23; MX-04/05; DOD-04 |
-| NC-02 | Windows `SystemEvents.PowerModeChanged` runtime: real sleep then resume while playing and while paused, and resume into a new slot (TZ-12 Windows path) | Needs Windows hardware sleep | BHV-42; MX-08; SP-03; QA-N1; TZ-12 |
+| NC-02 | Windows `SystemEvents.PowerModeChanged` runtime: real sleep then resume while playing and while paused, and resume into a new slot (TZ-12 Windows path). Also confirm that the Windows `IMonotonicClock` counts through sleep, so the tick gap fires with power events disabled (D14) | Needs Windows hardware sleep | BHV-42; MX-08; SP-03; QA-N1; TZ-12; D14 |
 | NC-03 | Windows LibVLC real playback plus the media corpus (MP3, AAC, HLS, redirect, HTTPS failure, unreachable host, malformed URL, captive-portal-like) | Needs Windows audio and desktop | MX-10, MX-13 |
 | NC-04 | Windows launch at login at a real sign-in; then move or upgrade the exe and confirm the stale-path status and re-enable | Needs Windows sign-in | BHV-59; MX-07, MX-15; DOD-06 |
 | NC-05 | Windows SmartScreen / Authenticode behavior of the `.zip` artifact (release only, D7) | Needs a signing certificate and clean Windows | D7 |
 | NC-06 | Windows second-launch activation brings the window to the foreground despite focus-stealing rules (Start menu, Explorer double-click) | Needs a Windows desktop | BHV-08, BHV-15; MX-06 |
 | NC-07 | **Clean-machine Apple Silicon install** of `DialShift.app` with no Rosetta installed and no developer tools: first launch of an ad-hoc-signed app (right-click → Open), tray appears, playback, quit/reopen, second-instance activation with `LSUIElement` | Needs a clean Apple Silicon Mac | SP-02; MX-12; DOD-04, DOD-08 |
-| NC-08 | **Lid-close** sleep/wake on Apple Silicon: `NSWorkspace` spike criterion 2 (D3) and timer-gap recovery; resume into a zone-shifted slot (TZ-12 macOS path) | Needs a physical lid close with a monitoring run | SP-04; BHV-42; MX-08; QA-N1; TZ-12 |
+| NC-08 | **Lid-close** sleep/wake on Apple Silicon: `NSWorkspace` spike criterion 2 (D3) and timer-gap recovery on the sleep-inclusive clock (D14); resume into a zone-shifted slot (TZ-12 macOS path) | Needs a physical lid close with a monitoring run | SP-04; BHV-42; MX-08; QA-N1; TZ-12; D14 |
 | NC-09 | **Gatekeeper** / Developer ID signing + notarization acceptance (release only, D7) | Needs an Apple Developer ID and notarization credentials | D7; PK-03 |
 | NC-10 | macOS LaunchAgent at a real login (logout/login), and after moving `DialShift.app` | Needs a login session cycle (possible on the dev box manually) | BHV-59; MX-07, MX-15 |
 | NC-11 | macOS AVPlayer media corpus including HLS, TLS failure, redirects, unavailable network, captive portal | Needs network manipulation (possible on the dev box manually) | MX-11, MX-13; SP-01 |
 | NC-12 | Menu-bar template icon renders correctly in light and dark menu bars; tray menu updates after edits with no native crash | Visual check (possible on the dev box manually) | BHV-19, BHV-22; MX-05 |
 | NC-13 | macOS pipe socket path and permissions when launched through LaunchServices/launchd (not a terminal), confirming the umask-derived mode (brief 1 §7.5) | Production launch environment | BHV-08; CT-SI-12 |
-| NC-14 | Intel Mac: **not applicable** after `DialShift.Mac` retirement (D2). Before then, the labeled `osx-x64` Rosetta build is manual-only | No Intel hardware; policy | D2 |
+| NC-14 | Intel Mac: **not applicable**. No `osx-x64` artifact is produced; the last Intel/Rosetta build exists only at tag `legacy-last-known-good` (D13) | No Intel hardware; policy | D2, D13 |
 
 ---
 
@@ -903,7 +951,7 @@ Unless the orchestrator overrides one, each lane proceeds on the default. Any ov
 
 | ID | Question | Recommended default |
 |---|---|---|
-| OQ-1 | How does the coordinator correlate engine callbacks with its session? | Per the `IPlaybackEngine` contract, the engine assigns session ids from a counter incremented synchronously on each `StartAsync` entry. The coordinator serializes its engine commands (a small engine-command gate, separate from the state gate) and so knows that the N-th start is session N. **If** the core lane finds this awkward, the alternative is a caller-supplied correlation id, as a contract revision through the spec lane. It is not a silent change. |
+| OQ-1 | How does the coordinator correlate engine callbacks with its session? | **Resolved by D16** (FIFO engine-command pump, every queued start invoked). Original default: per the `IPlaybackEngine` contract, the engine assigns session ids from a counter incremented synchronously on each `StartAsync` entry. The coordinator serializes its engine commands (a small engine-command gate, separate from the state gate) and so knows that the N-th start is session N. **If** the core lane finds this awkward, the alternative is a caller-supplied correlation id, as a contract revision through the spec lane. It is not a silent change. |
 | OQ-2 | Settings import/export (upstream v0.2.0) is absent from both local front-ends. Add it? | **Out of scope** for this refactor, because the refactor is behavior parity. Track it as a follow-up. `settings.json.before-import-*` stays reserved. |
 | OQ-3 | The WPF "DialShift is in your tray" balloon has no Avalonia equivalent. | Accept the loss (D1). Keep the Settings help text. Optionally the ui lane may show a one-time in-window hint the first time the window is closed, but not a Windows-only native notification. |
 | OQ-4 | macOS LaunchAgent: call `launchctl`? | **No.** Write, verify and delete only; the entry takes effect at next login. Use `open -a <bundle> --args --tray` when inside a `.app`. Keep the label `com.tsiger.dialshift`. `SMAppService` (macOS 13+) is a future enhancement. |

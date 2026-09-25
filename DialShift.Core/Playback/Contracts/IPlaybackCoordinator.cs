@@ -30,18 +30,32 @@ namespace DialShift.Core.Playback;
 /// <item><b>RetryDue</b> (internal, generation-checked): <see cref="PlaybackStatus.Failed"/> → <see cref="PlaybackStatus.Reconnecting"/>
 /// (desired station, or the fallback after three consecutive failures); primary re-check after 120 s on a playing fallback:
 /// <see cref="PlaybackStatus.Playing"/> → <see cref="PlaybackStatus.Reconnecting"/>. A retry whose generation is stale exits harmlessly.</item>
-/// <item><b>WakeDetected</b> (<see cref="NotifyWakeAsync"/>, or a ≥ 15 s monotonic tick gap seen by <see cref="OnTickAsync"/>):
-/// active states → <see cref="PlaybackStatus.SuspendedBySystem"/> → settle 1–3 s → schedule check → reconnect once →
-/// <see cref="PlaybackStatus.Reconnecting"/> (normal retry policy on failure); inactive states → schedule check only (a stop
-/// still holds within the same slot); already <see cref="PlaybackStatus.SuspendedBySystem"/> → ignored (idempotent, rate-limited).</item>
+/// <item><b>WakeDetected</b> (<see cref="NotifyWakeAsync"/>, or a ≥ 15 s gap between two <see cref="OnTickAsync"/> calls measured
+/// on the injected <see cref="IMonotonicClock"/>, which must be sleep-inclusive in production, D14): active states →
+/// <see cref="PlaybackStatus.SuspendedBySystem"/> → settle 2 s (OQ-7) → schedule check → exactly one reconnect: a new slot
+/// opens as <see cref="PlaybackStatus.Connecting"/>, otherwise the desired station as <see cref="PlaybackStatus.Reconnecting"/>
+/// (normal retry policy on failure); inactive states → schedule check only (a stop still holds within the same slot); already
+/// <see cref="PlaybackStatus.SuspendedBySystem"/> → ignored (idempotent). <b>Wake debounce (D15):</b> in every state, a wake
+/// detected within 10 s of the last accepted wake or of the last completed recovery is ignored, so an OS notification and
+/// a tick gap for the same wake produce one recovery.</item>
 /// <item><b>SettingsChanged</b> (<see cref="NotifySettingsChangedAsync"/>): any state; revalidates stations, fallback and volume.</item>
-/// <item><b>Dispose</b>: any state → <see cref="PlaybackStatus.Disposing"/> (terminal); stops the engine; no event revives playback.</item>
+/// <item><b>Dispose</b>: any state → <see cref="PlaybackStatus.Disposing"/> (terminal); stops the engine, then disposes it exactly
+/// once, because the coordinator owns the engine it was given (D17: the composition root must not dispose the engine itself);
+/// no event revives playback.</item>
 /// </list>
-/// <para><b>Threading.</b> Members may be called from any thread. <see cref="SnapshotChanged"/> is raised on an arbitrary
-/// thread, only when the snapshot value changed; UI consumers marshal to their own thread. The coordinator does not
-/// save settings — callers persist <c>Settings</c> after commands exactly as today (volume, last station).</para>
-/// <para><b>Ticking.</b> The coordinator owns no timer. The orchestration layer runs a 1 s <c>PeriodicTimer</c> loop that calls
-/// <see cref="OnTickAsync"/>; tests call it directly with fake <see cref="IClock"/>/<see cref="IMonotonicClock"/>.</para>
+/// <para><b>Threading (D18).</b> <c>Settings</c> is plain mutable data, so the host mutates it and calls the commands
+/// (<see cref="PlayAsync"/>, <see cref="ToggleAsync"/>, <see cref="StopAsync"/>, <see cref="NextStationAsync"/>,
+/// <see cref="SetVolumeAsync"/>, <see cref="StartScheduleAsync"/>, <see cref="RefreshScheduleAsync"/>,
+/// <see cref="NotifySettingsChangedAsync"/>, <see cref="ForgetStationAsync"/>) and the <see cref="OnTickAsync"/> loop on the
+/// UI thread only. Those members run their transition on the caller's synchronization context, so their
+/// <c>Settings</c> reads and writes never race the host's edits. <see cref="NotifyWakeAsync"/>, <see cref="Snapshot"/> and
+/// <see cref="IAsyncDisposable.DisposeAsync"/> may be called from any thread: they read only scalar settings.
+/// <see cref="SnapshotChanged"/> is raised on an arbitrary thread, only when the snapshot value changed, and never with an
+/// older snapshot after a newer one. Handlers must return quickly and must not block (marshal with a post, never a
+/// synchronous invoke onto the UI thread). The coordinator does not save settings — callers persist <c>Settings</c> after
+/// commands exactly as today (volume, last station).</para>
+/// <para><b>Ticking.</b> The coordinator owns no timer. The orchestration layer runs a 1 s <c>PeriodicTimer</c> loop on the UI
+/// thread that calls <see cref="OnTickAsync"/>; tests call it directly with fake <see cref="IClock"/>/<see cref="IMonotonicClock"/>.</para>
 /// </remarks>
 public interface IPlaybackCoordinator : IAsyncDisposable
 {
@@ -75,7 +89,7 @@ public interface IPlaybackCoordinator : IAsyncDisposable
     /// <summary>1 Hz heartbeat: wake-gap check, schedule check, retry/fallback timers, stall watchdog, stable-playback reset, snapshot refresh.</summary>
     Task OnTickAsync(CancellationToken cancellationToken);
 
-    /// <summary>WakeDetected from the OS power service. Idempotent and rate-limited; safe to call alongside the tick-gap heuristic.</summary>
+    /// <summary>WakeDetected from the OS power service. Idempotent and rate-limited (10 s debounce, D15); safe to call from any thread and alongside the tick-gap heuristic.</summary>
     Task NotifyWakeAsync();
 
     /// <summary>

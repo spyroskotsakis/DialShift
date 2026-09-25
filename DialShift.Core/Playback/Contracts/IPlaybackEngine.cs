@@ -96,7 +96,20 @@ public sealed record PlaybackEngineFailedEventArgs(long SessionId, PlaybackFailu
 /// thread affinity internally (AVPlayer: main thread). Events are raised on arbitrary threads, must not be
 /// raised while an adapter holds an internal lock, and handlers must return quickly without blocking.
 /// Adapters should not raise events synchronously inside <see cref="StartAsync"/>/<see cref="StopAsync"/>
-/// call stacks; callers must tolerate it if they do.</para>
+/// call stacks; callers must tolerate it if they do. Every member must return promptly: the caller may be the UI
+/// thread, so slow native work (resolving, connecting, tearing down) runs asynchronously after the call returns.</para>
+/// <para><b>Overlapping calls (stop-while-connecting, D16).</b> Adapters MUST tolerate overlapping calls. The
+/// coordinator invokes engine commands strictly in order but does not await one command's completion before invoking
+/// the next, so <see cref="StartAsync"/>, <see cref="StopAsync"/>, <see cref="SetVolumeAsync"/> and
+/// <see cref="IAsyncDisposable.DisposeAsync"/> may arrive while an earlier <see cref="StartAsync"/> is still in
+/// flight, typically with that earlier call's token already cancelled. The most recently invoked call wins: a
+/// superseded or cancelled start ends silently (no audio, no further events for its session; its task completes or
+/// throws <see cref="OperationCanceledException"/>) and never revives playback after a later
+/// <see cref="StopAsync"/>. The coordinator also invokes every start it enqueued, including superseded ones with an
+/// already-cancelled token, so that the N-th start stays session N; such a start must still consume its session id.
+/// The token's source may be disposed soon after it is cancelled: observe it through
+/// <see cref="CancellationToken.IsCancellationRequested"/>, <see cref="CancellationToken.Register(Action)"/> or
+/// <see cref="CancellationToken.ThrowIfCancellationRequested"/>, never through <see cref="CancellationToken.WaitHandle"/>.</para>
 /// </remarks>
 public interface IPlaybackEngine : IAsyncDisposable
 {

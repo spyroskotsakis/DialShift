@@ -16,6 +16,15 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D10 | 2026-09-25 | `IPlaybackCoordinator` interface lives in Core, defined contract-first | brief 1 §4.1, §5, §6 |
 | D11 | 2026-09-25 | Core logging port `IAppLog`; the App implements the redacted file log | brief 1 §6, §7.9, §11 DoD |
 | D12 | 2026-09-25 | All brief 2 §10 timezone recommendations are adopted | brief 2 §10, §4–§7 |
+| D13 | 2026-09-25 | `DialShift.App` publishes only `win-x64` and `osx-arm64`; no `osx-x64` artifact is produced any more (supersedes D2's transitional sentence) | brief 1 §7.2, §4.3 |
+| D14 | 2026-09-25 | Wake-gap detection needs a sleep-inclusive monotonic clock; per-OS `IMonotonicClock` from the platform lane | brief 1 §4.1a, §4.4 |
+| D15 | 2026-09-25 | Wake debounce: 10 s after an accepted wake or a completed recovery | brief 1 §4.4, §5.3 |
+| D16 | 2026-09-25 | Engine-command FIFO pump: every queued start is invoked, so the N-th start is session N | brief 1 §5.4–§5.6 |
+| D17 | 2026-09-25 | The coordinator owns engine disposal; the composition root must not dispose the engine | brief 1 §5.4, §4.1 |
+| D18 | 2026-09-25 | The tick loop and all `Settings` mutation run on the UI thread | brief 1 §4.1, §5.5 |
+| D19 | 2026-09-25 | Avalonia 12.1.2 is the version actually used; `NativeMenuItemToggleType` became `MenuItemToggleType` | brief 1 §7.2 |
+| D20 | 2026-09-25 | Platform contract namespace is `DialShift.App.Platform` (files in `Platform/Abstractions/`) | brief 1 §4.2, §6 |
+| D21 | 2026-09-25 | `--smoke-test` uses an isolated temp data dir; `DIALSHIFT_DATA_DIR` is an absolute-path override | brief 1 §4.5, §7.7 |
 
 ---
 
@@ -30,6 +39,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Decision:** The consolidated `DialShift.App` has `RuntimeIdentifiers` = `win-x64;osx-arm64`. `DialShift.App` **never** publishes `osx-x64`. Until it is retired on this branch, the legacy `DialShift.Mac` project remains the only macOS Intel artifact, clearly labeled as an **`osx-x64` Rosetta build**. After `DialShift.Mac` is retired, no Intel Mac artifact is shipped, and the README says so explicitly.
 - **Rationale:** This is the brief's default and the simplest honest option. AVPlayer runs natively on arm64 with no third-party media runtime. Shipping AVPlayer on `osx-x64` would need separate Intel validation that nobody has asked for. The honest-labeling rule (§4.3) is met because the macOS path is either "native `osx-arm64` (AVPlayer)" or the labeled legacy Rosetta build, never an unlabeled one.
 - **Brief ref:** brief 1 §7.2 (Intel Mac release policy table, "Apple Silicon only — Default"), §13 Q2, §4.3, §2 transition note.
+- **Amended by D13:** `DialShift.Mac` has since been relocated into `DialShift.App`, so the transitional sentence about a labeled legacy `osx-x64` Rosetta artifact no longer applies. No Intel artifact is produced; the last Intel/Rosetta build exists only at tag `legacy-last-known-good`.
 
 ## D3 — NSWorkspace wake: spike-gated, timer-gap otherwise
 
@@ -120,3 +130,59 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   `Settings.Version` stays at 1 (QA-N3).
 - **Rationale:** These are the brief's own recommendations. The QA review found they are needed for correctness or backward compatibility.
 - **Brief ref:** brief 2 §10 Q1–Q6, §4.2–§4.5, §6, §7.
+
+## D13 — Only `win-x64` and `osx-arm64` are published
+
+- **Decision:** `DialShift.App` publishes exactly two artifacts: `win-x64` and `osx-arm64`. No `osx-x64` artifact is produced any more, by any project on this branch. The last Intel/Rosetta macOS build exists only at tag `legacy-last-known-good` (commit `82281e5`), and the README says so explicitly. This supersedes D2's transitional sentence ("until it is retired … the legacy `DialShift.Mac` project remains the only macOS Intel artifact"), because `DialShift.Mac` was relocated into `DialShift.App` (commit `2f0ef5c`) and retargeted (commit `d83f946`).
+- **Rationale:** After the relocation there is no project left that could build the labeled Rosetta artifact without reintroducing LibVLC on macOS. Pointing Intel users at the tag keeps the honest-labeling rule (§4.3) without maintaining a second macOS build.
+- **Consequence:** PK-01 and HS-15 assert that `DialShift.App.csproj` contains no `osx-x64`. NC-14 is not applicable. DOD-08 references this decision.
+- **Brief ref:** brief 1 §7.2, §4.3, §13 Q2.
+
+## D14 — Wake-gap detection uses a sleep-inclusive monotonic clock
+
+- **Decision:** The tick-gap wake heuristic needs a clock that is monotonic **and** keeps counting while the machine sleeps. The platform lane supplies per-OS `IMonotonicClock` implementations in `DialShift.App`, and the composition root injects them into `PlaybackCoordinator`:
+  - **macOS:** `clock_gettime_nsec_np(CLOCK_MONOTONIC)`. `CLOCK_MONOTONIC_RAW` (the spike's choice, the same as `mach_continuous_time`) is equally sleep-inclusive and acceptable.
+  - **Windows:** a sleep-inclusive source, to be verified on native Windows hardware (whether `Stopwatch`/QPC counts through sleep is unverified; NC-02 covers it).
+  - `StopwatchMonotonicClock` remains the Core default for tests and for contexts that do not need to observe sleep.
+- **Evidence:** .NET's `Stopwatch` on macOS reads `CLOCK_UPTIME_RAW`, which does not advance during sleep. Measured on the dev Mac on 2026-09-25: `CLOCK_MONOTONIC − CLOCK_UPTIME_RAW = 548,087 s` of accumulated sleep missing from `Stopwatch` (`CLOCK_MONOTONIC_RAW − CLOCK_UPTIME_RAW = 548,104 s`; see `docs/spikes.md` finding 1). With `Stopwatch`, a tick before sleep and a tick after wake are about 1 s apart, so a 15 s gap is never seen.
+- **Consequence:** One clock drives every coordinator timer. That is safe with a sleep-inclusive clock, because a detected wake retires the session and clears the retry, stall and stable timers before they are evaluated in the same tick. The OS wake notification (D3, spike verdict ADOPT) and the tick gap both stay in place. CT-PB-30 is unaffected because it uses a fake clock. The contract remark lives on `IMonotonicClock`.
+- **Brief ref:** brief 1 §4.1a, §4.4, §7.3.
+
+## D15 — Wake debounce of 10 s
+
+- **Decision:** A wake detected within **10 s** (`PlaybackCoordinator.WakeDebounce`), measured on the monotonic clock, of the last accepted wake **or** of the last completed recovery is ignored and logged as `wake.detected … ignored: rate-limited`. A wake while `SuspendedBySystem` is ignored as "recovery already in progress".
+- **Rationale:** The OS notification and the tick gap usually both report the same wake. Restarting the window when the recovery completes means a late duplicate cannot trigger a second reconnect. 10 s is shorter than the 15 s gap threshold, so a genuine new sleep is never swallowed by the tick-gap path.
+- **Brief ref:** brief 1 §4.4 ("idempotent, rate-limited"), §5.3.
+
+## D16 — Engine-command FIFO pump
+
+- **Decision:** Engine commands (start, stop, set volume) are appended to a FIFO queue while the state gate is held and invoked strictly in that order after it is released, by at most one pumping thread. The pump does not await a command's completion before invoking the next one, so a stop reaches the engine immediately even while a slow connect is in flight (stop-while-connecting). **Every** queued start is invoked, and a superseded one receives a token that is already cancelled, or is cancelled right after the superseding transition completes. Because the engine increments its session counter synchronously on entry to each `StartAsync`, the N-th queued start is always session N, and the coordinator assigns that id when it enqueues. A start that throws synchronously still consumes its id and becomes a `Failed(Unknown)` signal for that session.
+- **Consequence:** Adapters must tolerate overlapping calls, as documented on `IPlaybackEngine`. This resolves OQ-1 without a caller-supplied correlation id.
+- **Brief ref:** brief 1 §5.4–§5.6.
+
+## D17 — The coordinator owns engine disposal
+
+- **Decision:** `PlaybackCoordinator` takes ownership of the `IPlaybackEngine` it is constructed with. `DisposeAsync` stops the engine, unsubscribes and disposes it exactly once (CT-PB-35). The composition root must **not** dispose the engine itself; it disposes the coordinator.
+- **Rationale:** Disposal is ordered after the final stop and after every queued command. A second owner could dispose the engine while commands are still being pumped.
+- **Brief ref:** brief 1 §4.1, §5.4 ("shutdown").
+
+## D18 — Tick loop and `Settings` mutation on the UI thread
+
+- **Decision:** The 1 s `PeriodicTimer` loop that calls `OnTickAsync`, all coordinator commands, and every mutation of `Settings` run on the UI thread. The coordinator awaits its gate without `ConfigureAwait(false)`, so those transitions run on the caller's context. `NotifyWakeAsync`, `Snapshot` and `DisposeAsync` may be called from any thread, and engine callbacks run on arbitrary threads, because they read only scalar settings (`Volume`, `ScheduleEnabled`) and never enumerate `Settings` collections.
+- **Rationale:** `Settings` is plain mutable data (`List<Station>`, `List<ScheduleEntry>`) that the editors change in place. Confining its readers and writers to one thread avoids locks in the data model and "collection was modified" races during schedule evaluation.
+- **Brief ref:** brief 1 §4.1, §5.5.
+
+## D19 — Avalonia 12.1.2 actually used
+
+- **Decision:** `DialShift.App` references `Avalonia`, `Avalonia.Desktop` and `Avalonia.Themes.Fluent` **12.1.2**, which completes D6 and PK-06. The one API break met during the bump was `NativeMenuItemToggleType`, which became `MenuItemToggleType` (used for the tray's "Follow schedule" checkbox).
+- **Brief ref:** brief 1 §7.2.
+
+## D20 — Platform contract namespace
+
+- **Decision:** The platform contracts `IStartupRegistration`, `ISystemPowerEvents` and `IFileRevealService` live in `DialShift.App/Platform/Abstractions/` under the namespace **`DialShift.App.Platform`** (not `…Platform.Abstractions`). Implementations go in per-OS folders under `Platform/` in the same namespace family.
+- **Brief ref:** brief 1 §4.2, §6.
+
+## D21 — Smoke-test data isolation and `DIALSHIFT_DATA_DIR`
+
+- **Decision:** `AppPaths.Resolve` applies this order: (1) a non-blank `DIALSHIFT_DATA_DIR`, which must be an absolute path and is used verbatim; (2) with `--smoke-test` and no override, a fresh `DialShift-smoke-<guid>` directory under the temp path; (3) the OS default. `--smoke-test` therefore never touches the user's real settings, log or single-instance lock. The override exists for smoke tests, integration tests and CI, and is documented only in the README developer section.
+- **Brief ref:** brief 1 §4.5, §7.7; acceptance matrix §8.2.6.
