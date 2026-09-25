@@ -48,7 +48,7 @@
 - the small follow-ups in [§2.9](#29-follow-ups-that-depend-on-the-above), which depend on what these checks observe;
 - the release-engineering and maintainer items in [§2.10](#210-release-engineering-not-blocked-on-hardware-6-items), which need no hardware.
 
-Native checks: 16 open. NC-01..NC-13 and NC-15..NC-17, where NC-07, NC-13 and NC-17 are partly done. NC-14 (Intel) is not applicable (D13).
+Native checks: 17 open. NC-01..NC-13 and NC-15..NC-18, where NC-07, NC-13 and NC-17 are partly done; NC-18 comes from brief 3 (the catalog search, D82) and needs only a Windows machine with Windows PowerShell 5.1 ([§2.11](#211-a-windows-machine-with-windows-powershell-51-1-item-brief-3)). NC-14 (Intel) is not applicable (D13).
 
 ---
 
@@ -190,6 +190,7 @@ Outside §3, these rows flip as well:
 - **§6 QA-N1** and **§6.2 TZ-12**: need NC-02 + NC-08.
 - **§7.10 SR-02**: needs NC-02, then the comment fix.
 - **§7.10 NX-01**: needs NC-17 step 10 (NC-08 step 5 repeats the start and also checks that the window renders once the displays wake).
+- **§11 CAT-03** (brief 3): names NC-18 besides its Windows native smoke from the zip; it is `TODO` until its macOS evidence is pasted, then `WINDOWS-PENDING` (D75).
 
 NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-closure-criteria)).
 
@@ -206,6 +207,16 @@ NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-clos
 | Issues on the public repository | **Done on 2026-09-25.** The `[0.3.0]` release notes and the README ask users to report problems at `https://github.com/spyroskotsakis/DialShift/issues`. The public repository, a fork, started with Issues turned off; they are now turned on, so that link works | Was: before the public `v0.3.0` push | maintainer (repository **Settings → General → Features → Issues**) | Done: `gh repo view spyroskotsakis/DialShift --json hasIssuesEnabled` gives `true` |
 | Release `v0.3.0` (D57) | **Done on 2026-09-25.** A full release on the `v0.3.0-rc.2` app code, with the testing status in its notes. The maintainer pushed the tag `v0.3.0` (`b9cbeea`) to the public repository; its Release run [`36172793355`](https://github.com/spyroskotsakis/DialShift/actions/runs/36172793355) (a tag push) passed `resolve`, including the RL-01 run-on-the-tag check, both builds and publishing. "DialShift 0.3.0" was published at 18:29 UTC as the latest release (not a pre-release) with `DialShift-win-x64.zip` (SHA-256 `3cfb1681…ff8c`), `DialShift-macos-arm64.zip` (`7d2b77ba…0d5a`) and `SHA256SUMS.txt`; both downloads pass `shasum -a 256 -c SHA256SUMS.txt`. The private dry run did not happen: the private repository refused the run (billing row above) | Was: after the rows above | maintainer (tag and push); release (notes) | Done: the public Releases page shows `v0.3.0` as the latest release with the three assets, the checksums match, and its `resolve` job was the first public run of the RL-01 ref check (matrix §7.10 RL-01 GREEN) |
 
+### 2.11 A Windows machine with Windows PowerShell 5.1 (1 item, brief 3)
+
+**Missing resource:** any Windows 10/11 x64 machine with Windows PowerShell 5.1 (`powershell.exe`, part of Windows); a VM will do. This Mac has only PowerShell 7, where `System.Text.Json` exists and the verifier's fallback never runs, and CI runs the script under `pwsh`.
+
+**Who can unblock:** the user, or anyone with a Windows machine and a `DialShift-win-x64` zip built at or after `951b8aa`.
+
+| Item | What's left | Why blocked | Procedure | Pass (short) | Rows it unblocks |
+|---|---|---|---|---|---|
+| NC-18 | Run `scripts/verify-win-package.ps1` under Windows PowerShell 5.1 on the real package and on the contracts §8 CAT-03 fixtures, to exercise its fallback parser (`DataContractJsonSerializer`'s reader plus the trailing-comma, single-value and JSON-number checks, `951b8aa`); repeat under `pwsh` on the same machine (D82 (d)) | The fallback runs only on Windows PowerShell 5.1, which exists only on Windows; no automated run reaches it | §9 NC-18 | The real package verifies with the same station count as under `pwsh`; every fixture gets the same verdict under both (a BOM and strings holding `,]`, `{`, `}` pass; comments, trailing commas, a second value, `NaN`, `01`, a non-literal `schema_version`, non-object stations fail) | CAT-03 (brief 3), together with the Windows native smoke from the zip |
+
 ---
 
 ## 3. Suggested order of execution
@@ -220,7 +231,7 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 4 | **NC-10 + NC-13 LaunchAgent half** | Dev box, 3–4 log out/in cycles | 45–60 min | One session closes both. After it, the launch-at-login rows wait only on NC-04 |
 | 5 | **NC-11** (network faults) | Dev box, plus a captive-portal network | 30–60 min, plus finding a captive portal | Needed for BHV-37, MX-11 and MX-13 |
 | 6 | **NC-08** (lid close) | A MacBook | 45–60 min, plus a platform-lane dev build with `MacPowerEvents.Start` disabled for step 4 (about 15 min) | Pairs with NC-02 for the sleep rows, QA-N1 and TZ-12 |
-| 7 | **Windows hardware block**, in this order: NC-01, NC-06, NC-04, NC-02, NC-03, NC-15 (and NC-05 (a) if the PC is clean) | One Windows 11 x64 PC with speakers | NC-01: 1–1.5 h; NC-06: 15 min; NC-04: 45–60 min (several sign-outs); NC-02: 1.5–2 h, plus a dev build for step 4 and for recording the thread; NC-03: 2–3 h; NC-15: 1–2 h including the UI Automation script; NC-05 (a): 15 min | With steps 2–4 done, NC-01 and NC-06 flip 25 rows, and NC-04 flips the 4 launch-at-login rows. NC-02 unblocks SR-02 and HZ-04 |
+| 7 | **Windows hardware block**, in this order: NC-01, NC-06, NC-04, NC-02, NC-03, NC-15 (and NC-05 (a) if the PC is clean; NC-18 on the same PC, or earlier on any Windows VM) | One Windows 11 x64 PC with speakers | NC-01: 1–1.5 h; NC-06: 15 min; NC-04: 45–60 min (several sign-outs); NC-02: 1.5–2 h, plus a dev build for step 4 and for recording the thread; NC-03: 2–3 h; NC-15: 1–2 h including the UI Automation script; NC-05 (a): 15 min; NC-18: about 30 min with the contracts §8 CAT-03 fixtures | With steps 2–4 done, NC-01 and NC-06 flip 25 rows, and NC-04 flips the 4 launch-at-login rows. NC-02 unblocks SR-02 and HZ-04 |
 | 8 | **SR-02** comment fix | Any machine | About 10 min, platform lane | Right after NC-02 |
 | 9 | **NC-07** (clean Apple Silicon Mac) | A clean Mac | 30–45 min once the machine exists | The last check for MX-12, SP-02, DOD-04 and DOD-05, and it changes the README wording |
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
