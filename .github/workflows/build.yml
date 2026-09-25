@@ -156,6 +156,88 @@ jobs:
           Expand-Archive -LiteralPath artifacts/DialShift-win-x64.zip -DestinationPath $extracted
           ./scripts/verify-win-package.ps1 -Path $extracted
 
+      # Install.ps1 (SW-N4, D56) from the folder extracted above, run as "Run with PowerShell" runs it (Windows
+      # PowerShell 5.1), with LOCALAPPDATA in a temp folder and -NoLaunch, so no DialShift is started:
+      # (a) a fresh install; (b) an upgrade over it, which leaves no file of the old build and no DialShift.new-* or
+      # DialShift.old-* folder, and moves an existing HKCU Run value to the installed copy; (c) a copy extracted inside
+      # the install folder and (d) an install folder inside the source are refused with a non-zero exit, changing nothing.
+      # The HKCU Run value is restored and the Start menu shortcut removed afterwards.
+      - name: Install.ps1 (fresh install, upgrade, refusals)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'DialShift-win-x64'
+          $root = Join-Path $env:RUNNER_TEMP 'install-check'
+          $outer = Join-Path $env:RUNNER_TEMP 'install-check-outer'
+          $programs = Join-Path $root 'Programs'
+          $installed = Join-Path $programs 'DialShift'
+          $installedExe = Join-Path $installed 'DialShift.exe'
+          $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'DialShift.lnk'
+          $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          $savedRun = (Get-ItemProperty -Path $runKey -Name DialShift -ErrorAction SilentlyContinue).DialShift
+          function Invoke-Install([string]$folder, [string]$localAppData) {
+            $saved = $env:LOCALAPPDATA
+            $env:LOCALAPPDATA = $localAppData
+            try {
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $folder 'Install.ps1') -NoLaunch | Out-Host
+              return $LASTEXITCODE
+            } finally { $env:LOCALAPPDATA = $saved }
+          }
+          function Get-Listing([string]$folder) {
+            Get-ChildItem -LiteralPath $folder -Recurse -Force -File |
+              ForEach-Object { '{0} {1}' -f $_.FullName.Substring($folder.Length), $_.Length } | Sort-Object
+          }
+          function Assert-OnlyInstall([string]$case) {
+            $names = @(Get-ChildItem -LiteralPath $programs -Force | ForEach-Object Name)
+            if ("$names" -ne 'DialShift') { throw "($case) $programs holds '$($names -join "', '")', expected only DialShift." }
+          }
+          try {
+            $code = Invoke-Install $package $root
+            if ($code -ne 0) { throw "(a) Fresh install: Install.ps1 exited with $code." }
+            if (-not (Test-Path -LiteralPath $installedExe)) { throw "(a) Fresh install: $installedExe is missing." }
+            Assert-OnlyInstall 'a'
+            $target = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut).TargetPath
+            if ($target -ne $installedExe) { throw "(a) The Start menu shortcut points at '$target', expected $installedExe." }
+            Write-Host '(a) Fresh install: passed.'
+
+            Set-Content -LiteralPath (Join-Path $installed 'only-in-old-build.txt') -Value 'old'
+            Set-ItemProperty -Path $runKey -Name DialShift -Value '"C:\Old\DialShift\DialShift.exe" --tray'
+            $code = Invoke-Install $package $root
+            if ($code -ne 0) { throw "(b) Upgrade: Install.ps1 exited with $code." }
+            if (-not (Test-Path -LiteralPath $installedExe)) { throw "(b) Upgrade: $installedExe is missing." }
+            if (Test-Path -LiteralPath (Join-Path $installed 'only-in-old-build.txt')) { throw '(b) Upgrade: a file of the old build is still there.' }
+            Assert-OnlyInstall 'b'
+            $run = (Get-ItemProperty -Path $runKey -Name DialShift).DialShift
+            if ($run -ne "`"$installedExe`" --tray") { throw "(b) Upgrade: the Run value is '$run', expected `"$installedExe`" --tray." }
+            Write-Host '(b) Upgrade: passed.'
+
+            $nested = Join-Path $installed 'extracted'
+            Copy-Item -LiteralPath $package -Destination $nested -Recurse
+            $before = Get-Listing $installed
+            $code = Invoke-Install $nested $root
+            if ($code -eq 0) { throw '(c) Install.ps1 run from inside the install folder exited with 0.' }
+            if (Compare-Object $before (Get-Listing $installed)) { throw '(c) The refused run changed the install folder.' }
+            Assert-OnlyInstall 'c'
+            Write-Host "(c) Source inside the install folder: refused with exit code $code, install unchanged."
+
+            Copy-Item -LiteralPath $package -Destination $outer -Recurse
+            $code = Invoke-Install $outer $outer
+            if ($code -eq 0) { throw '(d) Install.ps1 with the install folder inside its own folder exited with 0.' }
+            if (Test-Path -LiteralPath (Join-Path $outer 'Programs')) { throw '(d) The refused run created an install folder.' }
+            Write-Host "(d) Install folder inside the source: refused with exit code $code."
+
+            $started = @(Get-Process DialShift -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -like "$root\*" -or $_.Path -like "$outer\*" })
+            if ($started.Count -gt 0) { $started | Stop-Process -Force; throw 'Install.ps1 -NoLaunch started DialShift.' }
+          } finally {
+            if ($null -eq $savedRun) { Remove-ItemProperty -Path $runKey -Name DialShift -ErrorAction SilentlyContinue }
+            else { Set-ItemProperty -Path $runKey -Name DialShift -Value $savedRun }
+            Remove-Item -LiteralPath $shortcut -Force -ErrorAction SilentlyContinue
+          }
+          # The refused runs exit non-zero on purpose; the checks above decide the step's result.
+          $global:LASTEXITCODE = 0
+
       # verify-mac-app.sh --zip asserts that the zip has no AppleDouble ._* entries, extracts it with ditto and
       # with unzip, and checks each bundle: arm64-only executable, arm64 slice in every dylib, only Mach-O files in
       # Contents/MacOS (SR-03), no signature in extended attributes, no libvlc*/VLC dylibs (case-sensitive;

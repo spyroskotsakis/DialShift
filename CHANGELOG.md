@@ -8,6 +8,15 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+## [0.3.0-rc.2] - 2026-09-25
+
+**Pre-release: native checks are pending.** Everything in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) still applies, including its known limitations. [docs/open-items.md](docs/open-items.md) lists the checks that are still open.
+
+### Fixed
+
+- **Windows: `Install.ps1` no longer deletes the installed copy before the new one is in place.** It copies the new version into a folder next to `%LOCALAPPDATA%\Programs\DialShift`, moves the installed copy aside, moves the new one in, and then deletes the old one. If a file is locked or the copy fails, the installed version is put back as it was and the script stops with a message that says what happened. If only deleting the old copy fails, DialShift is installed and the script tells you which folder to delete.
+- **Windows: `Install.ps1` refuses to run from inside the install folder.** Running it from a zip extracted into `%LOCALAPPDATA%\Programs\DialShift` used to delete the files it was copying. It now stops with "Extract the release zip to another folder, such as Downloads, and run Install.ps1 from there." It also refuses a folder that contains the install folder.
+
 ## [0.3.0-rc.1] - 2026-09-25
 
 **Pre-release: native checks are pending.** Clean-machine installs, a real sign-in, sleep and wake on real hardware, audible output and signing still need checks that CI can't run. [docs/open-items.md](docs/open-items.md) lists each one.
@@ -57,5 +66,6 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 - The schedule does not wake a sleeping computer, and slots have no end time.
 - Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
-[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.1...HEAD
+[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...HEAD
+[0.3.0-rc.2]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.1...v0.3.0-rc.2
 [0.3.0-rc.1]: https://github.com/spyroskotsakis/DialShift/releases/tag/v0.3.0-rc.1
