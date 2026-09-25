@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using DialShift.App.Platform;
 using DialShift.App.Services;
 using DialShift.App.SingleInstance;
+using DialShift.App.Smoke;
 using DialShift.App.Tray;
 using DialShift.App.ViewModels;
 using DialShift.App.Views;
@@ -89,8 +90,10 @@ public partial class App : Application, IAppShell
 
     public void HideMainWindow() => mainWindow?.Hide();
 
-    /// <summary>Quitting from the startup-failure dialog keeps its non-zero exit code and does not save (HS-08).</summary>
-    public void Quit() => teardown ??= TeardownAsync(startupFailureExitCode ?? ExitCodes.Success, saveSettings: startupFailureExitCode == null);
+    public void Quit() => Quit(ExitCodes.Success);
+
+    /// <summary>Quitting after a startup failure keeps its non-zero exit code and does not save (HS-08).</summary>
+    private void Quit(int exitCode) => teardown ??= TeardownAsync(startupFailureExitCode ?? exitCode, saveSettings: startupFailureExitCode == null);
 
     private async Task StartAsync()
     {
@@ -118,7 +121,8 @@ public partial class App : Application, IAppShell
             await coordinator.StartScheduleAsync();
             if (teardown != null) return;
 
-            ObserveFailure(viewModel.ShowSettingsRecoveredAsync(store.Warning), "ui.dialog_failed");
+            // A smoke run has nobody to dismiss the notice; settings.recovered is already logged above.
+            if (!launch.SmokeTest) ObserveFailure(viewModel.ShowSettingsRecoveredAsync(store.Warning), "ui.dialog_failed");
 
             powerEvents = services.GetRequiredService<ISystemPowerEvents>();
             powerEvents.Resumed += OnResumed;
@@ -126,6 +130,9 @@ public partial class App : Application, IAppShell
 
             // Reads the verified launch-at-login state and logs startup_registration.result.
             await viewModel.InitializeAsync();
+
+            if (launch.SmokeTest && teardown == null)
+                Quit(await SmokeRunner.RunAsync(services, mainWindow, tray, launch));
         }
         catch (Exception ex)
         {
@@ -138,13 +145,18 @@ public partial class App : Application, IAppShell
         if (teardown != null) return;
         startupFailureExitCode = exitCode;
         log.Error("app.startup_failed", reason, exception);
-        try
+        // A smoke run records the failure in results.json instead: nobody would dismiss the dialog.
+        if (launch.SmokeTest) SmokeRunner.RecordStartupFailure(services, launch, reason);
+        else
         {
-            await services.GetRequiredService<AvaloniaDialogService>().ShowStartupFailureAsync(reason, services.GetRequiredService<AppPaths>().LogFile);
-        }
-        catch (Exception ex)
-        {
-            log.Error("ui.dialog_failed", "Couldn't show the startup-failure dialog.", ex);
+            try
+            {
+                await services.GetRequiredService<AvaloniaDialogService>().ShowStartupFailureAsync(reason, services.GetRequiredService<AppPaths>().LogFile);
+            }
+            catch (Exception ex)
+            {
+                log.Error("ui.dialog_failed", "Couldn't show the startup-failure dialog.", ex);
+            }
         }
         // Exits with the failure code and does not save: the settings may be defaults standing in for a file that failed to load.
         Quit();

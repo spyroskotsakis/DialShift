@@ -30,7 +30,11 @@ jobs:
       fail-fast: false
       matrix:
         # macos-latest is Apple Silicon (arm64), matching the osx-arm64 target (D2).
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -67,6 +71,54 @@ jobs:
       # Test: a non-zero exit code fails the job.
       - name: Test DialShift.Tests
         run: dotnet run --project DialShift.Tests/DialShift.Tests.csproj -c Release
+
+      # Native UI smoke (brief 1 §4.5 level 3; acceptance matrix §4): the real app, window, tray, dialogs, engine
+      # and a real second launch, in a fresh temp data folder. The app writes results.json and screenshots, exits
+      # non-zero when any check fails, and has its own watchdog (300 s with --recovery-test).
+      # Both hosted runners give the job an interactive desktop session: macOS has a logged-in GUI session and
+      # Windows runs the agent in the interactive session with Explorer's notification area.
+      - name: Build DialShift.App for ${{ matrix.rid }}
+        run: dotnet build DialShift.App/DialShift.App.csproj -c Release -r ${{ matrix.rid }} -warnaserror -o "${{ runner.temp }}/smoke-app"
+
+      - name: Native UI smoke (--smoke-test --recovery-test)
+        shell: pwsh
+        timeout-minutes: 8
+        env:
+          # Windows runners have no audio device; LibVLC's dummy audio output lets the engine reach Playing.
+          # Read by the playback composition (DIALSHIFT_AUDIO_OUTPUT); ignored on macOS.
+          DIALSHIFT_AUDIO_OUTPUT: ${{ runner.os == 'Windows' && 'dummy' || '' }}
+        run: |
+          $app = Join-Path $env:RUNNER_TEMP 'smoke-app' ($IsWindows ? 'DialShift.exe' : 'DialShift')
+          $output = Join-Path $env:RUNNER_TEMP 'smoke'
+          # Started directly rather than with & or Start-Process: pwsh does not wait for a Windows GUI-subsystem exe.
+          $start = [System.Diagnostics.ProcessStartInfo]::new($app)
+          foreach ($arg in '--smoke-test', '--recovery-test', '--output', $output) { $start.ArgumentList.Add($arg) }
+          $process = [System.Diagnostics.Process]::Start($start)
+          if (-not $process.WaitForExit([TimeSpan]::FromMinutes(6))) {
+            $process.Kill($true)
+            throw 'The smoke run did not exit within 6 minutes.'
+          }
+          $resultsFile = Join-Path $output 'results.json'
+          if (-not (Test-Path $resultsFile)) { throw "The smoke run exited with code $($process.ExitCode) and wrote no results.json." }
+          $results = Get-Content $resultsFile -Raw | ConvertFrom-Json
+          $rows = $results.checks | ForEach-Object {
+            $state = if ($_.skipped) { 'skipped' } elseif ($_.passed) { 'passed' } else { 'FAILED' }
+            "| $state | $($_.name) | $($_.detail -replace '\|', '/' -replace '\s+', ' ') |"
+          }
+          @("### Native UI smoke ($env:RUNNER_OS, $($results.engine))", '', '| Result | Check | Detail |', '|---|---|---|') + $rows |
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          $results.checks | Where-Object { -not $_.passed } |
+            ForEach-Object { Write-Host "::error title=Smoke: $($_.name)::$($_.detail -replace '\s+', ' ')" }
+          if ($process.ExitCode -ne 0) { throw "The smoke run exited with code $($process.ExitCode)." }
+
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: smoke-${{ matrix.rid }}
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: warn
+          retention-days: 7
 
       # Package: the release scripts are the single source of the artifact layout.
       - name: Package win-x64 zip
