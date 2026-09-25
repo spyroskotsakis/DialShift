@@ -35,7 +35,9 @@ PLACEHOLDERS = {'city': '—', 'region': '(unlisted)'}
 _STRING_KEYS = tuple(k for k in KEYS if k not in ('internet_only', 'bitrate', 'votes'))
 _GENERATED_UTC = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z')
 _INTEGER = re.compile(r'-?[0-9]+')
-_BARE_TAGS = re.compile(r'tags:\s*')                       # radio-browser extra without any tags
+# A note that is only a source label ("tags:", "curated:", ...) with nothing but whitespace or
+# punctuation after it: the pipeline's provenance prefix of an empty note, never shown in the app.
+_BARE_LABEL = re.compile(r'[^\W_][\w+\-]*:[\W_]*')
 _EMPHASIS = re.compile(r'(?<!\w)_([^_\n]+?)_(?!\w)')        # Wikipedia _emphasis_ markers
 
 
@@ -77,10 +79,12 @@ def valid_stream_url(url: str) -> bool:
 
 
 def _notes(value):
-    s = _text(value)
-    if _BARE_TAGS.fullmatch(s):
+    """Trimmed notes without Wikipedia _emphasis_ markers; "" when nothing readable is left: a bare
+    source label (optionally followed by punctuation only) or no letter or digit at all."""
+    s = _EMPHASIS.sub(r'\1', _text(value))
+    if _BARE_LABEL.fullmatch(s) or not any(c.isalnum() for c in s):
         return ''
-    return _EMPHASIS.sub(r'\1', s)
+    return s
 
 
 def _entry(row, country_label):
@@ -296,6 +300,7 @@ def self_test() -> int:
         _row(name='Strings', bitrate='192', votes='7', notes='tags: jazz,soul', logo='https://a.example.test/l.png',
              stream_url='https://a.example.test/s', genre=''),
         _row(name='Untyped', type='', genre='Ambient', stream_url='https://a.example.test/u'),
+        _row(name='Bare Label', notes='curated: ', stream_url='https://a.example.test/b'),
         # order: votes desc, then name by code point (upper case before lower, accents last)
         _row(name='alpha', votes=3, stream_url='https://a.example.test/o1'),
         _row(name='Zeta', votes=3, stream_url='https://a.example.test/o2'),
@@ -393,6 +398,14 @@ def self_test() -> int:
           and strs['votes'] == 7)
     check('notes: bare "tags:" -> "", _text_ -> text, tags kept', pad['notes'] == ''
           and num['notes'] == 'relays of Some Name here' and strs['notes'] == 'tags: jazz,soul')
+    check('notes: a bare "curated:" label -> ""', by_name['Bare Label'][0]['notes'] == '')
+    for note, want in (('tags:', ''), ('curated:', ''), (' curated:  ', ''), ('wiki:', ''), ('source:\t', ''),
+                       ('curated+radio-browser:', ''), ('tags: ..', ''), ('curated: —', ''), ('tags: , ;', ''),
+                       ('Πηγή:', ''), ('—', ''), (' .. ', ''), (None, ''), ('_curated_:', ''),
+                       ('tags: 80s', 'tags: 80s'), ('curated: pinned stream', 'curated: pinned stream'),
+                       ('Info: 24/7', 'Info: 24/7'), ('Radio in Fixton:', 'Radio in Fixton:'),
+                       ('source: _Some Wiki_', 'source: Some Wiki'), ('ok', 'ok')):
+        check(f'notes: {note!r} -> {want!r}', _notes(note) == want)
     check('logo: "null" and ftp -> "", https kept', pad['logo'] == '' and num['logo'] == ''
           and strs['logo'] == 'https://a.example.test/l.png')
     check('tag of Other/Other is "Other"', pad['tag'] == 'Other')
