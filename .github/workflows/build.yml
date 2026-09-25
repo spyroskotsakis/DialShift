@@ -2,7 +2,7 @@
 # D53). The one definition of the build: ci.yml calls it on every branch push, release.yml calls it for a tag before
 # publishing, so a release ships only packages that passed exactly these checks.
 # Phases per job: build -> test -> native UI smoke -> package -> verify the downloadable zip (macOS: and launch
-# the app extracted from it) -> upload.
+# the app extracted from it) and the verifiers' CAT-03 catalog fixtures -> upload.
 # New checks (for example headless smokes) go in as steps of the matching phase.
 # The caller sets concurrency.
 name: Build, test and package
@@ -288,6 +288,15 @@ jobs:
           # The refused runs exit non-zero on purpose; the checks above decide the step's result.
           $global:LASTEXITCODE = 0
 
+      # CAT-03 verifier fixtures (docs/catalog-contracts.md §8; D81, D82 (c)): verify-win-package.ps1 under pwsh on a
+      # copy of the package extracted above, once per fixture as its app-catalog.json; every file the verifier must
+      # reject fails with an app-catalog.json message, and every file it must accept passes. Git Bash runs the script.
+      - name: Package verifier fixtures (win-x64, CAT-03)
+        if: runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 10
+        run: bash scripts/test-package-verifiers.sh --win-package "$(cygpath -u "$RUNNER_TEMP")/DialShift-win-x64"
+
       # verify-mac-app.sh --zip asserts that the zip has no AppleDouble ._* entries, extracts it with ditto and
       # with unzip, and checks each bundle: arm64-only executable, arm64 slice in every dylib, only Mach-O files in
       # Contents/MacOS (SR-03), no signature in extended attributes, no libvlc*/VLC dylibs (case-sensitive;
@@ -324,6 +333,15 @@ jobs:
           path: ${{ runner.temp }}/bundle-smoke
           if-no-files-found: ignore
           retention-days: 7
+
+      # CAT-03 verifier fixtures (docs/catalog-contracts.md §8; D81, D82 (c)): verify-mac-app.sh on an ad-hoc re-signed
+      # copy of the bundle, once per fixture as its app-catalog.json, and for the files only the app rejects (a quoted
+      # number, a number past Int32, an escaped lone surrogate) the copy's --smoke-test, whose catalog check must fail.
+      # Four smoke runs of about 25 s each on an M-series Mac; the timeout leaves room for a slower runner.
+      - name: Package verifier fixtures (osx-arm64, CAT-03)
+        if: runner.os == 'macOS'
+        timeout-minutes: 15
+        run: scripts/test-package-verifiers.sh --mac-app dist/DialShift.app
 
       # Upload: the zips are uploaded as-is (the macOS zip keeps permissions, links and the signature).
       # Short retention keeps artifact storage bounded; release.yml's publish job downloads the DialShift-* artifacts
