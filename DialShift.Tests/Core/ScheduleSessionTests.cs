@@ -34,7 +34,7 @@ public static class ScheduleSessionTests
         HoldWithNoCurrent();
         ForcedReplay();
         ResetWhenNothingCurrent();
-        EditedSlotSuppressed();
+        EditedSlotFires();
         BackwardClockJump();
     }
 
@@ -115,7 +115,7 @@ public static class ScheduleSessionTests
         Check("[quirk] CT-SES-06 re-enabled: the same occurrence fires again", Is(session.TakeChange(settings, Mon(9, 7)), a, Mon(9)));
     }
 
-    private static void EditedSlotSuppressed()
+    private static void EditedSlotFires()
     {
         var settings = Settings.Defaults();
         settings.ScheduleEnabled = true;
@@ -124,14 +124,14 @@ public static class ScheduleSessionTests
         var session = new ScheduleSession();
         Check("CT-SES-08 setup: today's 10:00 taken", Is(session.TakeChange(settings, Mon(10)), slot, Mon(10)));
         slot.Time = "09:30"; // edited in place (same Id) to an earlier time
-        Check("[quirk] CT-SES-08 edited earlier slot is suppressed without force (QA-N8 Phase 1 pin)", session.TakeChange(settings, Mon(10, 30)) == null);
-        Check("CT-SES-08 forced refresh fires the edited 09:30 occurrence", Is(session.TakeChange(settings, Mon(10, 30), force: true), slot, Mon(9, 30)));
+        Check("CT-SES-08 edited earlier slot fires (QA-N8 fixed)", Is(session.TakeChange(settings, Mon(10, 30)), slot, Mon(9, 30)));
+        Check("CT-SES-08 the edited occurrence fires once", session.TakeChange(settings, Mon(10, 31)) == null);
     }
 
     private static void BackwardClockJump()
     {
-        // A wall clock corrected backwards past a fired slot suppresses every occurrence older than that slot
-        // until wall time passes it again (same `current.At < last.At` guard as CT-SES-03/08).
+        // CF-02: after the wall clock is corrected backwards past a fired slot, the older occurrence that becomes current at
+        // the jump is adopted silently (last week's slot is not replayed), but a slot the clock then reaches fires.
         var settings = Settings.Defaults();
         settings.ScheduleEnabled = true;
         var tuesday = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "09:00", Days = [DayOfWeek.Tuesday] };
@@ -139,7 +139,7 @@ public static class ScheduleSessionTests
         settings.Schedule.AddRange([tuesday, wednesday]);
         var session = new ScheduleSession();
         Check("Backward clock jump setup: Wed 10:00 taken", Is(session.TakeChange(settings, Mon(10).AddDays(2)), wednesday, Mon(10).AddDays(2)));
-        Check("[quirk] Backward clock jump: Mon 12:00 does not replay last week's Wed slot", session.TakeChange(settings, Mon(12)) == null);
-        Check("[quirk] Backward clock jump: Tue 09:00 slot is suppressed (older than last fired)", session.TakeChange(settings, Mon(9).AddDays(1)) == null);
+        Check("Backward clock jump: Mon 12:00 does not replay last week's Wed slot", session.TakeChange(settings, Mon(12)) == null);
+        Check("CF-02 fixed: Tue 09:00 fires when reached", Is(session.TakeChange(settings, Mon(9).AddDays(1)), tuesday, Mon(9).AddDays(1)));
     }
 }
