@@ -19,12 +19,13 @@ namespace DialShift.App.Services;
 /// <para><b>Requests (D81, D82).</b> Logo URLs come from radio-browser, where anyone can submit a station, so only
 /// <see cref="SettingsStore.ValidUrl"/> URLs with a public host are requested (<see cref="IsRefusedHost"/>): the name
 /// <c>localhost</c> or any <c>*.localhost</c> name, and a literal loopback, private, link-local, site-local or unspecified IP
-/// address, are refused at the call, without a request and without caching. The loader follows redirects itself, so
-/// <c>handler</c> must not (DI passes a <see cref="SocketsHttpHandler"/> with <c>AllowAutoRedirect = false</c>): at most
-/// <see cref="MaxRedirects"/> per attempt, each target resolved against the URL that returned it and held to the same URL
-/// and host rules, and never from https to http (HttpClient's own rule); a refused target is never requested and the logo
-/// is null, cached. Only literal hosts are checked; a public name that resolves to a private address is still requested
-/// (D81's stated limit).</para>
+/// address, are refused at the call, without a request and without caching. A name is judged as the handler connects to it,
+/// after IDNA mapping, so <c>１２７.０.０.１</c> or <c>127。0。0。1</c> is the address 127.0.0.1. The loader follows
+/// redirects itself, so <c>handler</c> must not (DI passes a <see cref="SocketsHttpHandler"/> with
+/// <c>AllowAutoRedirect = false</c>): at most <see cref="MaxRedirects"/> per attempt, each target resolved against the URL
+/// that returned it and held to the same URL and host rules, and never from https to http (HttpClient's own rule); a
+/// refused target is never requested and the logo is null, cached. Only literal hosts are checked (after that mapping); a
+/// public name that resolves to a private address is still requested (D81's stated limit).</para>
 /// <para><b>Bounds.</b> At most <see cref="MaxConcurrentDownloads"/> downloads run at once, and a download keeps its slot
 /// until its decode is done, so at most that many bodies are held. Decodes run one at a time across the process (D82): a
 /// downloaded body waits for the single decode slot, which is taken only after the network work is done and which an
@@ -61,8 +62,9 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
 
     /// <summary>The single decode slot, shared by every loader in the process (D82). Four 4096 × 4096 logos decoded at once
     /// raised the working set from 67 to 410 MiB, which the native allocator kept; one at a time, to 154 MiB (macOS arm64).
-    /// Awaited with the download's abandon token only: time spent queued here is not a network failure to cache.</summary>
-    private static readonly SemaphoreSlim Decodes = new(1, 1);
+    /// Awaited with the download's abandon token only: time spent queued here is not a network failure to cache. Internal
+    /// as a test seam only (the CAT-10 decode-gate checks hold it to prove decodes queue); nothing else in the app uses it.</summary>
+    internal static readonly SemaphoreSlim Decodes = new(1, 1);
 
     /// <summary>Linear filtering between mipmap levels: a downscale averages the pixels it drops instead of aliasing
     /// (fine stripes scaled 1024 → 64 are off by 7 levels on average with it, by 57–63 with linear or Mitchell alone).</summary>
@@ -127,13 +129,18 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
         SettingsStore.ValidUrl(url) && Uri.TryCreate(url, UriKind.Absolute, out var uri) && !IsRefusedHost(uri) ? uri : null;
 
     /// <summary>
-    /// True for the name <c>localhost</c> or any name ending in <c>.localhost</c> (RFC 6761), in any case, with or without
-    /// the trailing dot; or a literal IP address in IPv4 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12
-    /// or 192.168.0.0/16, or IPv6 fc00::/7, fe80::/10 or fec0::/10 (D81, D82). An IPv4-mapped (<c>::ffff:a.b.c.d</c>) or
-    /// IPv4-compatible (<c>::a.b.c.d</c>) IPv6 address is judged by its IPv4 address, which covers <c>::</c> and <c>::1</c>
-    /// (0.0.0.0 and 0.0.0.1). <see cref="Uri"/> has already turned the shorthand IPv4 forms (<c>127.1</c>,
-    /// <c>2130706433</c>, <c>0x7f.1</c>, <c>0</c>) into dotted quads. Any other host type (not a DNS name or an IP address)
-    /// is refused too.
+    /// Judges the host the handler connects to: <see cref="Uri.IdnHost"/>, the IDNA (UTS 46) mapped name that
+    /// <see cref="SocketsHttpHandler"/> resolves and connects to. True for the name <c>localhost</c> or any name ending in
+    /// <c>.localhost</c> (RFC 6761), in any case, with or without the trailing dot; or a literal IP address in IPv4
+    /// 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12 or 192.168.0.0/16, or IPv6 fc00::/7, fe80::/10 or
+    /// fec0::/10 (D81, D82). An IPv4-mapped (<c>::ffff:a.b.c.d</c>) or IPv4-compatible (<c>::a.b.c.d</c>) IPv6 address is
+    /// judged by its IPv4 address, which covers <c>::</c> and <c>::1</c> (0.0.0.0 and 0.0.0.1). <see cref="Uri"/> has
+    /// already turned the shorthand IPv4 forms (<c>127.1</c>, <c>2130706433</c>, <c>0x7f.1</c>, <c>0</c>) into dotted
+    /// quads. A host <see cref="Uri"/> types as a DNS name can still
+    /// map to an address (fullwidth digits, U+3002 or U+FF0E for the dots: <c>１２７.０.０.１</c>, <c>127。0。0。1</c>), which
+    /// the resolver then takes literally, so a mapped name that <see cref="IPAddress.TryParse(string?, out IPAddress?)"/>
+    /// reads as an address (shorthand forms included) is judged as that address. Any other host type (not a DNS name or
+    /// an IP address) is refused too.
     /// </summary>
     private static bool IsRefusedHost(Uri uri)
     {
@@ -142,7 +149,8 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
             case UriHostNameType.Dns:
                 var name = uri.IdnHost.TrimEnd('.');
                 return name.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
+                    || name.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase)
+                    || (IPAddress.TryParse(name, out var mapped) && IsRefusedAddress(mapped));
             case UriHostNameType.IPv4:
             case UriHostNameType.IPv6:
                 return !IPAddress.TryParse(uri.IdnHost, out var address) || IsRefusedAddress(address);
