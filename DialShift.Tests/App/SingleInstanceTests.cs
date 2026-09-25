@@ -40,30 +40,19 @@ public static class SingleInstanceTests
         await SocketModeAsync();
         await ProcessLevelActivationAsync();
         await CrashedPrimaryRecoveryAsync();
-        await KnownDefectsAsync();
+        await ActivationDuringTeardownAsync();
     }
 
-    // ---- known defects (opt-in failing repros) ---------------------------------------------------------------
-
-    /// <summary>Set to <c>1</c> to run the failing repros of open platform defects instead of reporting them as SKIP.</summary>
-    public const string KnownDefectsVariable = "DIALSHIFT_TESTS_KNOWN_DEFECTS";
+    // ---- SI-D1 regression -------------------------------------------------------------------------------------
 
     /// <summary>
-    /// SI-D1: the listener disposes its server (and on Unix the shared listening socket) after every connection and
-    /// binds a new one. A client that connects in between is accepted into the old socket's backlog, then dropped when
-    /// it closes: <c>ActivateExistingAsync</c> returns <c>NoResponse</c> although a primary is running (Unix only; on
-    /// Windows a busy pipe makes the client wait). Expected: every activation that arrives while another connection is
-    /// being handled is served after it.
+    /// SI-D1 (fixed in e3ceaa2): the listener used to dispose its server (and on Unix the shared listening socket) after
+    /// every connection and bind a new one, so a client connecting in between landed in the old socket's backlog and was
+    /// dropped: <c>ActivateExistingAsync</c> returned <c>NoResponse</c> although a primary was running. Every activation
+    /// that arrives while another connection is being torn down must be served.
     /// </summary>
-    private static async Task KnownDefectsAsync()
+    private static async Task ActivationDuringTeardownAsync()
     {
-        const string name = "SI-D1 an activation arriving while the previous connection is torn down is still served";
-        if (Environment.GetEnvironmentVariable(KnownDefectsVariable) != "1")
-        {
-            Skip(name, $"known platform defect SI-D1, fails on macOS; set {KnownDefectsVariable}=1 to run the repro");
-            return;
-        }
-
         using var temp = new TempDirectory("si-d1");
         await using var primary = StartPrimary(temp.Path, new RecordingAppLog(), out var activations);
         await using var client = new SingleInstanceService(PathsFor(temp.Path), new RecordingAppLog());
@@ -74,7 +63,8 @@ public static class SingleInstanceTests
             results.Add(await client.ActivateExistingAsync());      // immediately, as a second launch would
         }
         Console.WriteLine("  SI-D1 results: " + string.Join(", ", results));
-        Check(name, results.All(r => r == SingleInstanceActivationResult.Activated) && await activations.WaitForAsync(5, EventWait));
+        Check("SI-D1 an activation arriving while the previous connection is torn down is still served (5 of 5 Activated)",
+            results.All(r => r == SingleInstanceActivationResult.Activated) && await activations.WaitForAsync(5, EventWait));
     }
 
     // ---- CT-SI-04/06 parser (pure) ---------------------------------------------------------------------------
@@ -171,21 +161,21 @@ public static class SingleInstanceTests
         Check("CT-SI-01 second service with the same data dir gets AlreadyRunning", second.TryStartPrimary() == SingleInstanceStartResult.AlreadyRunning);
         Check("CT-SI-01 single_instance.already_running is logged", log2.HasEvent("single_instance.already_running"));
 
-        Check("CT-SI-02 ActivateExistingAsync is acknowledged (Activated)", await ActivateAsync(second) == SingleInstanceActivationResult.Activated);
+        Check("CT-SI-02 ActivateExistingAsync is acknowledged (Activated)", await second.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
         Check("CT-SI-02 the primary raises ActivationRequested", await activations.WaitForAsync(1, EventWait));
         await Task.Delay(150);
         Check("CT-SI-02 ActivationRequested fires exactly once per activation", activations.Count == 1);
         Check("CT-SI-02 single_instance.activated / activate_sent are logged",
             log1.HasEvent("single_instance.activated") && log2.HasEvent("single_instance.activate_sent"));
 
-        Check("CT-SI-02 the listener re-arms: a second activation is acknowledged", await ActivateAsync(second) == SingleInstanceActivationResult.Activated);
+        Check("CT-SI-02 the listener re-arms: a second activation is acknowledged", await second.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
         Check("CT-SI-02 ... and raises ActivationRequested again", await activations.WaitForAsync(2, EventWait));
 
         first.ActivationRequested += (_, _) => throw new InvalidOperationException("handler boom");
-        Check("CT-SI-02 a throwing ActivationRequested handler does not break the ack", await ActivateAsync(second) == SingleInstanceActivationResult.Activated);
+        Check("CT-SI-02 a throwing ActivationRequested handler does not break the ack", await second.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
         Check("CT-SI-02 ... the handler failure is logged, and the other handler still ran",
             await WaitUntilAsync(() => log1.HasEvent("single_instance.activation_handler_failed"), EventWait) && await activations.WaitForAsync(3, EventWait));
-        Check("CT-SI-02 ... and the listener still serves the next activation", await ActivateAsync(second) == SingleInstanceActivationResult.Activated);
+        Check("CT-SI-02 ... and the listener still serves the next activation", await second.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
 
         using (var cancelled = new CancellationTokenSource())
         {
@@ -367,13 +357,13 @@ public static class SingleInstanceTests
         Check("CT-SI-11 a disposed service refuses TryStartPrimary", Throws<ObjectDisposedException>(() => first.TryStartPrimary()));
 
         await using (var probe = new SingleInstanceService(paths, new RecordingAppLog()))
-            Check("CT-SI-11 after dispose nobody answers: NoResponse", await ActivateAsync(probe) == SingleInstanceActivationResult.NoResponse);
+            Check("CT-SI-11 after dispose nobody answers: NoResponse", await probe.ActivateExistingAsync() == SingleInstanceActivationResult.NoResponse);
         Check("CT-SI-11 a disposed primary never raises ActivationRequested", firstActivations.Count == 0);
 
         await using var second = NewService(temp.Path, new RecordingAppLog(), out var secondActivations);
         Check("CT-SI-11 a new primary starts in the same process and data dir", second.TryStartPrimary() == SingleInstanceStartResult.Primary);
         await using var client = new SingleInstanceService(paths, new RecordingAppLog());
-        Check("CT-SI-11 ... and it answers activation", await ActivateAsync(client) == SingleInstanceActivationResult.Activated && await secondActivations.WaitForAsync(1, EventWait));
+        Check("CT-SI-11 ... and it answers activation", await client.ActivateExistingAsync() == SingleInstanceActivationResult.Activated && await secondActivations.WaitForAsync(1, EventWait));
     }
 
     // ---- stale socket (Unix, brief 1 §7.5) -------------------------------------------------------------------
@@ -401,7 +391,7 @@ public static class SingleInstanceTests
             Check("§8.2.4 ... single_instance.stale_socket is logged", log.HasEvent("single_instance.stale_socket"));
             await using var client = new SingleInstanceService(PathsFor(temp.Path), new RecordingAppLog());
             Check("§8.2.4 ... and activation works over the new socket",
-                await ActivateAsync(client) == SingleInstanceActivationResult.Activated && await activations.WaitForAsync(1, EventWait));
+                await client.ActivateExistingAsync() == SingleInstanceActivationResult.Activated && await activations.WaitForAsync(1, EventWait));
         }
 
         using (var regularFile = new TempDirectory("si-stale-file"))
@@ -442,7 +432,7 @@ public static class SingleInstanceTests
         Check("CT-SI-12 the observed mode is logged once as single_instance.socket", log.Entries.Count(e => e.EventName == "single_instance.socket") == 1);
 
         await using var client = new SingleInstanceService(PathsFor(temp.Path), new RecordingAppLog());
-        Check("CT-SI-12 activation still works with the tightened mode", await ActivateAsync(client) == SingleInstanceActivationResult.Activated);
+        Check("CT-SI-12 activation still works with the tightened mode", await client.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
         Check("CT-SI-12 the re-bound socket is 0600 as well",
             await WaitUntilAsync(() => OperatingSystem.IsMacOS() && File.Exists(socketPath) && File.GetUnixFileMode(socketPath) == owner, TimeSpan.FromSeconds(2)));
         Check("CT-SI-12 single_instance.socket is still logged only once", log.Entries.Count(e => e.EventName == "single_instance.socket") == 1);
@@ -463,7 +453,7 @@ public static class SingleInstanceTests
         Check("CT-SI-03 ... and the first process's ActivationRequested fired (activates, not merely exits)", await activations.WaitForAsync(1, EventWait));
         Check("CT-SI-03 ... single_instance.activated is in the primary's log", log.HasEvent("single_instance.activated"));
         await using (var again = new SingleInstanceService(PathsFor(temp.Path), new RecordingAppLog()))
-            Check("CT-SI-03 the first process remains primary and keeps serving", await ActivateAsync(again) == SingleInstanceActivationResult.Activated);
+            Check("CT-SI-03 the first process remains primary and keeps serving", await again.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
 
         using var noServer = new TempDirectory("si-process-noserver");
         using (new FileStream(PathsFor(noServer.Path).SingleInstanceLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
@@ -543,18 +533,8 @@ public static class SingleInstanceTests
 
     private static async Task<ChildResult> RunChildAsync(string mode, string dataDirectory, TimeSpan timeout)
     {
-        var startInfo = new ProcessStartInfo(DotnetHost())
-        {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        startInfo.ArgumentList.Add(typeof(SingleInstanceTests).Assembly.Location);
-        startInfo.ArgumentList.Add(mode);
-        startInfo.ArgumentList.Add(dataDirectory);
-
         var clock = Stopwatch.StartNew();
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Couldn't start the child process.");
+        using var process = Process.Start(SelfProcess.StartInfo(mode, dataDirectory)) ?? throw new InvalidOperationException("Couldn't start the child process.");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
         using var deadline = new CancellationTokenSource(timeout);
@@ -570,17 +550,6 @@ public static class SingleInstanceTests
         }
         var elapsed = clock.Elapsed;
         return new ChildResult(process.ExitCode, elapsed, (await stdout + await stderr).Replace(Environment.NewLine, " ", StringComparison.Ordinal));
-    }
-
-    /// <summary>The <c>dotnet</c> host that runs this process (never resolved from <c>PATH</c> when it can be found).</summary>
-    private static string DotnetHost()
-    {
-        var current = Environment.ProcessPath;
-        if (current != null && Path.GetFileNameWithoutExtension(current).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) return current;
-        // typeof(object) lives in <root>/shared/Microsoft.NETCore.App/<version>/.
-        var runtimeDirectory = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
-        var host = Path.GetFullPath(Path.Combine(runtimeDirectory, "..", "..", "..", OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet"));
-        return File.Exists(host) ? host : "dotnet";
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------
@@ -618,22 +587,8 @@ public static class SingleInstanceTests
         }
     }
 
-    /// <summary>
-    /// Pause before every new client so the listener has re-armed after the previous connection. Works around known
-    /// defect SI-D1 (see <see cref="KnownDefectsAsync"/>): on Unix a client that connects while the previous connection is
-    /// still being torn down lands in the backlog of the socket about to be closed and is dropped.
-    /// </summary>
-    private static readonly TimeSpan RearmPause = TimeSpan.FromMilliseconds(150);
-
-    private static async Task<SingleInstanceActivationResult> ActivateAsync(ISingleInstanceService service)
-    {
-        await Task.Delay(RearmPause);
-        return await service.ActivateExistingAsync();
-    }
-
     private static async Task<NamedPipeClientStream> ConnectRawAsync(string pipeName)
     {
-        await Task.Delay(RearmPause);
         var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, RawClientOptions);
         await client.ConnectAsync(2000);
         return client;

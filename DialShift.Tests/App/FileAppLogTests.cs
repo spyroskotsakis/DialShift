@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -10,14 +12,15 @@ namespace DialShift.Tests.App;
 
 /// <summary>
 /// <see cref="FileAppLog"/> and <see cref="StreamUrlRedactor"/> (acceptance matrix §7.8 CT-LOG-01..04, §8.2.7, HS-10
-/// startup fields). Every log file lives in its own temp directory.
+/// startup fields). Every log file lives in its own temp directory. The cross-process checks run two child processes of
+/// this test executable (<c>--log-child</c>) against one file.
 /// </summary>
 public static class FileAppLogTests
 {
     private const string SecretUrl = "https://user:pass@radio.example.com:8443/live/stream.mp3?token=abc#x";
     private static readonly string[] SecretParts = ["user", "pass", "token=abc", "/live/stream.mp3", "#x"];
 
-    public static void Run()
+    public static async Task RunAsync()
     {
         UrlRedaction();
         TextRedaction();
@@ -30,6 +33,8 @@ public static class FileAppLogTests
         RotationUnderLoad(temp.Combine("rotate-load"));
         ConcurrentWrites(temp.Combine("concurrent"));
         TwoInstancesShareFile(temp.Combine("two-instances"));
+        await TwoProcessesShareFileAsync(temp.Combine("two-processes"));
+        await TwoProcessesRotateAsync(temp.Combine("two-processes-rotate"));
         NeverThrows(temp);
         Startup(temp.Combine("startup"));
     }
@@ -209,19 +214,11 @@ public static class FileAppLogTests
     }
 
     /// <summary>
-    /// Known defect LOG-D1 (opt-in repro): §8.2.7 says a second-instance process can log to the same file, but each write
-    /// opens with <c>FileMode.Append</c>, which positions at the end once at open time instead of appending atomically
-    /// (no <c>O_APPEND</c>), and the lock is per instance. Two writers therefore overwrite and tear each other's lines.
-    /// Two instances in one process stand in for the primary and a second-instance process.
+    /// LOG-D1 regression (fixed in e3ceaa2), in-process half: two instances on one file share the per-file lock, so no
+    /// line is lost or torn. <see cref="TwoProcessesShareFileAsync"/> covers the real cross-process case.
     /// </summary>
     private static void TwoInstancesShareFile(string directory)
     {
-        const string name = "LOG-D1 two logger instances on one file (primary + second process): no line lost or torn";
-        if (Environment.GetEnvironmentVariable(SingleInstanceTests.KnownDefectsVariable) != "1")
-        {
-            Skip(name, $"known platform defect LOG-D1, fails on macOS; set {SingleInstanceTests.KnownDefectsVariable}=1 to run the repro");
-            return;
-        }
         var path = Path.Combine(directory, "dialshift.log");
         var first = new FileAppLog(path);
         var second = new FileAppLog(path);
@@ -232,7 +229,172 @@ public static class FileAppLogTests
         var lines = File.ReadAllLines(path);
         var valid = lines.Count(l => { try { JsonDocument.Parse(l); return true; } catch (JsonException) { return false; } });
         Console.WriteLine($"  two instances on one file: {lines.Length} lines, {valid} valid of {2 * perInstance}");
-        Check(name, lines.Length == 2 * perInstance && valid == 2 * perInstance);
+        Check("LOG-D1 two logger instances in one process on one file: no line lost or torn", lines.Length == 2 * perInstance && valid == 2 * perInstance);
+    }
+
+    // ---- LOG-D1 / §8.2.7 cross-process -----------------------------------------------------------------------
+
+    private const string ChildEvent = "x.child";
+
+    /// <summary>
+    /// LOG-D1 regression: the primary and a second-instance process log to the same file at once. Two child processes
+    /// each append <c>N</c> lines, released together; below the rotation threshold every line must be kept, whole, and
+    /// in each writer's order.
+    /// </summary>
+    private static async Task TwoProcessesShareFileAsync(string directory)
+    {
+        const int perChild = 2000; // ~100 bytes a line: ~400 KB in total, well below one rotation
+        var path = Path.Combine(directory, "dialshift.log");
+        var children = await RunLogChildrenAsync(path, perChild);
+        Check("LOG-D1 two processes: both --log-child writers exit 0", children.All(c => c.ExitCode == 0));
+        Check("LOG-D1 two processes: precondition: the file did not rotate", !File.Exists(path + ".1"));
+
+        var lines = ReadChildLines(path);
+        var switches = lines.Zip(lines.Skip(1)).Count(pair => pair.First?.Pid != pair.Second?.Pid);
+        Console.WriteLine($"  two processes: {lines.Count} lines of {2 * perChild}, {lines.Count(l => l is null)} invalid, writer switched {switches} times");
+        Check($"LOG-D1 two processes: all {2 * perChild} lines are present and each is one valid JSON object",
+            lines.Count == 2 * perChild && lines.All(l => l is not null));
+        Check("LOG-D1 two processes: the writes really interleaved (the scenario exercised contention)", switches > 1);
+        Check("LOG-D1 two processes: each process's lines are all there, in its own order (0..N-1)",
+            children.All(c => lines.Where(l => l!.Pid == c.Pid).Select(l => l!.Sequence).SequenceEqual(Enumerable.Range(0, perChild))));
+    }
+
+    /// <summary>
+    /// LOG-D1 regression, rotation half: two processes writing past the threshold several times over rotate under the
+    /// cross-process lock, so neither file ever holds more than 1 MiB and the kept lines are the newest of each writer,
+    /// consecutive and whole. The oldest lines are dropped by design (only one rotated file is kept).
+    /// </summary>
+    private static async Task TwoProcessesRotateAsync(string directory)
+    {
+        const int perChild = 15_000; // ~2.6 MB in total: at least two rotations
+        var path = Path.Combine(directory, "dialshift.log");
+        var rotated = path + ".1";
+        var children = await RunLogChildrenAsync(path, perChild);
+        Check("LOG-D1 rotation: both --log-child writers exit 0", children.All(c => c.ExitCode == 0));
+
+        var live = new FileInfo(path).Length;
+        var old = File.Exists(rotated) ? new FileInfo(rotated).Length : -1;
+        var lines = ReadChildLines(path);
+        Console.WriteLine($"  rotation: dialshift.log {live} bytes, dialshift.log.1 {old} bytes, {lines.Count} lines kept of {2 * perChild}");
+        Check("LOG-D1 rotation: precondition: the file rotated at least twice (older lines were dropped)", old > 0 && lines.Count < 2 * perChild);
+        Check("LOG-D1 rotation: dialshift.log is at most 1 MiB", live <= FileAppLog.MaxFileBytes);
+        Check("LOG-D1 rotation: dialshift.log.1 is at most 1 MiB", old <= FileAppLog.MaxFileBytes);
+        Check("LOG-D1 rotation: every kept line is one valid JSON object", lines.All(l => l is not null));
+        Check("LOG-D1 rotation: each process's kept lines (.1, then the live file) are consecutive and end with its newest",
+            children.All(c =>
+            {
+                var sequence = lines.Where(l => l!.Pid == c.Pid).Select(l => l!.Sequence).ToList();
+                return sequence.Count > 0 && sequence[^1] == perChild - 1 && sequence.Zip(sequence.Skip(1)).All(pair => pair.Second == pair.First + 1);
+            }));
+    }
+
+    private sealed record ChildLine(int Pid, int Sequence);
+
+    private sealed record LogChild(int Pid, int ExitCode);
+
+    /// <summary>
+    /// The lines of <c>path.1</c> then <c>path</c>, in file order; null for a line that is not a whole
+    /// <see cref="ChildEvent"/> JSON object with a <c>"&lt;pid&gt; &lt;sequence&gt;"</c> message.
+    /// </summary>
+    private static List<ChildLine?> ReadChildLines(string path)
+    {
+        var rotated = path + ".1";
+        var text = (File.Exists(rotated) ? File.ReadAllLines(rotated) : []).Concat(File.ReadAllLines(path));
+        return text.Select(ParseChildLine).ToList();
+    }
+
+    private static ChildLine? ParseChildLine(string line)
+    {
+        try
+        {
+            var root = JsonDocument.Parse(line).RootElement;
+            if (root.GetProperty("event").GetString() != ChildEvent) return null;
+            var parts = root.GetProperty("msg").GetString()!.Split(' ');
+            return parts.Length == 2 &&
+                   int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var pid) &&
+                   int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var sequence)
+                ? new ChildLine(pid, sequence)
+                : null;
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Starts two <c>--log-child</c> processes, waits until both report <c>ready</c>, then releases them together with
+    /// <c>go</c> on stdin so their writes overlap. A child that does not finish within 60 s is a broken precondition.
+    /// </summary>
+    private static async Task<IReadOnlyList<LogChild>> RunLogChildrenAsync(string logFile, int perChild)
+    {
+        var processes = new List<Process>();
+        try
+        {
+            for (var i = 0; i < 2; i++)
+            {
+                var startInfo = SelfProcess.StartInfo("--log-child", logFile, perChild.ToString(CultureInfo.InvariantCulture));
+                startInfo.RedirectStandardInput = true;
+                processes.Add(Process.Start(startInfo) ?? throw new InvalidOperationException("Couldn't start a --log-child process."));
+            }
+            var stderr = processes.Select(p => p.StandardError.ReadToEndAsync()).ToList();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            try
+            {
+                foreach (var process in processes)
+                {
+                    var ready = await process.StandardOutput.ReadLineAsync(deadline.Token);
+                    if (ready == "ready") continue;
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                    throw new CheckFailedException($"precondition: --log-child {process.Id} printed '{ready}' instead of ready; stderr: {await stderr[processes.IndexOf(process)]}");
+                }
+                foreach (var process in processes) process.StandardInput.Write("go\n");
+                foreach (var process in processes) process.StandardInput.Flush();
+                foreach (var process in processes) await process.WaitForExitAsync(deadline.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new CheckFailedException("precondition: a --log-child process did not finish within 60 s");
+            }
+            for (var i = 0; i < processes.Count; i++)
+            {
+                var error = await stderr[i];
+                if (error.Length > 0) Console.WriteLine($"  --log-child {processes[i].Id} stderr: {error.Trim()}");
+            }
+            return processes.Select(p => new LogChild(p.Id, p.ExitCode)).ToList();
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                process.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Entry point for <c>DialShift.Tests --log-child &lt;absolute log file&gt; &lt;n&gt;</c>: prints <c>ready</c>, waits
+    /// for <c>go</c> on stdin, then appends <c>n</c> info lines <c>"&lt;pid&gt; &lt;sequence&gt;"</c> (sequence 0..n-1)
+    /// with a <see cref="FileAppLog"/>. Exit 0 when done, 64 on bad arguments, 65 when stdin did not say <c>go</c>.
+    /// </summary>
+    public static int RunChild(string[] args)
+    {
+        if (args.Length != 3 || args[0] != "--log-child" || !Path.IsPathFullyQualified(args[1]) ||
+            !int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out var count) || count <= 0)
+        {
+            Console.Error.WriteLine("Usage: DialShift.Tests --log-child <absolute log file> <line count>");
+            return 64;
+        }
+        var log = new FileAppLog(args[1]);
+        var pid = Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
+        Console.WriteLine("ready");
+        Console.Out.Flush();
+        if (Console.In.ReadLine() != "go") return 65;
+        for (var i = 0; i < count; i++)
+            log.Info(ChildEvent, pid + " " + i.ToString(CultureInfo.InvariantCulture));
+        return 0;
     }
 
     // ---- never throws ----------------------------------------------------------------------------------------
