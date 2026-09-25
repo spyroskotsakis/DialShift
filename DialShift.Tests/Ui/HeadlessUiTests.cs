@@ -178,7 +178,8 @@ public static class HeadlessUiTests
         _ = rig.ViewModel.Schedule.Slots[0].EditCommand.ExecuteAsync();
         var slot = await WaitForWindowAsync<ScheduleEditorDialog>(count);
         Layout(slot);
-        var slotClipped = ClippedTexts(slot);
+        // The name cannot fit the fixed-width dialog: trimmed with an ellipsis is the expected outcome, anything else is not.
+        var slotClipped = ClippedTexts(slot).Where(t => !(t.StartsWith("\"Radio WWW", StringComparison.Ordinal) && t.Contains("(trimmed)", StringComparison.Ordinal))).ToList();
         Console.WriteLine("  slot editor: " + string.Join("; ", slotClipped));
         Console.WriteLine("  PNG: " + Screenshot(slot, "ui-d1-slot-editor"));
         Check("UI-D1 the slot editor's station picker trims a long station name with an ellipsis instead of cutting it", slotClipped.Count == 0);

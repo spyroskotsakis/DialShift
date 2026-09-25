@@ -7,7 +7,7 @@
     <Style Selector="TextBlock.slotTime">
       <Setter Property="FontSize" Value="24" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Width" Value="100" />
+      <Setter Property="MinWidth" Value="100" />
       <Setter Property="Margin" Value="0,0,24,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{StaticResource DsSubtleBrush}" />
@@ -19,7 +19,7 @@
 
   <StackPanel>
     <DockPanel Margin="0,0,0,12">
-      <Button DockPanel.Dock="Right" Classes="accent" Content="+  Add time slot" Command="{Binding AddCommand}" />
+      <Button DockPanel.Dock="Right" Classes="accent" MinWidth="160" Content="+  Add time slot" Command="{Binding AddCommand}" />
       <CheckBox Content="Follow my schedule" IsChecked="{Binding IsScheduleEnabled}" VerticalAlignment="Center" />
     </DockPanel>
 
@@ -33,7 +33,7 @@
         <DataTemplate x:DataType="vm:DayTabViewModel">
           <Button Classes="tab" Classes.selected="{Binding IsSelected}"
                   Content="{Binding Label}" Command="{Binding SelectCommand}"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="4,0"
+                  HorizontalAlignment="Stretch" Margin="4,0"
                   AutomationProperties.Name="{Binding AutomationName}" />
         </DataTemplate>
       </ItemsControl.ItemTemplate>
@@ -44,7 +44,7 @@
         <DataTemplate x:DataType="vm:SlotRowViewModel">
           <Border Classes="card">
             <DockPanel>
-              <Button DockPanel.Dock="Right" Content="Edit" Command="{Binding EditCommand}"
+              <Button DockPanel.Dock="Right" MinWidth="72" Content="Edit" Command="{Binding EditCommand}"
                       AutomationProperties.Name="{Binding EditAutomationName}" />
               <TextBlock DockPanel.Dock="Left" Classes="slotTime" Classes.on="{Binding IsEnabled}" Text="{Binding Time}" />
               <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">

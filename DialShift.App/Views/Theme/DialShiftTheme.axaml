@@ -193,17 +193,29 @@
     <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
   </Style>
 
-  <!-- Buttons -->
+  <!--
+    Buttons. The label box stretches to the button and centers the text, so a button's MinWidth is headroom for its label:
+    each text-bearing button sets a MinWidth that leaves at least 15% of the label's width free, which absorbs wider
+    platform fonts (Segoe UI) and fallback glyphs (▶ ↘ ↗) without clipping. A button that is squeezed anyway ends its
+    label with an ellipsis instead of cutting a glyph.
+  -->
   <Style Selector="Button">
     <Setter Property="CornerRadius" Value="8"/>
     <Setter Property="Padding" Value="16,10"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
     <Setter Property="VerticalAlignment" Value="Center"/>
-    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="TextBlock.TextAlignment" Value="Center"/>
+    <Setter Property="TextBlock.TextTrimming" Value="CharacterEllipsis"/>
   </Style>
 
   <Style Selector="Button.accent">
     <Setter Property="Background" Value="{StaticResource DsAccentBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
+  </Style>
+  <!-- Fluent's own "accent" class paints the presenter's text white; keep the dark ink on the lime fill (a disabled
+       accent button keeps Fluent's disabled colors). -->
+  <Style Selector="Button.accent:not(:disabled) /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Foreground" Value="{StaticResource DsAccentInkBrush}"/>
   </Style>
   <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
@@ -253,6 +265,10 @@
     <Setter Property="FontSize" Value="14"/>
     <Setter Property="MinHeight" Value="36"/>
     <Setter Property="CornerRadius" Value="6"/>
+  </Style>
+  <!-- The drop-down is exactly as wide as its picker (Fluent sets only the minimum), so long names trim there too. -->
+  <Style Selector="ComboBox /template/ Popup#PART_Popup">
+    <Setter Property="MaxWidth" Value="{Binding $parent[ComboBox].Bounds.Width}"/>
   </Style>
   <Style Selector="CheckBox">
     <Setter Property="Foreground" Value="{StaticResource DsTextBrush}"/>

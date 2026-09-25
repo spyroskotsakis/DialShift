@@ -24,7 +24,13 @@
         <TextBlock Classes="secondary" Text="{Binding FallbackHelp}" Margin="0,7,0,10" />
         <ComboBox ItemsSource="{Binding FallbackOptions}" SelectedItem="{Binding SelectedFallback}"
                   MinWidth="280" MaxWidth="380" HorizontalAlignment="Left"
-                  AutomationProperties.Name="Fallback station" />
+                  AutomationProperties.Name="Fallback station">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:FallbackOption">
+              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
       </StackPanel>
     </Border>
 
@@ -32,7 +38,7 @@
       <StackPanel>
         <TextBlock Text="{Binding VersionText}" FontSize="16" FontWeight="SemiBold" />
         <TextBlock Classes="secondary" FontSize="13" Text="{Binding Tagline}" Margin="0,6,0,14" />
-        <Button Content="Open settings folder ↗" Command="{Binding OpenSettingsFolderCommand}" HorizontalAlignment="Left" />
+        <Button MinWidth="216" Content="Open settings folder ↗" Command="{Binding OpenSettingsFolderCommand}" HorizontalAlignment="Left" />
       </StackPanel>
     </Border>
   </StackPanel>

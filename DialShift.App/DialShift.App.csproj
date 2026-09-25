@@ -39,6 +39,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Test seam: the headless suites drive App.Run, StartupFailure and App.Tray directly instead of through reflection. -->
+    <InternalsVisibleTo Include="DialShift.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 </Project>

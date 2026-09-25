@@ -13,11 +13,11 @@
     </StackPanel>
 
     <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0" LastChildFill="False">
-      <Button DockPanel.Dock="Left" Classes="danger" Content="{Binding DeleteLabel}"
+      <Button DockPanel.Dock="Left" Classes="danger" MinWidth="144" Content="{Binding DeleteLabel}"
               Command="{Binding DeleteCommand}" IsVisible="{Binding CanDelete}" />
       <Button DockPanel.Dock="Right" Classes="accent" Content="Save" IsDefault="True" MinWidth="88"
               Command="{Binding SaveCommand}" />
-      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Margin="0,0,8,0"
+      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" MinWidth="88" Margin="0,0,8,0"
               Command="{Binding CancelCommand}" />
     </DockPanel>
 

@@ -52,6 +52,12 @@ public partial class App : Application, IAppShell
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     /// <summary>
+    /// The tray created once during startup; null until then, and in hosts that never call <see cref="Run"/>. Test seam:
+    /// lets the headless suites assert tray-menu identity on the app's own tray.
+    /// </summary>
+    internal TrayMenuController? Tray => tray;
+
+    /// <summary>
     /// Takes over the app from <see cref="Program.Main"/>. Called once, on the UI thread, from the desktop lifetime's
     /// <c>Startup</c> event, which fires before its message loop starts. Hosts that never call it (the XAML previewer,
     /// headless tests) get the theme and styles only.

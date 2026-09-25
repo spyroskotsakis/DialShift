@@ -5,7 +5,7 @@
              x:DataType="vm:StationsPageViewModel">
   <StackPanel>
     <DockPanel Margin="0,0,0,14">
-      <Button DockPanel.Dock="Right" Classes="accent" Content="+  Add station" Command="{Binding AddCommand}" />
+      <Button DockPanel.Dock="Right" Classes="accent" MinWidth="160" Content="+  Add station" Command="{Binding AddCommand}" />
       <TextBlock Classes="eyebrow" Text="{Binding CountText}" VerticalAlignment="Center" />
     </DockPanel>
 
@@ -22,9 +22,9 @@
                 <TextBlock Classes="secondary" Text="{Binding Subtitle}" Margin="0,4,0,0" />
               </StackPanel>
               <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="▶  Listen" Command="{Binding ListenCommand}"
+                <Button MinWidth="108" Content="▶  Listen" Command="{Binding ListenCommand}"
                         AutomationProperties.Name="{Binding ListenAutomationName}" />
-                <Button Content="Edit" Command="{Binding EditCommand}"
+                <Button MinWidth="72" Content="Edit" Command="{Binding EditCommand}"
                         AutomationProperties.Name="{Binding EditAutomationName}" />
               </StackPanel>
             </Grid>

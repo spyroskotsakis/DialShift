@@ -24,7 +24,7 @@
 
     <!-- Header: brand + hide to tray -->
     <DockPanel Margin="0,0,0,20">
-      <Button DockPanel.Dock="Right"
+      <Button DockPanel.Dock="Right" MinWidth="152"
               Content="{Binding TrayButtonLabel}"
               Command="{Binding HideToTrayCommand}"
               AutomationProperties.Name="Hide to tray"
@@ -41,16 +41,17 @@
     <Border Grid.Row="1" Classes="card" Background="{StaticResource DsPlayerCardBrush}" Padding="26,20" Margin="0">
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel VerticalAlignment="Center">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Ellipse Classes="statusDot"
+          <!-- A DockPanel, not a horizontal StackPanel, so a long status is bounded by the card and trims. -->
+          <DockPanel>
+            <Ellipse DockPanel.Dock="Left" Classes="statusDot"
                      Classes.live="{Binding IsLive}"
                      Classes.busy="{Binding IsBusy}"
                      Classes.problem="{Binding IsProblem}"
-                     VerticalAlignment="Center" />
+                     Margin="0,0,8,0" VerticalAlignment="Center" />
             <TextBlock Classes="status" Classes.problem="{Binding IsProblem}"
                        Text="{Binding StatusText}" TextTrimming="CharacterEllipsis"
-                       VerticalAlignment="Center" />
-          </StackPanel>
+                       Margin="0,0,12,0" VerticalAlignment="Center" />
+          </DockPanel>
           <TextBlock Text="{Binding StationTitle}" FontSize="30" FontWeight="SemiBold"
                      Margin="0,10,12,6" TextTrimming="CharacterEllipsis" />
           <TextBlock Text="{Binding TrackText}" FontSize="14" Foreground="{StaticResource DsMutedBrush}"
@@ -60,7 +61,7 @@
                     Content="{Binding PlayPauseLabel}"
                     Command="{Binding TogglePlayCommand}"
                     AutomationProperties.Name="{Binding PlayPauseAutomationName}" />
-            <Button Content="{x:Static vm:UiText.SkipLabel}"
+            <Button MinWidth="96" Content="{x:Static vm:UiText.SkipLabel}"
                     Command="{Binding NextStationCommand}"
                     AutomationProperties.Name="Next station" />
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0" Spacing="8">
@@ -89,9 +90,9 @@
 
     <!-- Tabs -->
     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,18,0,14">
-      <Button Classes="tab" Classes.selected="{Binding IsStationsSelected}" Content="Stations" Command="{Binding ShowStationsCommand}" />
-      <Button Classes="tab" Classes.selected="{Binding IsScheduleSelected}" Content="Schedule" Command="{Binding ShowScheduleCommand}" />
-      <Button Classes="tab" Classes.selected="{Binding IsSettingsSelected}" Content="Settings" Command="{Binding ShowSettingsCommand}" />
+      <Button Classes="tab" MinWidth="112" Classes.selected="{Binding IsStationsSelected}" Content="Stations" Command="{Binding ShowStationsCommand}" />
+      <Button Classes="tab" MinWidth="112" Classes.selected="{Binding IsScheduleSelected}" Content="Schedule" Command="{Binding ShowScheduleCommand}" />
+      <Button Classes="tab" MinWidth="112" Classes.selected="{Binding IsSettingsSelected}" Content="Settings" Command="{Binding ShowSettingsCommand}" />
     </StackPanel>
 
     <!-- Page: the heading scrolls with the content so a compact window keeps room for it. -->

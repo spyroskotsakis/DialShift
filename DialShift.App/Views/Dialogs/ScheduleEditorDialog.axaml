@@ -14,11 +14,11 @@
     </StackPanel>
 
     <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0" LastChildFill="False">
-      <Button DockPanel.Dock="Left" Classes="danger" Content="{Binding DeleteLabel}"
+      <Button DockPanel.Dock="Left" Classes="danger" MinWidth="144" Content="{Binding DeleteLabel}"
               Command="{Binding DeleteCommand}" IsVisible="{Binding CanDelete}" />
       <Button DockPanel.Dock="Right" Classes="accent" Content="Save" IsDefault="True" MinWidth="88"
               Command="{Binding SaveCommand}" />
-      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Margin="0,0,8,0"
+      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" MinWidth="88" Margin="0,0,8,0"
               Command="{Binding CancelCommand}" />
     </DockPanel>
 
@@ -35,7 +35,7 @@
                 AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.StationAutomationName}">
         <ComboBox.ItemTemplate>
           <DataTemplate x:DataType="core:Station">
-            <TextBlock Text="{Binding Name}" />
+            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
           </DataTemplate>
         </ComboBox.ItemTemplate>
       </ComboBox>
@@ -58,9 +58,9 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
       <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,10">
-        <Button Content="Weekdays" Command="{Binding WeekdaysCommand}" Padding="12,6" />
-        <Button Content="Weekend" Command="{Binding WeekendCommand}" Padding="12,6" />
-        <Button Content="Every day" Command="{Binding EveryDayCommand}" Padding="12,6" />
+        <Button Content="Weekdays" Command="{Binding WeekdaysCommand}" Padding="12,6" MinWidth="108" />
+        <Button Content="Weekend" Command="{Binding WeekendCommand}" Padding="12,6" MinWidth="108" />
+        <Button Content="Every day" Command="{Binding EveryDayCommand}" Padding="12,6" MinWidth="108" />
       </StackPanel>
 
       <CheckBox Content="Enable this time slot" IsChecked="{Binding Enabled}" />

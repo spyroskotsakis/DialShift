@@ -26,7 +26,13 @@ namespace DialShift.App;
 /// </remarks>
 public static class AppComposition
 {
-    public static ServiceProvider BuildServiceProvider(AppPaths paths)
+    /// <param name="paths">The resolved data, log and settings locations.</param>
+    /// <param name="configure">
+    /// Test seam: runs after the app's own registrations and before the provider is built and validated, so a test can replace
+    /// services (a later registration wins for single resolution) while keeping the real graph. <see cref="Program.Main"/>
+    /// passes nothing.
+    /// </param>
+    public static ServiceProvider BuildServiceProvider(AppPaths paths, Action<IServiceCollection>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
         var services = new ServiceCollection();
@@ -73,6 +79,7 @@ public static class AppComposition
             TimeZoneInfo.Local,
             new AppInfo(typeof(AppComposition).Assembly.GetName().Version?.ToString(3) ?? "unknown", paths.DataDirectory)));
 
+        configure?.Invoke(services);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
     }
 
