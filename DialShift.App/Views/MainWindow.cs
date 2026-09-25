@@ -6,9 +6,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
+using DialShift.App.Views.Dialogs;
 using DialShift.Core;
 
-namespace DialShift;
+namespace DialShift.App.Views;
 
 public sealed class MainWindow : Window
 {
@@ -213,7 +214,7 @@ public sealed class MainWindow : Window
         foreach (var station in app.Settings.Stations) fallback.Items.Add(station);
         fallback.SelectedItem = fallback.Items.Cast<Station>().FirstOrDefault(s => s.Id == app.Settings.FallbackStationId) ?? fallback.Items[0];
         fallback.SelectionChanged += (_, _) => { app.Settings.FallbackStationId = fallback.SelectedItem is Station s && s.Id != Guid.Empty ? s.Id : null; app.Save(); }; recovery.Children.Add(fallback); page.Children.Add(Card(recovery));
-        var about = new StackPanel(); about.Children.Add(Text("DialShift  /  0.1.0", 16, true));
+        var about = new StackPanel(); about.Children.Add(Text($"DialShift  /  {typeof(App).Assembly.GetName().Version?.ToString(3)}", 16, true));
         about.Children.Add(Text("Your stations. Your schedule. Stored on this computer.", 13, false, "#9BB0B2", new Thickness(0, 6, 0, 14)));
         about.Children.Add(Button("Open settings folder ↗", () => Process.Start(new ProcessStartInfo("open", app.Store.DirectoryPath) { UseShellExecute = true })));
         page.Children.Add(Card(about));

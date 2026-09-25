@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
-# Builds the macOS (Avalonia) port of DialShift into dist/DialShift.app.
-# Requires: .NET 10 SDK (on PATH), and Rosetta 2 for the x86_64-only libvlc.dylib.
+# Builds the native Apple Silicon (osx-arm64) DialShift.App into dist/DialShift.app (decision D2).
+# The bundle carries no VLC libraries: macOS playback uses AVPlayer (engine pending).
+# Requires: .NET 10 SDK (on PATH).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export PATH="$HOME/.dotnet:$PATH"
 
-echo "== Publishing self-contained osx-x64 build =="
-dotnet publish DialShift.App/DialShift.App.csproj -c Release -r osx-x64 --self-contained -o publish/osx-x64
+echo "== Publishing self-contained osx-arm64 build =="
+rm -rf publish/osx-arm64
+dotnet publish DialShift.App/DialShift.App.csproj -c Release -r osx-arm64 --self-contained -o publish/osx-arm64
 
 APP="dist/DialShift.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp -R publish/osx-x64/. "$APP/Contents/MacOS/"
+cp -R publish/osx-arm64/. "$APP/Contents/MacOS/"
+
+# LibVLCSharp.dll (managed, compile-time reference) is expected; VLC native libraries and plugins are not.
+if find "$APP" \( -name 'libvlc*' -o -name 'vlc' -type d \) | grep -q .; then
+    echo "error: VLC native libraries found in $APP; the macOS bundle must not ship VLC." >&2
+    exit 1
+fi
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -26,9 +34,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.tsiger.dialshift</string>
     <key>CFBundleVersion</key>
-    <string>0.1.0</string>
+    <string>0.3.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.3.0</string>
     <key>CFBundleExecutable</key>
     <string>DialShift</string>
     <key>CFBundlePackageType</key>
@@ -44,4 +52,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 EOF
 
 chmod +x "$APP/Contents/MacOS/DialShift"
+
+if [ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$APP/Contents/Info.plist")" != "true" ]; then
+    echo "error: Info.plist must set LSUIElement=true (menu-bar app, no Dock icon)." >&2
+    exit 1
+fi
 echo "== Built $APP =="

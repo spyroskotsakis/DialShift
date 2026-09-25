@@ -1,3 +1,4 @@
+// Temporary: deleted once PlaybackCoordinator + IPlaybackEngine are wired in (wave 2).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -7,7 +8,7 @@ using Avalonia.Threading;
 using DialShift.Core;
 using LibVLCSharp.Shared;
 
-namespace DialShift;
+namespace DialShift.App.Services;
 
 public sealed class RadioController : IDisposable
 {

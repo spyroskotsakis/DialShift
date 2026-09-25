@@ -4,6 +4,7 @@
 artifacts/
 *.user
 .vs/
+.DS_Store
 # macOS build output (the assembled .app and publish artifacts)
 dist/
 publish/
@@ -18,6 +19,7 @@ data/.venv/
 __pycache__/
 *.pyc
 
-# Claude Code local/personal overrides (never committed)
+# Claude Code local/personal overrides and agent worktrees (never committed)
+.claude/worktrees/
 .claude/settings.local.json
 CLAUDE.local.md

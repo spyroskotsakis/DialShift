@@ -11,9 +11,12 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using DialShift.App.Services;
+using DialShift.App.Views;
+using DialShift.App.Views.Dialogs;
 using DialShift.Core;
 
-namespace DialShift;
+namespace DialShift.App;
 
 public partial class App : Application
 {
@@ -30,8 +33,8 @@ public partial class App : Application
     private bool exiting;
     public static string[] StartupArgs = [];
 
-    public static string DataDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DialShift");
+    /// <summary>Resolved once in <see cref="Program.Main"/> before anything touches the data directory.</summary>
+    public static AppPaths Paths { get; internal set; } = null!;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -41,7 +44,7 @@ public partial class App : Application
         {
             desktop = desktopLifetime;
             desktopLifetime.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            Store = new SettingsStore(DataDirectory);
+            Store = new SettingsStore(Paths.DataDirectory);
             Settings = Store.Load();
             Radio = new RadioController(Settings);
             MainWindow = new MainWindow(this);
@@ -63,8 +66,8 @@ public partial class App : Application
     {
         try
         {
-            Directory.CreateDirectory(DataDirectory);
-            _lock = new FileStream(Path.Combine(DataDirectory, ".single-instance.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            Directory.CreateDirectory(Paths.DataDirectory);
+            _lock = new FileStream(Paths.SingleInstanceLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             return true;
         }
         catch (IOException)
@@ -155,7 +158,7 @@ public partial class App : Application
 
         var schedule = new NativeMenuItem("Follow schedule")
         {
-            ToggleType = NativeMenuItemToggleType.CheckBox,
+            ToggleType = MenuItemToggleType.CheckBox,
             IsChecked = Settings.ScheduleEnabled,
             Command = new Command(() => { Settings.ScheduleEnabled = !Settings.ScheduleEnabled; Radio.RefreshSchedule(); Refresh(); })
         };
@@ -231,8 +234,8 @@ public partial class App : Application
     {
         try
         {
-            Directory.CreateDirectory(DataDirectory);
-            File.AppendAllText(Path.Combine(DataDirectory, "dialshift.log"), $"{DateTime.Now:O} {ex}\n");
+            Directory.CreateDirectory(Paths.DataDirectory);
+            File.AppendAllText(Paths.LogFile, $"{DateTime.Now:O} {ex}\n");
         }
         catch { }
     }
