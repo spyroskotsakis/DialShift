@@ -357,40 +357,44 @@ internal sealed class MacPowerEvents : ISystemPowerEvents
 
 ## Media compatibility corpus (§11)
 
-Legally testable public streams, listened to briefly as an ordinary client, plus local transport cases (`corpus/server.py`, 127.0.0.1:8765). The AVPlayer column is the spike on macOS 26.5.2 arm64 (console binary unless marked `.app`). LibVLC is **Windows CI/native pending** in every row.
+Legally testable public streams, listened to briefly as an ordinary client, plus local transport cases (`corpus/server.py`, 127.0.0.1:8765). The AVPlayer column is the spike on macOS 26.5.2 arm64 (console binary unless marked `.app`). LibVLC on Windows is **CI/native pending** in every row.
 
-| ID | URL | Format | Transport case | AVPlayer (macOS 26.5, arm64) | LibVLC (Windows) |
-|---|---|---|---|---|---|
-| C1 | `https://ice1.somafm.com/groovesalad-128-mp3` | MP3 | HTTPS Icecast | Plays (0.5–2.7 s to Playing) | Windows CI/native pending |
-| C2 | `https://ice5.somafm.com/groovesalad-128-aac` | AAC (ADTS) | HTTPS Icecast | Plays | Windows CI/native pending |
-| C3 | `https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/ak/bbc_world_service.m3u8` | HLS AAC | HTTPS, HTTP/2 | Plays (starts at live edge) | Windows CI/native pending |
-| C4 | `https://stream.radiofrance.fr/franceinterlamusiqueinter/franceinterlamusiqueinter_hifi.m3u8?id=radiofrance` | HLS AAC | HTTPS + query | Plays | Windows CI/native pending |
-| C5 | `https://stream.radios.bzh/hls/boa/aac_hifi.m3u8` | HLS AAC | HTTPS | Plays | Windows CI/native pending |
-| C6 | `http://radiorecord.hostingradio.ru/deep96.aacp` | HE-AAC | cleartext HTTP | Plays (console). `.app` without ATS key: TlsFailure (`-1022`) in 0.1 s. With `NSAllowsArbitraryLoadsForMedia`: plays | Windows CI/native pending |
-| C7 | `https://icecast.radiofrance.fr/fip-hifi.aac` | AAC | HTTPS, HTTP/2 Icecast | Plays (4.7–5.4 s) | Windows CI/native pending |
-| C8 | `http://stream.power-radio.de:8020/listen.pls` | MP3 served at a `.pls` path | cleartext, extension mismatch | **Fails** after 10–11 s: `CoreMediaErrorDomain -12646` → UnsupportedFormat. Same server at `/;` plays | Windows CI/native pending |
-| C9 | `http://france16.coollabel-productions.com:8276/;` | MP3 (Shoutcast v2 `/;`) | cleartext | Plays | Windows CI/native pending |
-| C10 | `https://radio.ekodesgarrigues.com/eko-des-garrigues-256k.ogg` | Ogg Vorbis | HTTPS | Plays (macOS 26.5; verify on the minimum OS) | Windows CI/native pending |
-| C11 | `https://st02.sslstream.dlf.de/dlf/02/low/opus/stream.opus?aggregator=web` | Opus | HTTPS 302 → token URL | Plays (macOS 26.5; verify on the minimum OS) | Windows CI/native pending |
-| C12 | `https://onair.net-radio.fr/frequence3dance.flac` | FLAC in Ogg | HTTPS | Plays (macOS 26.5; verify on the minimum OS) | Windows CI/native pending |
-| C13 | `https://streams.br.de/br-klassik_3.m3u` | M3U playlist file | HTTPS | Plays | Windows CI/native pending |
-| C14 | `https://somafm.com/groovesalad.pls` | PLS playlist file | HTTPS | Plays | Windows CI/native pending |
-| C15 | `https://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3?aggregator=web` | MP3 | HTTPS 302 with token | Plays | Windows CI/native pending |
-| T1 | `http://127.0.0.1:1/unavailable` | n/a | connection refused | Failed 0.10 s → NetworkUnavailable | Windows CI/native pending |
-| T2 | `https://stream.nonexistent.invalid/radio.mp3` | n/a | DNS failure | Failed 0.1–0.4 s → NetworkUnavailable | Windows CI/native pending |
-| T3 | `https://ice5.somafm.com/does-not-exist-xyz` | n/a | HTTP 404 | Failed 0.9–1.3 s → HttpError | Windows CI/native pending |
-| T4 | local `/403`, `/500`; HLS playlist 404 | n/a | HTTP 403/500/404 | 0.1–0.4 s → HttpError | Windows CI/native pending |
-| T5 | `https://expired.badssl.com/`, `self-signed.`, `wrong.host.`, `untrusted-root.` | n/a | TLS certificate failures | 0.7–4.9 s → TlsFailure (`-1202`) | Windows CI/native pending |
-| T6 | local `/redirect-https` (302 → C2); `http://st01.dlf.de/dlf/01/128/mp3/stream.mp3` (302 http→http) | AAC / MP3 | redirects | Plays | Windows CI/native pending |
-| T7 | local `/redirect-loop` | n/a | redirect loop | 0.1 s → HttpError (`-1007`) | Windows CI/native pending |
-| T8 | local `/auth/stream.mp3` without and with `user:pass@` | MP3 | HTTP Basic auth | Without: 0.1 s → HttpError (401). With userinfo: plays | Windows CI/native pending |
-| T9 | local `/captive/stream.mp3` (HTTP/1.0 `200 text/html`); `https://example.com/` | HTML | captive-portal style | HTTP/1.0: **no error in 30 s** (watchdog → Stalled). HTTPS HTML: 0.3–0.7 s → UnsupportedFormat | Windows CI/native pending |
-| T10 | local `/garbage.mp3` | random bytes | undecodable | 16 s → Unknown (`CoreMedia -16830`) | Windows CI/native pending |
-| T11 | local `/icy.mp3` | MP3 | Shoutcast v1 `ICY 200 OK` | Plays | Windows CI/native pending |
-| T12 | local `/eos.mp3` | MP3 | server closes (EOS) | `DidPlayToEndTime` (main thread) → EndOfStream | Windows CI/native pending |
-| T13 | local `/stall.mp3` | MP3 | server stops sending, keeps socket | `PlaybackStalled` (main thread), Waiting forever → Buffering, then coordinator watchdog | Windows CI/native pending |
-| T14 | local `/hang` | n/a | accepts, never answers | No error in 45 s → coordinator watchdog | Windows CI/native pending |
-| T15 | `"not a url"`, `"http://"`, `"ht tp://…"`, `ftp://…`, `file:///…`, `""` | n/a | malformed URL | Managed `Uri` validation → InvalidUrl in ≤1 ms (raw to NSURL: nil or `-1002`) | Windows CI/native pending |
-| T16 | any `http://` inside a `.app` without the ATS key | any | ATS | 0.1 s → TlsFailure (`-1022`) | n/a (LibVLC does not use ATS) |
+The **Adapter (production)** column is the integrated result: the production `MacAvPlayerPlaybackEngine` ("AV", osx-arm64) and `LibVlcPlaybackEngine` ("VLC†") sources, each driven through the real `PlaybackCoordinator` with 1 Hz ticks by out-of-repo harnesses (session scratchpad: `engine-harness/`, `vlc-harness/`, shared `Corpus.cs`; logs `out-corpus*.txt`, `out-final.txt`). Times are from PlayAsync to coordinator Playing or Failed; kinds are the `kind=` of the coordinator's `playback.failed` log line. Across both runs, 0 of 274 log lines contained credentials, query strings or stream paths.
+
+† VLC = the production `LibVlcPlaybackEngine` against the x86_64 macOS LibVLC 3.0.4 build (`VideoLAN.LibVLC.Mac` 3.1.3.1) under Rosetta. This validates the adapter's event mapping and failure normalization against real LibVLC 3. It does not replace the Windows run with `VideoLAN.LibVLC.Windows` 3.0.23.1. Under Rosetta, rapid player churn sometimes killed the process with SIGILL inside LibVLC: in 4 of 7 adapter stress runs of 160 rapid switches, and in 2 of 5 full functional runs. The same crash reproduced without the adapter, using the legacy `RadioController` pattern alone (1 of 4 runs of 160 switches), so it is environmental. The Windows CI must still stress rapid switching.
+
+| ID | URL | Format | Transport case | AVPlayer spike (macOS 26.5, arm64) | Adapter (production) | LibVLC (Windows) |
+|---|---|---|---|---|---|---|
+| C1 | `https://ice1.somafm.com/groovesalad-128-mp3` | MP3 | HTTPS Icecast | Plays (0.5–2.7 s to Playing) | AV: plays, 3.6 s to coordinator Playing (1.6–1.8 s in the functional suite, CoreAudio output running) · VLC†: plays, 5.9 s (1.2–1.6 s in the functional suite) | Windows CI/native pending |
+| C2 | `https://ice5.somafm.com/groovesalad-128-aac` | AAC (ADTS) | HTTPS Icecast | Plays | AV: plays, 1.8 s · VLC†: plays, 2.2 s | Windows CI/native pending |
+| C3 | `https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/ak/bbc_world_service.m3u8` | HLS AAC | HTTPS, HTTP/2 | Plays (starts at live edge) | AV: plays, 0.5 s · VLC†: plays, 0.4 s | Windows CI/native pending |
+| C4 | `https://stream.radiofrance.fr/franceinterlamusiqueinter/franceinterlamusiqueinter_hifi.m3u8?id=radiofrance` | HLS AAC | HTTPS + query | Plays | AV: plays, 0.6 s · VLC†: plays, 1.5 s | Windows CI/native pending |
+| C5 | `https://stream.radios.bzh/hls/boa/aac_hifi.m3u8` | HLS AAC | HTTPS | Plays | AV: plays, 0.5 s · VLC†: plays, 3.0 s | Windows CI/native pending |
+| C6 | `http://radiorecord.hostingradio.ru/deep96.aacp` | HE-AAC | cleartext HTTP | Plays (console). `.app` without ATS key: TlsFailure (`-1022`) in 0.1 s. With `NSAllowsArbitraryLoadsForMedia`: plays | AV: plays, 1.1 s (console binary) · VLC†: plays, 2.2 s | Windows CI/native pending |
+| C7 | `https://icecast.radiofrance.fr/fip-hifi.aac` | AAC | HTTPS, HTTP/2 Icecast | Plays (4.7–5.4 s) | AV: plays, 3.6 s · VLC†: plays, 1.2 s | Windows CI/native pending |
+| C8 | `http://stream.power-radio.de:8020/listen.pls` | MP3 served at a `.pls` path | cleartext, extension mismatch | **Fails** after 10–11 s: `CoreMediaErrorDomain -12646` → UnsupportedFormat. Same server at `/;` plays | AV: UnsupportedFormat after 10.6 s (`CoreMedia -12646`) · VLC†: also parses the MP3 body as a PLS file; no native error, so the coordinator watchdog fails it (Stalled after 25 s). Catalog fix, as in finding 4 | Windows CI/native pending |
+| C9 | `http://france16.coollabel-productions.com:8276/;` | MP3 (Shoutcast v2 `/;`) | cleartext | Plays | AV: plays, 1.6 s · VLC†: plays, 1.0 s | Windows CI/native pending |
+| C10 | `https://radio.ekodesgarrigues.com/eko-des-garrigues-256k.ogg` | Ogg Vorbis | HTTPS | Plays (macOS 26.5; verify on the minimum OS) | AV: plays, 6.6 s · VLC†: plays, 1.6 s | Windows CI/native pending |
+| C11 | `https://st02.sslstream.dlf.de/dlf/02/low/opus/stream.opus?aggregator=web` | Opus | HTTPS 302 → token URL | Plays (macOS 26.5; verify on the minimum OS) | AV: plays, 2.9 s · VLC†: plays, 1.1 s | Windows CI/native pending |
+| C12 | `https://onair.net-radio.fr/frequence3dance.flac` | FLAC in Ogg | HTTPS | Plays (macOS 26.5; verify on the minimum OS) | AV: plays, 2.6 s · VLC†: plays, 1.6 s | Windows CI/native pending |
+| C13 | `https://streams.br.de/br-klassik_3.m3u` | M3U playlist file | HTTPS | Plays | AV: plays, 3.3 s · VLC†: plays, 3.2 s (the adapter plays the first playlist entry; before that fix it failed as UnsupportedFormat) | Windows CI/native pending |
+| C14 | `https://somafm.com/groovesalad.pls` | PLS playlist file | HTTPS | Plays | AV: plays, 2.3 s · VLC†: plays, 4.5 s (first playlist entry) | Windows CI/native pending |
+| C15 | `https://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3?aggregator=web` | MP3 | HTTPS 302 with token | Plays | AV: plays, 0.5 s · VLC†: plays, 0.5 s | Windows CI/native pending |
+| T1 | `http://127.0.0.1:1/unavailable` | n/a | connection refused | Failed 0.10 s → NetworkUnavailable | AV: NetworkUnavailable, 0.3 s · VLC†: NetworkUnavailable, 0.3–0.9 s ("connection refused" / "cannot connect") | Windows CI/native pending |
+| T2 | `https://stream.nonexistent.invalid/radio.mp3` | n/a | DNS failure | Failed 0.1–0.4 s → NetworkUnavailable | AV: NetworkUnavailable, 0.3 s · VLC†: NetworkUnavailable, 0.4–0.9 s ("cannot resolve") | Windows CI/native pending |
+| T3 | `https://ice5.somafm.com/does-not-exist-xyz` | n/a | HTTP 404 | Failed 0.9–1.3 s → HttpError | AV: HttpError, 0.8 s · VLC†: HttpError, 1.0 s ("HTTP 404 error") | Windows CI/native pending |
+| T4 | local `/403`, `/500`; HLS playlist 404 | n/a | HTTP 403/500/404 | 0.1–0.4 s → HttpError | AV: HttpError for 403 / 500 / HLS 404, 0.3–0.6 s · VLC†: HttpError, 0.3–0.5 s | Windows CI/native pending |
+| T5 | `https://expired.badssl.com/`, `self-signed.`, `wrong.host.`, `untrusted-root.` | n/a | TLS certificate failures | 0.7–4.9 s → TlsFailure (`-1202`) | AV: TlsFailure for all four, 0.5–0.6 s · VLC†: TlsFailure for all four, 0.7–1.7 s ("TLS session handshake error") | Windows CI/native pending |
+| T6 | local `/redirect-https` (302 → C2); `http://st01.dlf.de/dlf/01/128/mp3/stream.mp3` (302 http→http) | AAC / MP3 | redirects | Plays | AV: both play (1.6 s / 0.5 s) · VLC†: both play (1.2 s / 0.9 s) | Windows CI/native pending |
+| T7 | local `/redirect-loop` | n/a | redirect loop | 0.1 s → HttpError (`-1007`) | AV: HttpError, 0.3 s (`-1007`) · VLC†: Unknown, 0.3 s (LibVLC logs only "HTTP connection failure" for this local HTTP/1.0 loop) | Windows CI/native pending |
+| T8 | local `/auth/stream.mp3` without and with `user:pass@` | MP3 | HTTP Basic auth | Without: 0.1 s → HttpError (401). With userinfo: plays | AV: without credentials HttpError (0.3 s); with user-info plays (2.3 s) · VLC†: HttpError (0.4 s); plays (1.7 s) | Windows CI/native pending |
+| T9 | local `/captive/stream.mp3` (HTTP/1.0 `200 text/html`); `https://example.com/` | HTML | captive-portal style | HTTP/1.0: **no error in 30 s** (watchdog → Stalled). HTTPS HTML: 0.3–0.7 s → UnsupportedFormat | AV: HTTP/1.0 HTML: no native error, coordinator watchdog Stalled at 25.8 s; HTTPS HTML: UnsupportedFormat, 0.3 s · VLC†: UnsupportedFormat for both, 0.3–0.4 s (EndReached before any audio) | Windows CI/native pending |
+| T10 | local `/garbage.mp3` | random bytes | undecodable | 16 s → Unknown (`CoreMedia -16830`) | AV: Unknown after 16.3 s (`CoreMedia -16830`) · VLC†: no native error, coordinator watchdog Stalled at 25.3 s | Windows CI/native pending |
+| T11 | local `/icy.mp3` | MP3 | Shoutcast v1 `ICY 200 OK` | Plays | AV: plays, 2.6 s · VLC†: plays, 1.2 s | Windows CI/native pending |
+| T12 | local `/eos.mp3` | MP3 | server closes (EOS) | `DidPlayToEndTime` (main thread) → EndOfStream | AV: plays, then Ended + EndOfStream at 8.2 s · VLC†: plays, then Ended + EndOfStream at 7.2 s | Windows CI/native pending |
+| T13 | local `/stall.mp3` | MP3 | server stops sending, keeps socket | `PlaybackStalled` (main thread), Waiting forever → Buffering, then coordinator watchdog | AV: plays, then Buffering, then failed-to-play-to-end (`CoreMedia -16830`) → Unknown at 17.2 s · VLC†: plays, then Buffering (no time progress for 5 s), coordinator watchdog Stalled at 36.2 s | Windows CI/native pending |
+| T14 | local `/hang` | n/a | accepts, never answers | No error in 45 s → coordinator watchdog | AV: coordinator watchdog Stalled at 25.8 s · VLC†: coordinator watchdog Stalled at 25.7 s | Windows CI/native pending |
+| T15 | `"not a url"`, `"http://"`, `"ht tp://…"`, `ftp://…`, `file:///…`, `""` | n/a | malformed URL | Managed `Uri` validation → InvalidUrl in ≤1 ms (raw to NSURL: nil or `-1002`) | Both: the coordinator rejects the station before any engine call (InvalidUrl, retry countdown 3 s then 6 s). Engine-level `ftp://` source: Failed(InvalidUrl), raised off the call stack | Windows CI/native pending |
+| T16 | any `http://` inside a `.app` without the ATS key | any | ATS | 0.1 s → TlsFailure (`-1022`) | Not re-run (needs the bundled `.app`) · n/a for LibVLC | n/a (LibVLC does not use ATS) |
 
 Not covered here: a real offline network (Wi-Fi off) and a real captive portal. Both are native manual checks.
