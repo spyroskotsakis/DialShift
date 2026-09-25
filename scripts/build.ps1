@@ -1,5 +1,5 @@
 <#
-Builds the Windows release of DialShift.App (win-x64, self-contained; decisions D2, D7).
+Builds the Windows release of DialShift.App (win-x64, self-contained; decisions D13, D7).
 
   artifacts\DialShift-win-x64\       published app + Install.ps1, README, notices, licenses
   artifacts\DialShift-win-x64.zip    the distributable: a zip of that folder (MSIX/installer later)

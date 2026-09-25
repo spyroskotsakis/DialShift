@@ -79,7 +79,7 @@ Everything the app needs to build and to run, per platform.
 | **Shell** | PowerShell 5.1+ | bash + `sh` |
 
 - **.NET 10 SDK** (tested with `10.0.401`) is the only build tool you install yourself. On Windows it can come from the installer, or the build script will use a local copy at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe`. On macOS the script looks for `dotnet` on `PATH` (including `~/.dotnet`).
-- The macOS package script also uses built-in macOS tools (`sips`, `iconutil`, `codesign`, `ditto`, `lipo`, `plutil`).
+- The macOS package script also uses built-in macOS tools (`sips`, `iconutil`, `codesign`, `ditto`, `lipo`, `plutil`, `unzip`, `zipinfo`).
 
 ### Build — NuGet packages (restored automatically)
 
@@ -134,13 +134,13 @@ The release scripts wrap that publish and are the single source of the package l
 | Package | Script | Output | Verifier |
 |---|---|---|---|
 | Windows | `./scripts/build.ps1 [-SkipTests]` (Windows) | `artifacts/DialShift-win-x64/`, `artifacts/DialShift-win-x64.zip` | `./scripts/verify-win-package.ps1 -Path <folder>` |
-| macOS | `./scripts/build-mac-app.sh` (macOS) | `dist/DialShift.app`, `dist/DialShift-osx-arm64-native-avplayer.zip` | `./scripts/verify-mac-app.sh <DialShift.app>` |
+| macOS | `./scripts/build-mac-app.sh` (macOS) | `dist/DialShift.app`, `dist/DialShift-osx-arm64-native-avplayer.zip` | `./scripts/verify-mac-app.sh <DialShift.app>` or `--zip <zip>` |
 
-`build.ps1` runs the tests first, then publishes, copies the notices, licenses and `Install.ps1`, verifies and zips. The Windows verifier checks for an x64 GUI executable, only the `win-x64` VLC runtime, the Avalonia/Skia/ANGLE natives, no `.pdb` files, and the notices. `build-mac-app.sh` publishes, assembles the bundle (`Info.plist`, `.icns`, notices), signs it ad-hoc, verifies and zips. The macOS verifier checks for an arm64-only executable, an arm64 slice in every native library, no VLC libraries, the `Info.plist` keys (`LSUIElement`, `LSMinimumSystemVersion` 14.0, the ATS media exception), the icon, the notices and the signature.
+`build.ps1` runs the tests first, then publishes, copies the notices, licenses and `Install.ps1`, verifies and zips. The Windows verifier checks for an x64 GUI executable, only the `win-x64` VLC runtime, the Avalonia/Skia/ANGLE natives, no `.pdb` files, and the notices. `build-mac-app.sh` publishes, assembles the bundle (`Info.plist`, `.icns`, notices), signs it ad-hoc, verifies, zips and verifies the zip. In the bundle, `Contents/MacOS` holds only Mach-O code (the executable and the native libraries); the managed `.dll` and `.json` files live in `Contents/Resources/app`, joined by symlinks, so the signature is sealed in the files themselves and survives any unzip tool. The zip carries no extended attributes (no `._*` entries). The macOS verifier checks for an arm64-only executable, an arm64 slice in every native library, only Mach-O files in `Contents/MacOS` and no signature kept in extended attributes, no VLC libraries, the `Info.plist` keys (`LSUIElement`, `LSMinimumSystemVersion` 14.0, the ATS media exception), the icon, the notices and the signature; with `--zip` it rejects `._*` entries and verifies the bundle extracted with both `ditto` and `unzip`.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every branch push, on `windows-latest` and `macos-latest` (Apple Silicon): build the solution with warnings as errors, run the tests, run the native UI smoke (with `DIALSHIFT_AUDIO_OUTPUT=dummy` on Windows, so playback does not depend on the runner's audio device), build the package with the script above, extract the zip a user would download and verify it again, then upload the zip (7-day retention) and the smoke results.
+`.github/workflows/ci.yml` runs on every branch push, on `windows-latest` and `macos-latest` (Apple Silicon): build the solution with warnings as errors, run the tests, run the native UI smoke (with `DIALSHIFT_AUDIO_OUTPUT=dummy` on Windows, so playback does not depend on the runner's audio device), build the package with the script above, extract the zip a user would download and verify it again (on macOS with both `ditto` and `unzip`, then launch the `unzip`-extracted app with `--smoke-test`), then upload the zip (7-day retention) and the smoke results.
 
 ### Developer runs
 

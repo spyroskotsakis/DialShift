@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # Builds the native Apple Silicon (osx-arm64) DialShift.app and its release zip
-# (brief 1 §8; decisions D2, D4, D7).
+# (brief 1 §8; decisions D2 as amended by D13, D4, D7).
 #
 #   dist/DialShift.app                       menu-bar app bundle (LSUIElement), ad-hoc signed
-#   dist/DialShift-osx-arm64-<label>.zip     the distributable (ditto keeps permissions + signature)
+#   dist/DialShift-osx-arm64-<label>.zip     the distributable (permissions and symlinks kept, no
+#                                            extended attributes: the signature lives in the files)
+#
+# Bundle layout (SR-03): Contents/MacOS holds only Mach-O code (the DialShift apphost, the
+# runtime and native dylibs, createdump). Everything else the .NET publish produces (managed
+# .dll files, deps.json, runtimeconfig.json) lives in Contents/Resources/app. The apphost
+# resolves its DialShift.dll through a symlink in Contents/MacOS, and the .NET host then uses
+# the symlink's target folder as the application folder, so Contents/Resources/app carries
+# symlinks back to the Mach-O files in Contents/MacOS. codesign then seals the managed files as
+# resources and signs only Mach-O code; with non-Mach-O files in Contents/MacOS it would store
+# their signatures in extended attributes, which a non-Apple unzip drops.
 #
 # The bundle carries no VLC libraries: macOS playback uses Apple's AVPlayer through system
 # framework linkage. <label> comes from MACOS_LABEL (default "native-avplayer", the same value
@@ -21,7 +31,7 @@ fail() { echo "error: $*" >&2; exit 1; }
 export PATH="$HOME/.dotnet:$PATH"
 
 [ "$(uname -s)" = "Darwin" ] || fail "build-mac-app.sh must run on macOS (it uses sips, iconutil and codesign)."
-for tool in dotnet sips iconutil codesign ditto; do
+for tool in dotnet sips iconutil codesign ditto lipo; do
     command -v "$tool" >/dev/null 2>&1 || fail "required tool not found: $tool"
 done
 
@@ -53,8 +63,19 @@ dotnet publish "$CSPROJ" -c Release -r osx-arm64 --self-contained \
 
 echo "== Assembling $APP =="
 rm -rf "$APP" "$ZIP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp -R "$PUBLISH/." "$APP/Contents/MacOS/"
+APP_FILES="$APP/Contents/Resources/app"
+mkdir -p "$APP/Contents/MacOS" "$APP_FILES"
+cp -R "$PUBLISH/." "$APP_FILES/"
+[ -z "$(find "$APP_FILES" -mindepth 1 ! -type f)" ] \
+    || fail "the publish output has subfolders or links; the bundle layout below expects a flat folder."
+for path in "$APP_FILES"/*; do
+    name="$(basename "$path")"
+    lipo -archs "$path" >/dev/null 2>&1 || continue   # not Mach-O: stays in Resources/app
+    mv "$path" "$APP/Contents/MacOS/"
+    # The host looks for the runtime and native libraries in the application folder.
+    [ "$name" = DialShift ] || ln -s "../../MacOS/$name" "$APP_FILES/$name"
+done
+ln -s ../Resources/app/DialShift.dll "$APP/Contents/MacOS/DialShift.dll"
 chmod +x "$APP/Contents/MacOS/DialShift"
 
 # Third-party notices travel with the binaries: only the texts that apply to the macOS
@@ -143,7 +164,13 @@ codesign --force --deep --sign - "$APP"
 echo "== Verifying bundle =="
 scripts/verify-mac-app.sh "$APP"
 
+# No extended attributes or resource forks: nothing in the bundle needs them (the verifier
+# rejects signatures stored in extended attributes), and without them the zip has no AppleDouble
+# ._* entries that non-Apple extractors would leave behind as loose files.
 echo "== Zipping $ZIP =="
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --norsrc --noextattr --noacl --keepParent "$APP" "$ZIP"
+
+echo "== Verifying $ZIP (extracted with ditto and with unzip) =="
+scripts/verify-mac-app.sh --zip "$ZIP"
 
 echo "== Built $APP and $ZIP (label: $LABEL) =="

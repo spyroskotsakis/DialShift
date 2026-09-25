@@ -1,5 +1,6 @@
-# Compile, test, smoke, package and verify DialShift on native runners (brief 1 §4.5, §8; decisions D2, D7, D8, D13).
-# Phases per job: build -> test -> native UI smoke -> package -> verify the downloadable zip -> upload.
+# Compile, test, smoke, package and verify DialShift on native runners (brief 1 §4.5, §8; decisions D2 as amended by D13, D7, D8).
+# Phases per job: build -> test -> native UI smoke -> package -> verify the downloadable zip (macOS: and launch
+# the app extracted from it) -> upload.
 # New checks (for example headless smokes) go in as steps of the matching phase.
 name: CI
 
@@ -29,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-latest is Apple Silicon (arm64), matching the osx-arm64 target (D2).
+        # macos-latest is Apple Silicon (arm64), matching the osx-arm64 target (D13).
         include:
           - os: windows-latest
             rid: win-x64
@@ -128,17 +129,44 @@ jobs:
           Expand-Archive -LiteralPath artifacts/DialShift-win-x64.zip -DestinationPath $extracted
           ./scripts/verify-win-package.ps1 -Path $extracted
 
-      # verify-mac-app.sh asserts: arm64-only executable, arm64 slice in every dylib, no libvlc*/VLC
-      # dylibs (case-sensitive; LibVLCSharp.dll is allowed), Info.plist identity/icon keys,
-      # LSUIElement=true, NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia=true, exec bit,
-      # and a valid ad-hoc signature.
+      # verify-mac-app.sh --zip asserts that the zip has no AppleDouble ._* entries, extracts it with ditto and
+      # with unzip, and checks each bundle: arm64-only executable, arm64 slice in every dylib, only Mach-O files in
+      # Contents/MacOS (SR-03), no signature in extended attributes, no libvlc*/VLC dylibs (case-sensitive;
+      # LibVLCSharp.dll is allowed), Info.plist identity/icon keys, LSUIElement=true,
+      # NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia=true, exec bit, and a valid ad-hoc signature.
       - name: Verify osx-arm64 zip
         if: runner.os == 'macOS'
-        run: |
-          ditto -x -k "dist/DialShift-osx-arm64-${MACOS_LABEL}.zip" "$RUNNER_TEMP/DialShift-osx-arm64"
-          scripts/verify-mac-app.sh "$RUNNER_TEMP/DialShift-osx-arm64/DialShift.app"
+        run: scripts/verify-mac-app.sh --zip "dist/DialShift-osx-arm64-${MACOS_LABEL}.zip"
 
-      # Upload: the zips are uploaded as-is (the macOS zip keeps permissions and the signature).
+      # The smoke above runs the build output; this one launches the packaged app a user gets, extracted with
+      # unzip (the stricter extractor), so the bundle layout, the host's application folder and the ATS media
+      # exception are exercised through the real bundled executable.
+      - name: Bundle smoke (packaged osx-arm64 app, --smoke-test)
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        run: |
+          unzip -q "dist/DialShift-osx-arm64-${MACOS_LABEL}.zip" -d "$RUNNER_TEMP/bundle"
+          output="$RUNNER_TEMP/bundle-smoke"
+          if ! "$RUNNER_TEMP/bundle/DialShift.app/Contents/MacOS/DialShift" --smoke-test --output "$output"; then
+            if [ -f "$output/results.json" ]; then
+              jq -r '.checks[] | select(.passed | not) | "::error title=Bundle smoke: \(.name)::\(.detail)"' "$output/results.json"
+            fi
+            echo "::error title=Bundle smoke::The packaged app's smoke run failed (see the bundle-smoke artifact)."
+            exit 1
+          fi
+          jq -r '"Bundle smoke: \([.checks[] | select(.passed)] | length)/\(.checks | length) checks passed (\(.engine))"' "$output/results.json" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bundle smoke results
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v6
+        with:
+          name: bundle-smoke-${{ matrix.rid }}
+          path: ${{ runner.temp }}/bundle-smoke
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Upload: the zips are uploaded as-is (the macOS zip keeps permissions, links and the signature).
       # Short retention keeps the private repository's artifact storage bounded.
       - name: Upload win-x64 artifact
         if: runner.os == 'Windows'

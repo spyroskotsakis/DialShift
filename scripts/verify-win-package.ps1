@@ -1,6 +1,6 @@
 <#
 Verifies a DialShift win-x64 package folder against the Windows packaging rules
-(brief 1 §8; decisions D2, D7; acceptance rows PK-02, PK-05, HS-15).
+(brief 1 §8; decisions D2 as amended by D13, D7; acceptance rows PK-02, PK-05, HS-15).
 
 Usage: scripts/verify-win-package.ps1 -Path artifacts\DialShift-win-x64
 
@@ -32,7 +32,7 @@ foreach ($item in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $package $item))) { throw "Missing from the Windows package: $item" }
 }
 
-# win-x64 only (D2): the VLC runtime for other architectures must not ship.
+# win-x64 only (D13): the VLC runtime for other architectures must not ship.
 $otherVlc = @(Get-ChildItem -LiteralPath (Join-Path $package 'libvlc') -Directory | Where-Object { $_.Name -ne 'win-x64' })
 if ($otherVlc.Count -gt 0) {
     throw "VLC runtimes for other architectures found in libvlc\: $(($otherVlc | ForEach-Object Name) -join ', '). Disable them in DialShift.App.csproj (VlcWindowsX86Enabled/VlcWindowsArm64Enabled=false)."
