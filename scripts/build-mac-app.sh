@@ -29,10 +29,10 @@ ICON_SRC="DialShift.App/Assets/icon-512.png"
 PUBLISH="publish/osx-arm64"
 APP="dist/DialShift.app"
 LABEL="${MACOS_LABEL:-preview}"
-# Floor of the shipped binaries: the .NET 10 host/runtime is built for macOS 12.0
-# (Avalonia/Skia/HarfBuzz natives for 11.0). AVPlayer media behavior is verified on
-# macOS 26.5 only (docs/spikes.md); re-run the corpus before claiming older versions.
-MIN_MACOS="12.0"
+# Decision D22: macOS 14.0 (upstream precedent). The binaries would load on 12.0 (.NET 10
+# runtime floor), but the AVPlayer format corpus is verified on macOS 26.5 only
+# (docs/spikes.md), so older versions are not claimed. verify-mac-app.sh checks this value.
+MIN_MACOS="14.0"
 
 [[ "$LABEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || fail "MACOS_LABEL must be lowercase letters, digits and dashes (got '$LABEL')."
 ZIP="dist/DialShift-osx-arm64-$LABEL.zip"

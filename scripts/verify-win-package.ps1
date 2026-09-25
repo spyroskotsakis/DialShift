@@ -38,6 +38,9 @@ if ($otherVlc.Count -gt 0) {
     throw "VLC runtimes for other architectures found in libvlc\: $(($otherVlc | ForEach-Object Name) -join ', '). Disable them in DialShift.App.csproj (VlcWindowsX86Enabled/VlcWindowsArm64Enabled=false)."
 }
 
+$symbols = @(Get-ChildItem -LiteralPath $package -Filter '*.pdb' -Recurse)
+if ($symbols.Count -gt 0) { throw "Debug symbol files in the Windows package: $(($symbols | ForEach-Object Name) -join ', ')" }
+
 # DialShift.exe must be an x64 (0x8664) Windows GUI (subsystem 2) executable: no console window.
 $exe = [IO.File]::ReadAllBytes((Join-Path $package 'DialShift.exe'))
 $peOffset = [BitConverter]::ToInt32($exe, 0x3C)

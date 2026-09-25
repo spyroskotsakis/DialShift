@@ -46,7 +46,8 @@ expect_plist NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia true
 [ -z "$(plist_value NSAppTransportSecurity:NSAllowsArbitraryLoads)" ] \
     || fail "Info.plist must not set NSAppTransportSecurity:NSAllowsArbitraryLoads (only the media exception)"
 [ -n "$(plist_value CFBundleShortVersionString)" ] || fail "Info.plist CFBundleShortVersionString is missing"
-[ -n "$(plist_value LSMinimumSystemVersion)" ] || fail "Info.plist LSMinimumSystemVersion is missing"
+# Decision D22: macOS 14.0 minimum (AVPlayer corpus not verified on older versions).
+expect_plist LSMinimumSystemVersion 14.0
 
 [ -s "$APP/Contents/Resources/DialShift.icns" ] || fail "missing bundle icon Contents/Resources/DialShift.icns"
 [ -s "$APP/Contents/Resources/THIRD-PARTY-NOTICES.md" ] || fail "missing Contents/Resources/THIRD-PARTY-NOTICES.md"

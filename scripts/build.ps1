@@ -23,6 +23,9 @@ $archive = Join-Path $root 'artifacts\DialShift-win-x64.zip'
 if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Recurse -Force }
 & $dotnet publish (Join-Path $root 'DialShift.App\DialShift.App.csproj') -c Release -r win-x64 --self-contained true -p:DebugType=None -p:DebugSymbols=false -o $output
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+# DebugType=None covers our assemblies only; native NuGet assets still bring symbol files
+# (libSkiaSharp.pdb + libHarfBuzzSharp.pdb, about 105 MB) that users do not need.
+Get-ChildItem -LiteralPath $output -Filter '*.pdb' -Recurse | Remove-Item -Force
 Copy-Item -LiteralPath (Join-Path $root 'README.md'),(Join-Path $root 'THIRD-PARTY-NOTICES.md') -Destination $output
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install.ps1') -Destination $output
 # Only the texts that apply to the Windows package (keep in sync with the "Windows package"
