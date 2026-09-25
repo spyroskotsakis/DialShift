@@ -92,18 +92,35 @@ public static class RedactionTests
         }
     }
 
-    private static void ExceptionChains()
+    // The exception text below includes the stack trace, whose source paths are wherever this checkout was built (for
+    // example /private/var/folders/x5/… under macOS's $TMPDIR). Every credential, path and token is therefore a
+    // sentinel that cannot occur in a filesystem path or a stack frame, as in CT-LOG (core) HZ-07, and the check scans
+    // the whole text for exactly those sentinels.
+    private static readonly string[] ChainSentinels =
+    [
+        "ds-outer-user-r4", "ds-outer-pass-r4", "/ds-outer-path-r4", "DS-OUTER-TOKEN-R4", "ds-outer-frag-r4",
+        "ds-inner-user-r4", "ds-inner-pass-r4", "/ds-inner-path-r4", "DS-INNER-SIG-R4",
+    ];
+
+    private static void ExceptionChains([System.Runtime.CompilerServices.CallerFilePath] string sourceFile = "")
     {
-        var inner = new HttpRequestException("inner https://a:b-pass@h2.example/y?sig=INNER-SIG");
-        var outer = new InvalidOperationException("outer http://u:outer-pass@h1.example/x?token=OUTER-TOKEN", inner);
+        var inner = new HttpRequestException("inner https://ds-inner-user-r4:ds-inner-pass-r4@h2.example/ds-inner-path-r4/live.aac?sig=DS-INNER-SIG-R4");
+        var outer = new InvalidOperationException(
+            "outer http://ds-outer-user-r4:ds-outer-pass-r4@h1.example/ds-outer-path-r4/live.mp3?token=DS-OUTER-TOKEN-R4#ds-outer-frag-r4", inner);
         string text;
         try { throw outer; }
         catch (InvalidOperationException ex) { text = ex.ToString(); }
         var redacted = StreamUrlRedactor.RedactText(text);
+        Check("F4 exception chain: the sentinels cannot occur in this checkout's paths (source, binaries, temp)",
+            ChainSentinels.All(s => !sourceFile.Contains(s, StringComparison.OrdinalIgnoreCase)
+                && !AppContext.BaseDirectory.Contains(s, StringComparison.OrdinalIgnoreCase)
+                && !Path.GetTempPath().Contains(s, StringComparison.OrdinalIgnoreCase)));
+        Check("F4 ... every sentinel is in the unredacted exception text", ChainSentinels.All(s => text.Contains(s, StringComparison.Ordinal)));
         Check("F4 exception with an inner exception: both URLs are redacted",
             redacted.Contains("outer http://h1.example/…", StringComparison.Ordinal) && redacted.Contains("inner https://h2.example/…", StringComparison.Ordinal));
-        Check("F4 ... no credential, path or token of either survives",
-            !new[] { "outer-pass", "b-pass", "/x", "/y", "OUTER-TOKEN", "INNER-SIG" }.Any(s => redacted.Contains(s, StringComparison.Ordinal)));
+        var leaked = ChainSentinels.Where(s => redacted.Contains(s, StringComparison.OrdinalIgnoreCase)).ToList();
+        Check($"F4 ... no credential, path or token of either survives{(leaked.Count == 0 ? "" : $" (leaked: {string.Join(", ", leaked)})")}",
+            leaked.Count == 0);
         Check("F4 ... the stack trace is kept", redacted.Contains(nameof(ExceptionChains), StringComparison.Ordinal));
     }
 
