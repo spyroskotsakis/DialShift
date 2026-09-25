@@ -1,0 +1,19 @@
+# Line endings. Git for Windows (and so the windows-latest runner behind actions/checkout) sets core.autocrlf=true,
+# which checks text files out with CRLF. The rules below override that for files whose bytes matter on every platform.
+* text=auto
+
+# Shell and Python scripts run under bash (Git Bash on Windows): a CR breaks `set -euo pipefail` and shebang lines.
+*.sh text eol=lf
+*.py text eol=lf
+
+# The app catalog is packaged and verified byte for byte and must have no CR (docs/catalog-contracts.md §2.1).
+data/output/*.json text eol=lf
+
+# The canonical CSVs are the pipeline's exact output (CRLF records from Python's csv module, LF inside quoted
+# fields): never converted, so a rebuild matches the checked-in bytes on every platform.
+data/canonical/*.csv -text
+
+*.xlsx binary
+*.png binary
+*.ico binary
+*.icns binary
