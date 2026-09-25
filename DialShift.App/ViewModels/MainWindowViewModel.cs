@@ -53,11 +53,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         IAppLog log,
         IClock clock,
         TimeZoneInfo localZone,
-        AppInfo info)
+        AppInfo info,
+        ICatalogProvider catalog,
+        ICatalogLogoLoader logos)
     {
         this.coordinator = coordinator;
         this.settings = settings;
-        services = new ViewModelServices(coordinator, settings, dialogs, editors, log);
+        services = new ViewModelServices(coordinator, settings, dialogs, editors, log, catalog, logos, dispatcher);
         snapshot = coordinator.Snapshot;
         volume = snapshot.Volume;
         LocalTimeText = UiText.LocalTime(localZone);

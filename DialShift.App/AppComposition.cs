@@ -91,7 +91,9 @@ public static class AppComposition
             sp.GetRequiredService<IAppLog>(),
             sp.GetRequiredService<IClock>(),
             TimeZoneInfo.Local,
-            new AppInfo(AppInfo.DisplayVersion(typeof(AppComposition).Assembly), paths.DataDirectory)));
+            new AppInfo(AppInfo.DisplayVersion(typeof(AppComposition).Assembly), paths.DataDirectory),
+            sp.GetRequiredService<ICatalogProvider>(),
+            sp.GetRequiredService<ICatalogLogoLoader>()));
 
         configure?.Invoke(services);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });

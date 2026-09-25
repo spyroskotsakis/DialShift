@@ -3,7 +3,8 @@ using System.Runtime.CompilerServices;
 
 namespace DialShift.App.ViewModels;
 
-/// <summary>Minimal <see cref="INotifyPropertyChanged"/> base. View models stay free of Avalonia types so they can be unit-tested.</summary>
+/// <summary>Minimal <see cref="INotifyPropertyChanged"/> base. View models stay free of Avalonia controls and the UI thread so
+/// they can be unit-tested; the one Avalonia type they carry is a decoded catalog logo (<c>Bitmap</c>), which the tests leave null.</summary>
 public abstract class ObservableObject : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;

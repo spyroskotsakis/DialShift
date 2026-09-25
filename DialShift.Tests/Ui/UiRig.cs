@@ -67,6 +67,10 @@ public sealed class UiRig : IAsyncDisposable
     public PlaybackCoordinator? Real { get; }
     public FakePlaybackEngine? Engine { get; }
 
+    /// <summary>The station catalog of the Add dialog; a loaded, empty catalog unless a scenario sets <see cref="FakeCatalogProvider.Result"/>.</summary>
+    public FakeCatalogProvider Catalog { get; } = new();
+    public FakeLogoLoader Logos { get; } = new();
+
     public FakeStartupRegistration Startup { get; } = new();
     public FakeFileReveal Reveal { get; } = new();
     public FakeShell Shell => shell ??= new FakeShell(Journal);
@@ -121,9 +125,9 @@ public sealed class UiRig : IAsyncDisposable
     private void Wire(IDialogService dialogs, IEditorDialogService editors, IUiDispatcher dispatcher)
     {
         SettingsService = new JournalingSettingsService(new SettingsService(Settings, Store, Coordinator, dialogs, Log), Journal);
-        Services = new ViewModelServices(Coordinator, SettingsService, dialogs, editors, Log);
+        Services = new ViewModelServices(Coordinator, SettingsService, dialogs, editors, Log, Catalog, Logos, dispatcher);
         ViewModel = new MainWindowViewModel(Coordinator, SettingsService, dialogs, editors, Startup, Reveal, dispatcher, Shell, Log, Clock, Zone,
-            new AppInfo(Version, Paths.DataDirectory));
+            new AppInfo(Version, Paths.DataDirectory), Catalog, Logos);
     }
 
     /// <summary>The settings as they are on disk now (a fresh store load).</summary>

@@ -9,13 +9,27 @@ public sealed class ViewModelServices(
     ISettingsService settings,
     IDialogService dialogs,
     IEditorDialogService editors,
-    IAppLog log)
+    IAppLog log,
+    ICatalogProvider catalog,
+    ICatalogLogoLoader logos,
+    IUiDispatcher dispatcher)
 {
     public IPlaybackCoordinator Coordinator { get; } = coordinator;
     public ISettingsService Settings { get; } = settings;
     public IDialogService Dialogs { get; } = dialogs;
     public IEditorDialogService Editors { get; } = editors;
     public IAppLog Log { get; } = log;
+
+    /// <summary>The station catalog the Add dialog searches (brief 3).</summary>
+    public ICatalogProvider Catalog { get; } = catalog;
+
+    /// <summary>Loads the catalog stations' remote logos.</summary>
+    public ICatalogLogoLoader Logos { get; } = logos;
+
+    public IUiDispatcher Dispatcher { get; } = dispatcher;
+
+    /// <summary>How long the Add dialog waits after a keystroke before it searches (D72); tests set <see cref="TimeSpan.Zero"/>.</summary>
+    public TimeSpan CatalogSearchDelay { get; init; } = StationEditorViewModel.DefaultSearchDelay;
 
     /// <summary>An unexpected command failure: logged, then shown, so no action fails silently.</summary>
     public void ReportError(Exception ex)
