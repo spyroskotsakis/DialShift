@@ -10,6 +10,8 @@
     <RootNamespace>DialShift.App</RootNamespace>
     <RollForward>Major</RollForward>
     <Version>0.3.0</Version>
+    <!-- [LibraryImport] stubs and [UnmanagedCallersOnly] function pointers in Services/Interop (macOS AVPlayer adapter). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
