@@ -110,11 +110,9 @@
           </Panel>
         </Border>
         <StackPanel VerticalAlignment="Center">
-          <TextBlock Classes="resultTitle">
-            <Run Text="{Binding Name}" FontWeight="SemiBold" />
-            <Run Text=" · " Foreground="{StaticResource DsSubtleBrush}" />
-            <Run Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource DsSecondaryBrush}" />
-          </TextBlock>
+          <!-- The Runs sit on one line with no whitespace between them: a line break between inline elements would add a
+               " " run on each side of the dot ("Name  ·  Subtitle"). -->
+          <TextBlock Classes="resultTitle"><Run Text="{Binding Name}" FontWeight="SemiBold" /><Run Text=" · " Foreground="{StaticResource DsSubtleBrush}" /><Run Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource DsSecondaryBrush}" /></TextBlock>
           <TextBlock Classes="resultKind" Text="{Binding Kind}"
                      IsVisible="{Binding Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
@@ -170,8 +168,14 @@
                 Command="{Binding ClearFiltersCommand}"
                 AutomationProperties.Name="Clear search and filters" ToolTip.Tip="Clear search and filters" />
       </Grid>
-      <TextBlock Classes="hint" Text="{Binding CatalogStatusText}" Margin="0,8,0,0"
-                 AutomationProperties.Name="Catalog status" />
+      <!-- A text block's automation peer announces its text and ignores AutomationProperties.Name, so the name sits on a
+           container exposed to the control view: "Catalog status", with the line as its help text. The text block inside is
+           a polite live region, so the loading → loaded (or unavailable) change is announced. -->
+      <Border Margin="0,8,0,0"
+              AutomationProperties.Name="Catalog status" AutomationProperties.HelpText="{Binding CatalogStatusText}"
+              AutomationProperties.AccessibilityView="Control" AutomationProperties.ControlTypeOverride="Group">
+        <TextBlock Classes="hint" Text="{Binding CatalogStatusText}" AutomationProperties.LiveSetting="Polite" />
+      </Border>
     </StackPanel>
 
     <!-- The form column (separator, fields, hint) and, in Add mode, the detail pane beside it; the results overlay covers
@@ -248,7 +252,7 @@
       <Border x:Name="ResultsOverlay" Grid.Column="0" Classes="catalogOverlay" VerticalAlignment="Top" ZIndex="1"
               MaxHeight="{Binding #FormColumn.Bounds.Height}" IsVisible="{Binding IsResultsOpen}">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Bottom" Classes="hint" Text="{Binding TotalCountText}" Margin="10,4,10,6"
+          <TextBlock DockPanel.Dock="Bottom" Classes="hint" Text="{Binding TotalCountText}" Margin="10,4,10,6" AutomationProperties.LiveSetting="Polite"
                      IsVisible="{Binding TotalCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           <TextBlock DockPanel.Dock="Top" Classes="muted" Text="{x:Static vm:UiText.CatalogNoMatch}" Margin="12,10" IsVisible="{Binding HasNoMatches}" />
           <ListBox x:Name="ResultsList" ItemsSource="{Binding Results}" SelectedItem="{Binding HighlightedResult}"
