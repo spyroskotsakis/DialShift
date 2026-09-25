@@ -27,7 +27,7 @@ namespace DialShift.Tests.Ui;
 /// dialog's height, fast typing) and CAT-17 (the status line, with the real catalog). Part of the HeadlessUi suite. Every
 /// dialog opens through "+  Add station" or a row's Edit button, so the app's own wiring and 200 ms debounce are used.
 /// </summary>
-internal static class CatalogHeadlessTests
+internal static partial class CatalogHeadlessTests
 {
     private static readonly string[] AddTabOrder =
     [
@@ -47,6 +47,15 @@ internal static class CatalogHeadlessTests
         await Headless.RunAsync(() => NothingClipped(780, 650));
         await Headless.RunAsync(() => NothingClipped(1366, 768));
         await Headless.RunAsync(RealCatalog);
+        await Headless.RunAsync(OverlayOpensAndCloses);
+        await Headless.RunAsync(EscapeClosesTheInnermostLayer);
+        await Headless.RunAsync(TitleBarCloseIsCancel);
+        await Headless.RunAsync(DetailPaneScrollsFromTheSearchBox);
+        await Headless.RunAsync(TilesAndDetailPane);
+        await Headless.RunAsync(HighlightContrast);
+        await Headless.RunAsync(FilterDropDowns);
+        await Headless.RunAsync(LongNameFrequencyColumn);
+        await Headless.RunAsync(RealCatalogFrequencyColumn);
     }
 
     // ─── helpers ───
@@ -91,10 +100,10 @@ internal static class CatalogHeadlessTests
 
     private static TextBox Field(Window dialog, string label) => ByName<TextBox>(dialog, label);
 
-    /// <summary>A 48×48 solid logo, made on the headless platform (Skia).</summary>
-    private static WriteableBitmap SolidLogo(uint bgra)
+    /// <summary>A solid logo (48×48 unless given), made on the headless platform (Skia); <paramref name="bgra"/> is premultiplied.</summary>
+    private static WriteableBitmap SolidLogo(uint bgra, int width = 48, int height = 48)
     {
-        var bitmap = new WriteableBitmap(new PixelSize(48, 48), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
+        var bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
         using var buffer = bitmap.Lock();
         var row = Enumerable.Repeat(unchecked((int)bgra), buffer.RowBytes / 4).ToArray();
         for (var y = 0; y < buffer.Size.Height; y++) Marshal.Copy(row, 0, buffer.Address + y * buffer.RowBytes, row.Length);
@@ -562,6 +571,10 @@ internal static class CatalogHeadlessTests
     {
         await using var rig = await UiRig.CreateHeadlessAsync();
         rig.Catalog.Result = Loaded(Small);
+        var (add, _) = await OpenAddAsync(rig);
+        var addHeight = add.ClientSize.Height;
+        add.Close();
+        await PumpAsync();
         var calls = rig.Catalog.Calls;
         var count = OpenedWindows.Count;
         await ClickAsync(ByName<Button>(rig.Window!, "Edit Groove Salad"));
@@ -569,6 +582,9 @@ internal static class CatalogHeadlessTests
         Layout(dialog);
         var name = Field(dialog, StationEditorViewModel.NameLabel);
         Check("CAT-11 D62 the Edit dialog never loads the catalog", rig.Catalog.Calls == calls);
+        Check($"CAT-11 D83 a fresh Edit dialog is 680 wide, as the Add dialog ({dialog.ClientSize.Width:F0})", dialog.ClientSize.Width == 680 && add.ClientSize.Width == 680);
+        Check($"CAT-14 D83 the Edit dialog ({dialog.ClientSize.Height:F0} px) is shorter than the Add dialog ({addHeight:F0} px)",
+            dialog.ClientSize.Height < addHeight);
         Check("CAT-11 the Edit dialog has no catalog panel: its only inputs are the three fields, no pickers, no detail pane, no status, no separator",
             Find<TextBox>(dialog).Where(t => t.IsEffectivelyVisible && t.TemplatedParent == null).Select(AccessibleName)
                 .SequenceEqual([StationEditorViewModel.NameLabel, StationEditorViewModel.TagLabel, StationEditorViewModel.UrlLabel])
@@ -620,6 +636,7 @@ internal static class CatalogHeadlessTests
             CheckUnclipped(dialog, $"window {size}, dialog {dialogWidth} wide, Add: results");
             Check($"CAT-14 §5.5 window {size}, dialog {dialogWidth} wide: opening the results never resizes the dialog",
                 Overlay(dialog).IsVisible && dialog.ClientSize.Height == closedHeight);
+            CheckOverlayCoversForm(dialog, editor, $"window {size}, dialog {dialogWidth} wide, 3 rows");
             Png(dialog, $"catalog-{width}x{height}-{dialogWidth}-results");
 
             await PressAsync(dialog, Key.Enter);
@@ -637,6 +654,17 @@ internal static class CatalogHeadlessTests
             Check($"CAT-14 window {size}, dialog {dialogWidth} wide: long notes scroll inside the detail pane instead of growing the dialog",
                 editor.SelectedEntry == Kosmos && dialog.ClientSize.Height == closedHeight);
             Png(dialog, $"catalog-{width}x{height}-{dialogWidth}-long-notes");
+
+            await SearchAsync(dialog, editor, "melodia");
+            CheckOverlayCoversForm(dialog, editor, $"window {size}, dialog {dialogWidth} wide, 1 row");
+            await ClickAsync(ByName<Button>(dialog, "Clear search and filters"));
+            if (!await WaitAsync(() => editor.PendingSearch.IsCompleted && editor.SearchText.Length == 0 && editor.Results.Count == Small.Count))
+                throw new TimeoutException("Clear's search did not land.");
+            Layout(dialog);
+            var rowsScroll = Find<ScrollViewer>(Overlay(dialog)).Single();
+            Check($"CAT-14 fixture: window {size}, dialog {dialogWidth} wide: Clear lists all 7 stations, more than the card holds (the list scrolls)",
+                Overlay(dialog).IsVisible && rowsScroll.Extent.Height > rowsScroll.Viewport.Height + 1);
+            CheckOverlayCoversForm(dialog, editor, $"window {size}, dialog {dialogWidth} wide, all 7 rows (the list scrolls)");
 
             await SearchAsync(dialog, editor, "zzz no such station");
             CheckUnclipped(dialog, $"window {size}, dialog {dialogWidth} wide, Add: no match");
