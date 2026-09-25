@@ -77,8 +77,10 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   (name, city, stream URL). Ordered by country, votes (highest first), name, stream URL.
 - **Normalization:** strings trimmed; the placeholders `—` (city) and `(unlisted)` (region) become
   `""`; `internet_only` is `true` only for `Yes`; `bitrate` is a positive integer or `null`;
-  `votes` an integer ≥ 0 or `null`; a bare `tags:` note becomes `""` and Wikipedia `_emphasis_`
-  markers are dropped; logos that are not http(s) become `""`.
+  `votes` an integer ≥ 0 or `null`; Wikipedia `_emphasis_` markers are dropped from notes, and a
+  note that is only a source label (`tags:`, `curated:`, …) followed by nothing or punctuation, or
+  that has no letter or digit at all, becomes `""` (the CSVs and the XLSX keep the pipeline's
+  label); logos that are not http(s) become `""`.
 - **Validation (hard failure, same run):** schema version, the 18 keys and their types, non-empty
   name and country, valid stream URL, no duplicate `(name, country, stream_url)`, the count equals
   the Working rows that pass the URL rule, 1–10,000 entries. On any problem the run prints every
