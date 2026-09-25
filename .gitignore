@@ -14,6 +14,9 @@ publish/
 # canonical/*.csv + output/*.xlsx which ARE pushed to the repo.
 data/raw/
 data/.venv/
+# app_catalog.write_app_catalog's temp file (mkstemp '.app-catalog.json.<random>.tmp'),
+# left only if the process is killed between the write and the rename
+data/output/.*.tmp
 
 # Python bytecode caches
 __pycache__/

@@ -149,7 +149,7 @@ def match_national(cfg, name, desc):
 
 def build_country(cfg, force_refresh=False):
     code = cfg['code']
-    rb = dedupe_rb(fetch_radio_browser(code, force=force_refresh))
+    rb = dedupe_rb(fetch_radio_browser(code, cfg['name'], force=force_refresh))
 
     rb_by_norm = {}
     for s in rb:

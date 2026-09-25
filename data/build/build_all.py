@@ -379,7 +379,7 @@ def main():
     # ---- collection tabs (genre folders) ----
     for cfg in collections:
         rows = per_collection[cfg['name']]
-        data = [[r['name'], r['genre'], r['stream_url'], r['language'],
+        data = [[r['name'], app_tag(r), r['stream_url'], r['language'],
                  r['stream_status'], r['votes'] or '', r['notes'][:160]]
                 for r in rows]
         ws = write_sheet(wb, cfg['name'],

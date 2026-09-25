@@ -294,6 +294,7 @@ def self_test() -> int:
              genre='News & Talk + Music'),
         _row(name='Strings', bitrate='192', votes='7', notes='tags: jazz,soul', logo='https://a.example.test/l.png',
              stream_url='https://a.example.test/s', genre=''),
+        _row(name='Untyped', type='', genre='Ambient', stream_url='https://a.example.test/u'),
         # order: votes desc, then name by code point (upper case before lower, accents last)
         _row(name='alpha', votes=3, stream_url='https://a.example.test/o1'),
         _row(name='Zeta', votes=3, stream_url='https://a.example.test/o2'),
@@ -352,6 +353,17 @@ def self_test() -> int:
     check('logo: "null" and ftp -> "", https kept', pad['logo'] == '' and num['logo'] == ''
           and strs['logo'] == 'https://a.example.test/l.png')
     check('tag of Other/Other is "Other"', pad['tag'] == 'Other')
+    check('tag of an empty type is the genre alone', by_name['Untyped'][0]['tag'] == 'Ambient')
+    sep = ' · '
+    tags = {(t, g): app_tag({'type': t, 'genre': g}) for t in ('', ' ', 'Music', 'Other', 'Jazz')
+            for g in ('', ' ', 'Music', 'Other', 'Jazz')}
+    check('app_tag: never a leading, trailing or doubled separator, always trimmed',
+          all(not v.startswith(sep.strip()) and not v.endswith(sep.strip()) and sep * 2 not in v
+              and f'{sep.strip()}{sep.strip()}' not in v and v == v.strip() for v in tags.values()))
+    check('app_tag: type · genre, genre dropped when Other or equal to the type, empty parts dropped',
+          tags['Music', 'Jazz'] == 'Music · Jazz' and tags['Music', 'Other'] == 'Music'
+          and tags['Music', 'Music'] == 'Music' and tags['', 'Jazz'] == 'Jazz' and tags[' ', 'Jazz'] == 'Jazz'
+          and tags['Music', ''] == 'Music' and tags['', 'Other'] == '' and tags['', ''] == '')
     check('order: country, votes desc (null as 0), name, stream_url by code point', st == sorted(st, key=_order))
     o = [(e['name'], e['stream_url'][-2:]) for e in st if e['stream_url'][-2:] in ('o0', 'o1', 'o2', 'o3')]
     check('order: code point tie-breaks', o == [('Zeta', 'o0'), ('Zeta', 'o2'), ('alpha', 'o1'), ('Éclair', 'o3')])

@@ -6,6 +6,7 @@ import json
 import re
 import ssl
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -90,11 +91,12 @@ def row_score(r):
             r.get('votes') or 0)
 
 def app_tag(row):
-    """The 'Description / genre' text the DialShift Add-station dialog wants."""
-    t, g = row['type'], row['genre']
-    parts = [p for p in (t, g) if p and p not in ('Other',) and p != t] or ([t] if t else [])
-    parts = list(dict.fromkeys([t] + parts))
-    return ' · '.join(parts)
+    """The 'Description / genre' text the DialShift Add-station dialog wants: 'type · genre'.
+    The genre is left out when it is 'Other' or repeats the type; empty parts are dropped, so the
+    tag never starts or ends with the separator or doubles it."""
+    t, g = (str(row.get(k) or '').strip() for k in ('type', 'genre'))
+    parts = [t, '' if g == 'Other' else g]
+    return ' · '.join(dict.fromkeys(p for p in parts if p))
 
 # ---------------------------------------------------------------- classification
 def classify(desc, tags, country='GR'):
@@ -166,21 +168,20 @@ def fetch_text(url, tries=3):
             time.sleep(2)
     raise RuntimeError(f'fetch failed after {tries} tries: {url}')
 
-# radio-browser's /stations/bycountry/ endpoint matches the country NAME as a
-# substring (so ISO code 'DE' hits "Russian FeDEration"!). Always use the full name.
-COUNTRY_NAMES = {'GR': 'Greece', 'FR': 'France', 'DE': 'Germany'}
-
-def fetch_radio_browser(country_code, force=False):
-    """Download ALL stations for a country from radio-browser.info (mirror fallback)."""
+def fetch_radio_browser(country_code, country, force=False):
+    """Download ALL stations for a country from radio-browser.info (mirror fallback).
+    country is the full English name from the country YAML's `name`: radio-browser's
+    /stations/bycountry/ endpoint matches the NAME as a substring, so the ISO code would not
+    work ('DE' hits "Russian FeDEration")."""
     out = RAW_DIR / country_code / 'radio-browser.json'
     if out.exists() and not force:
         return json.loads(out.read_text(encoding='utf-8'))
-    country = COUNTRY_NAMES.get(country_code, country_code)
+    path = urllib.parse.quote(country)
     mirrors = fetch_json('http://all.api.radio-browser.info/json/servers')
     stations, base = None, None
     for m in mirrors:
         try:
-            stations = fetch_json(f"https://{m['name']}/json/stations/bycountry/{country}"
+            stations = fetch_json(f"https://{m['name']}/json/stations/bycountry/{path}"
                                   f"?limit=1&hidebroken=false")
             base = m['name']
             break
@@ -191,7 +192,7 @@ def fetch_radio_browser(country_code, force=False):
     all_rows = []
     offset = 0
     while True:
-        batch = fetch_json(f"https://{base}/json/stations/bycountry/{country}"
+        batch = fetch_json(f"https://{base}/json/stations/bycountry/{path}"
                            f"?limit=1000&offset={offset}&hidebroken=false")
         all_rows.extend(batch)
         if len(batch) < 1000:

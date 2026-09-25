@@ -125,7 +125,9 @@ notes · source`
 
 ### Adding a new country
 
-1. Copy a YAML, fill in: `code`, `name`, `language_default`, `city_aliases`, `curated` entries.
+1. Copy a YAML, fill in: `code` (ISO 3166-1 alpha-2), `name`, `language_default`, `city_aliases`,
+   `curated` entries. `name` is the country's English name as radio-browser.info spells it: the
+   build queries radio-browser by that name and uses it as the country's tab and filter label.
 2. Optional: `wiki.url` for a Wikipedia FM list, and `focus_areas` for local shortlist tabs
    (a focus area is a city — `{city: Paris, label: Paris}` — or a region —
    `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;
@@ -136,7 +138,9 @@ notes · source`
 
 Drop a YAML in `data/collections/` with `code`, `name`, `description` (the tab's README text),
 and a `stations:` list — each entry: `name`, `match` (radio-browser search keys), `genre`
-(the app's Description/Genre tag, e.g. `SomaFM · Ambient / downtempo`), optional pinned `url`,
+(e.g. `SomaFM · Ambient / downtempo`; the tab's Description / Genre column and the app's
+Description/Genre tag are the same `app_tag()` text, `<type> · <genre>` with an optional `type`
+that defaults to `Music`), optional pinned `url`,
 `language`, `notes`. Unpinned entries resolve their stream from radio-browser at build time.
 Collections become their own tab + `canonical/collection-<code>.csv`.
 
