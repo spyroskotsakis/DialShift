@@ -3,7 +3,7 @@
 > **Status: frozen 2026-09-25 by the spec lane, before any implementation lane starts.** Normative for brief 3
 > (`docs/add-station-catalog-search.md`, "the brief"; § numbers without a file name are this document's). Lanes
 > implement the signatures here **verbatim**; a change goes through the spec lane and a new decision in
-> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77–D83
+> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77–D84
 > post-freeze amendments). The
 > acceptance rows are CAT-01..18 in `docs/acceptance-matrix.md` §11. Phase 0 wrote the contracts down without
 > stubbing them, so no lane ever found dead or throwing placeholder code. §4 was amended after Phase 3 (D80) so that
@@ -15,7 +15,10 @@
 > and `c0bc4c5` (merged at `3c73f34`) implement: the detail pane beside the form, the overlay over the form column,
 > wider filter drop-downs, the no-catalog focus, the Edit-mode width and tab order, and the overlay's view behaviors.
 > §1 and §2.1 state the notes rule as the data fix `e1c9e79` (merged at `61d9b1d`, D71 update) generalized it: a note
-> that is only a source label (`curated:`, `tags: ..`) exports as `""`.
+> that is only a source label (`curated:`, `tags: ..`) exports as `""`. D84 (a UX defect found in the dialog: the
+> Language filter listed every comma-joined combination as its own value) amends §2.1–§2.5 (new §2.6, the language
+> table in `data/languages.yaml`), §3.1–§3.3 (Language is multi-valued), §7 and §8 (CAT-01, CAT-08); **not
+> implemented yet** (data lane, then core lane, then test lane).
 
 ## Contents
 
@@ -51,6 +54,7 @@ Taken on this Mac (Apple Silicon, .NET 10 SDK, `data/canonical/*.csv` at `78b122
 | Notes that are only a source label: `tags:` (radio-browser extras with no tags), `curated:` (curated rows found through radio-browser whose YAML entry has no notes), `tags: ..` | part of 7,330 `tags: …` notes; in the export before `e1c9e79`, 59 `curated:` and 1 `tags: ..` (the Add dialog showed them as notes) | A note that is only a source label followed by nothing or only whitespace or punctuation, or that has no letter or digit at all, becomes `""`; Wikipedia `_emphasis_` markers are stripped first (D71; the data fix `e1c9e79`, merged at `61d9b1d`, generalized the bare `tags:` rule: those 60 entries now export `""`). The canonical CSVs and the XLSX keep the label as provenance |
 | Logos that are not http(s) | 36; empty: 3,259 | Exporter and provider keep only http(s) logos (D71, D74) |
 | Distinct values: type / genre / language / city | 7 / 132 / 173 / 434 | Flat, data-driven filter lists (D72) |
+| `language` in the exported JSON (measured at `4a44140` for D84; 8,274 entries) | 170 distinct values, 110 of them comma-joined radio-browser lists (longest, 89 characters: `American English,British English,Deutsch Fränkisch,English,German,Low German,Swiss German`), none with `;`; split on `,`, 101 distinct lower-cased tokens (`german` 4,544, `french` 1,704, `greek` 1,659, `english` 652, …) with misspellings (`francaise` 36, `deutch` 9, `gernan` 8, `franch` 7, `engilsh` 6), non-languages (`instrumental` 19, the collection YAML's own value; `global`, `multilingual`, `various languages`, `pop music`) and foreign or native names (`德语`, `английский`, `brezhoneg`); only 3 tokens contain `-` or `/` (`Français - Lëtzebuergesch` 7, a pasted `Germanhttps://Stream.Laut.Fm/…` 1, `English/ España/ Russian /Francia /Italia` 1). An exact-match filter found **179 of the 652** entries that list English, and missed 436 German, 105 French and 15 Greek ones | The Language filter listed every combination as its own value. The JSON's `language` becomes a normalized list of single names, and Core matches any one of them (§2.6, §3.3, D84). The spec lane's simulation of §2.6 on this data: **43 names**, 0 unknown tokens, 532 entries with two or more names, 29 with none (every token dropped) |
 | JSON size, one station per line | about 3.5 MB | Loose file, `MaxFileBytes` 32 MiB guard (D74) |
 | Search over 8,665 rows × 3 fields with `CompareInfo.IndexOf(IgnoreCase \| IgnoreNonSpace)` per call | 0.8–11.2 ms (`münchen` 11.2 ms, `αθήνα` 8.6 ms) | Over the 10 ms budget before ranking: fold once, match ordinally (D70) |
 | Same search on precomputed folded keys | 0.12–0.22 ms; folding all rows once: 7.3 ms | Folding happens once, at load, inside the 50 ms budget |
@@ -96,7 +100,8 @@ Owner: data lane (Phase 1). The pipeline writes it; the App reads it; nobody edi
 | `city` | string | trimmed; `—` → `""` | missing/`null` → `""` |
 | `region` | string | trimmed; `(unlisted)` → `""` | missing/`null` → `""` |
 | `frequency_fm` | string | as in the canonical CSV (`"101.5"`, `"1593"`, `""`) | missing/`null` → `""` |
-| `type`, `genre`, `language`, `codec` | string | trimmed, may be `""` | missing/`null` → `""` |
+| `type`, `genre`, `codec` | string | trimmed, may be `""` | missing/`null` → `""` |
+| `language` | string | `""`, or one or more language names joined with exactly `", "` (comma, one space): each name is a canonical name of `data/languages.yaml`, or, for a token the table does not know, that token in `string.capwords` form; no name is empty, has leading, trailing or doubled spaces, or contains `,` or `;`, and no name appears twice (§2.6, D84). Differs from the canonical CSV's raw value by design (the CSVs keep it) | missing/`null` → `""`; any other string is taken as it is (Core splits it on `", "`, §3.3) |
 | `internet_only` | boolean | canonical `Yes` → `true`; `No` and `Unknown` → `false` | missing/`null` → `false` |
 | `stream_url` | string | passes the URL rule below | fails the URL rule → entry skipped |
 | `bitrate` | integer or `null` | a positive integer, else `null` (`""`, `0`, non-numeric → `null`) | ≤ 0 → `null` |
@@ -114,6 +119,7 @@ A JSON **type** mismatch on a known key (for example `"votes":"12"`) makes the w
 - **URL rule** (mirrors `SettingsStore.ValidUrl` plus BHV-52's limit): `stream_url.strip()` has scheme `http` or `https` (lower case, as `urlsplit` returns it), a non-empty `hostname`, no whitespace or control character, and at most 2,048 characters.
 - **Included:** `stream_status == "Working"` and the URL rule holds. Nothing else is filtered.
 - **Dedupe key** (the pipeline's final dedupe, per country): `(country, norm(name).replace(' ', ''), norm_city(city, aliases), url_norm(stream_url))` with `norm`, `norm_city`, `url_norm` from `data/build/common.py`, where `aliases` is the `city_aliases` block of the row's own country YAML (checked by `common.city_aliases`; `{}` for a collection). Aliases come only from the YAMLs; the Python holds no alias list (`common.CITY_ALIASES` is gone, D71 update). A key matches only when it equals `norm(city)` verbatim, so every key must be in `norm()` form. On a collision the row with the higher `common.row_score` (in `data/build/common.py`, shared with `build_stations.py`) stays, ties keep the first.
+- **Language (D84):** normalized per §2.6 when the kept row becomes an entry, after the dedupe. The dedupe key, `common.row_score` and the order never read `language`, so the normalization cannot change which rows are exported or in what order.
 - **Order:** `country` ascending, then `votes` descending (`null` as 0), then `name`, then `stream_url`; strings compare by Unicode code point (Python's default `str` order; the C# check uses a code-point comparer, not UTF-16 ordinal). Deterministic for a given input. The app ranks by its own rules (§3.3), so this order only makes the file stable and diffs readable.
 
 ### 2.3 Validation (hard failure, same run)
@@ -126,8 +132,13 @@ Implemented as `validate_app_catalog(doc, source_rows)`; any failure prints ever
 4. No duplicate `(name, country, stream_url)`.
 5. `len(stations) == |{(country, name, stream_url) of the Working rows that pass the URL rule}|`. A dedupe that dropped a row therefore fails the run: fix the YAML, not the script (`.claude/rules/data-catalog-only.md`).
 6. `1 <= len(stations) <= 10000` (D69).
+7. **Language (D84):** every `language` is `""` or `", ".join(names)` for a non-empty list `names` in which every name is non-empty, equals `' '.join(name.split())` (trimmed, single spaces), contains no `,` and no `;`, and appears once (ordinal); and no name's `common.language_key` is an alias or drop key of the language table (§2.6), so every mapping was applied. (`"German,French"`, `"German, German"`, `"German, "`, `" German"` and, with `deutsch` an alias, `"Deutsch"` each fail.)
+
+A bad `data/languages.yaml` is a hard failure too, before anything is built: `common.language_table` raises with the file name and every problem (§2.6).
 
 The run logs one line: `app-catalog: working=<n> url_excluded=<n> duplicates_removed=<n> exported=<n> -> data/output/app-catalog.json`. Today's expected values: `working=8281 url_excluded=7 duplicates_removed=0 exported=8274`.
+
+Then one line for the languages (D84), on standard output: `app-catalog: languages=<n> unknown=<n>`, where `languages` is the number of distinct names in the exported `language` values and `unknown` the number of distinct unknown token keys (§2.6); then, for each unknown key, ordered by entry count descending and then by key (code point), one line `app-catalog: unknown language "<token as first written>" in <n> entries, exported as "<capwords form>"; add it to data/languages.yaml`. Unknown tokens are **not** a failure. Today's expected value: `unknown=0` (the checked-in table covers every token of today's data, §2.6); `languages` is whatever the table yields (the spec lane's simulation of §2.6 gave 43), recorded by the data lane, not pinned.
 
 ### 2.4 Python surface (`data/build/app_catalog.py`)
 
@@ -138,17 +149,33 @@ MAX_URL_LENGTH = 2_048
 KEYS = ('name', 'name_local', 'country', 'country_label', 'city', 'region', 'frequency_fm', 'type', 'genre',
         'language', 'internet_only', 'stream_url', 'codec', 'bitrate', 'votes', 'notes', 'logo', 'tag')
 
+LANGUAGE_SEPARATOR = ', '
+
 def valid_stream_url(url: str) -> bool: ...
-def build_app_catalog(sources: list[tuple[dict, list[dict]]], generated_utc: str) -> tuple[dict, dict]:
-    """sources: (yaml cfg, canonical rows) per country and per collection, in build order.
-    Returns (document, stats) with stats keys working, url_excluded, duplicates_removed, exported."""
-def validate_app_catalog(doc: dict, source_rows: list[dict]) -> list[str]:
+def normalize_language(raw: str, table: dict[str, tuple[str, ...]]) -> tuple[str, list[str]]:
+    """§2.6: the exported language value, and the unknown tokens in the order met (as written, whitespace collapsed)."""
+def build_app_catalog(sources: list[tuple[dict, list[dict]]], generated_utc: str,
+                      languages: dict[str, tuple[str, ...]]) -> tuple[dict, dict]:
+    """sources: (yaml cfg, canonical rows) per country and per collection, in build order; languages: the table
+    of common.language_table. Returns (document, stats) with stats keys working, url_excluded, duplicates_removed,
+    exported, languages (distinct names exported) and unknown_languages ({key: (first spelling, entry count)})."""
+def validate_app_catalog(doc: dict, source_rows: list[dict], languages: dict[str, tuple[str, ...]]) -> list[str]:
     """Every problem found (empty list = valid)."""
 def write_app_catalog(doc: dict, path: Path) -> None:
     """Serializes per §2.1 to a temp file next to path, then os.replace."""
 ```
 
-`python data/build/app_catalog.py --self-test` runs stdlib-only fixture checks (no network, no openpyxl): a Down row, an empty URL, an `ftp://` URL, a 2,049-character URL and a host-less URL are excluded; a duplicate is removed and then reported by rule 5; `tag` equals `common.app_tag`; a collection row gets `Internet` / `Internet (collections)`; the placeholders, `internet_only`, `bitrate`, `votes`, `notes` and `logo` normalize per §2.1; the order rule holds; the writer's output parses and round-trips byte-for-byte. `app_catalog.py` imports only the standard library and `data/build/common.py` (never `build_all.py`, which needs openpyxl, or `build_stations.py`), so the self-test stays stdlib-only (D71). `build_all.py` calls `build_app_catalog`, `validate_app_catalog` and `write_app_catalog` after the CSVs and before the XLSX.
+And in `data/build/common.py` (D84; stdlib, like `common.city_aliases`):
+
+```python
+def language_key(s: str) -> str:
+    """NFC, str.lower(), every whitespace run -> one space, trimmed. The lookup key of §2.6."""
+def language_table(value, source) -> dict[str, tuple[str, ...]]:
+    """The parsed data/languages.yaml checked per §2.6 (a hard ValueError naming source and every problem), as one
+    lookup: each canonical name's key -> (name,), each alias key -> its names, each drop key -> ()."""
+```
+
+`python data/build/app_catalog.py --self-test` runs stdlib-only fixture checks (no network, no openpyxl): a Down row, an empty URL, an `ftp://` URL, a 2,049-character URL and a host-less URL are excluded; a duplicate is removed and then reported by rule 5; `tag` equals `common.app_tag`; a collection row gets `Internet` / `Internet (collections)`; the placeholders, `internet_only`, `bitrate`, `votes`, `notes` and `logo` normalize per §2.1; the order rule holds; the writer's output parses and round-trips byte-for-byte. **D84 adds**, over an inline table passed through `common.language_table` (the self-test reads no YAML, so it stays stdlib-only): the §2.6 examples; a split on `,` and on `;` but not on `-`, `/` or `.`; case-insensitive lookup (`GERMAN`, `german` → `German`); an alias to one name (`deutsch`, a typo, a native name) and to a list; a drop (`instrumental` → `""` when it is the only token); first-seen dedupe (`German,Deutsch,English,german` → `German, English`); empty parts skipped (`German,,` → `German`); an unknown token exported in `capwords` form, reported once per key with its entry count and first spelling, and not a failure; every `language_table` error of §2.6; and rule 7 rejecting the five values of §2.3. `app_catalog.py` imports only the standard library and `data/build/common.py` (never `build_all.py`, which needs openpyxl, or `build_stations.py`), so the self-test stays stdlib-only (D71). `build_all.py` loads `data/languages.yaml` with `yaml.safe_load`, checks it with `common.language_table`, and calls `build_app_catalog`, `validate_app_catalog` and `write_app_catalog` after the CSVs and before the XLSX, printing the §2.3 lines.
 
 ### 2.5 The workbook (`data/output/dialshift-radio-catalog.xlsx`, D78)
 
@@ -158,7 +185,61 @@ The workbook stays the manual-copy fallback (brief §5.1). It is regenerated in 
 2. Every tab's **"Description / Genre"** column is `common.app_tag(row)`, the text the in-app pick fills (§2.1 `tag`, D73). The Import Ready and country tabs already were; the collection tab (`Ambient & Chill`) moves from `genre` to `app_tag` (for example `1.FM · Chillout lounge` becomes `Music · 1.FM · Chillout lounge`, 24 rows today), so manual copy and the picker agree (D78).
 3. Votes, and the collection rows themselves, may move with the live radio-browser lookup (the `collection-*.csv` allowance in §7).
 
-Everything else in the workbook, and every canonical CSV column, is unchanged.
+Everything else in the workbook, and every canonical CSV column, is unchanged. That includes `language` (D84): the CSVs and every workbook tab keep the raw radio-browser or YAML value as provenance, and only `app-catalog.json` carries the §2.6 list.
+
+### 2.6 Language normalization (D84)
+
+**The table** lives only in `data/languages.yaml` (YAML-only, like the city aliases, D71 update: no language fact in Python or C#). Shape:
+
+```yaml
+languages:            # canonical names: the language's usual English name, capitalized as in English prose
+  - English
+  - French
+  - German
+  - Greek
+  - Low German
+  - Luxembourgish
+aliases:              # key form (common.language_key) -> one canonical name, or a list of them
+  deutsch: German
+  gernan: German
+  français: French
+  francaise: French
+  ελληνικά: Greek
+  français - lëtzebuergesch: [French, Luxembourgish]
+drop:                 # key form: tokens that are not a language
+  - instrumental
+  - multilingual
+```
+
+`common.language_table(value, source)` checks it and raises one `ValueError` naming `source` and every problem when: the document is not a mapping with a non-empty `languages` list (`aliases` and `drop` may be missing or empty); a canonical name is not a non-empty string equal to `' '.join(name.split())`, or contains `,` or `;`; two canonical names have the same key; a key of `aliases` or an element of `drop` is not a string (an unquoted `no:` or `yes:` is a YAML boolean and must be quoted) or is not equal to its own `language_key` (it would never match: "write it as …", the `city_aliases` rule); an alias target is not a listed canonical name, or is an empty list; a key is both an alias and a drop; or an alias or drop key equals a canonical name's key (a canonical name already matches itself, in any case).
+
+**The algorithm** (`normalize_language(raw, table)`, per exported entry):
+
+1. `raw` is the row's `language`, trimmed (§2.1). Split it on **`,` and `;` only** (`re.split('[,;]', raw)`).
+2. Each part: `' '.join(part.split())`; an empty part is skipped.
+3. `key = language_key(part)`. When `key` is in the table, the part becomes the table's names for it: its canonical name, an alias's name or names, or nothing for a drop key. Otherwise the part is **unknown**: it becomes `string.capwords(unicodedata.normalize('NFC', part))` (each space-separated word with its first character upper-cased and the rest lower-cased), is kept, and is reported (§2.3's lines, counted per key, with the first spelling met). An unknown token is never a failure: a radio-browser refresh can bring a new spelling, and the report tells the maintainer to add it.
+4. Concatenate the names in token order, drop repeats keeping the first occurrence (ordinal), and join with exactly `", "` (`LANGUAGE_SEPARATOR`). No name left gives `""`.
+
+**Not split on `-`, `/` or `.`.** Those characters belong to names and free text, not to the list syntax radio-browser uses (its lists are comma-joined), and a split rule applies silently to every future token. Hyphenated language names exist (`Serbo-Croatian`, `Swiss-German`, `Haitian-Creole`) and a split would make two wrong names of each. The three tokens in today's data that contain `-` or `/` are each one alias instead, which is explicit and reviewable: `français - lëtzebuergesch` → `[French, Luxembourgish]`; `english/ españa/ russian /francia /italia` → `[English, Spanish, Russian, French, Italian]`; and the pasted `germanhttps://stream.laut.fm/deutrockosterreich` → `German`, which a `/` split would have cut into `Germanhttps:`, `Stream.Laut.Fm` and `Deutrockosterreich`. The same holds for the other filter fields, where `/` and `-` are part of the value (`Pop / Schlager`, `Thüringen - Mitte (Jena/Erfurt/Weimar/Remda)`), which D84 leaves unchanged.
+
+**Canonical names.** A canonical name is a language, not a dialect, a regional variety, a region, a script or a genre. A dialect or regional variety maps to its language; a language with its own ISO 639-1 code, or a regional or minority language that Germany or France recognizes as such (Low German, Sorbian, Breton, Occitan, Corsican, Basque, Catalan), stays its own name. The table must map at least these tokens of today's data as shown, and must cover **every** token of today's data (the §2.3 `unknown=0`); a token not listed here that is already a language name (`polish`, `dutch`, `arabic`, `italian`, …) needs only its canonical entry, and the remaining long tail (single occurrences such as `aka bo`) is the data lane's call under the same rule, mapped or dropped:
+
+| Canonical name | Tokens (key form) that map to it |
+|---|---|
+| English | `american english`, `british english`, `english uk`, `engilsh`, `englsih`, `engels`, `английский` |
+| German | `deutsch`, `deutch`, `gernan`, `ger`, `德语`, `germanhttps://stream.laut.fm/deutrockosterreich`; the dialects and varieties `deutsch fränkisch`, `fränkisch`, `norddeutsch`, `sächsisch`, `kölscher dialekt`, `pfälzisch`, `bayrisch`, `bavarian`, `swabian`, `swiss german` |
+| Low German | (its own name; not German) |
+| French | `français`, `francaise`, `franch`, `fench`, `fra`, `französich`, `francia` |
+| Greek | `ελληνικά`, `ancient greek` (as `build_stations` already treats it) |
+| Spanish | `espanish`, `espaňol`, `español internacional`, `castellano. español`, `spain`, `latinoamerica` |
+| Sorbian | `upper sorbian`, `lower sorbian` |
+| Occitan | `gascon`, `bearnese` |
+| Breton, Basque, Corsican, Dutch, Czech, Hindi, Kurdish, Russian | `brezhoneg`; `euskera`; `corsu`; `flemish`; `bohemian`; `hind`; `kurdi`; `язык: русский` |
+| Turkish, Ukrainian | `türkisch`, `turkçe`; `ukrainisch`, `ukranian` |
+| two or more names | `français - lëtzebuergesch` → French, Luxembourgish; `english/ españa/ russian /francia /italia` → English, Spanish, Russian, French, Italian |
+| (dropped) | `instrumental`, `music`, `pop music`, `roots`, `global`, `multilingual`, `various languages`, `f` |
+
+So the 89-character value of §1, `American English,British English,Deutsch Fränkisch,English,German,Low German,Swiss German`, exports as `English, German, Low German`; `Deutch,Gernan` as `German`; and the 19 collection stations whose YAML says `Instrumental` export `""` (the detail pane hides an empty language, as it already does).
 
 ## 3. Core contracts: `DialShift.Core/Catalog/`
 
@@ -196,6 +277,8 @@ public sealed record StationCatalogEntry
 }
 ```
 
+`Language` is `""` or one or more language names joined with `", "` (§2.1, §2.6, D84). Core reads the names by splitting on that separator (§3.3) and holds no language fact: it maps, corrects and drops nothing.
+
 ### 3.2 `StationCatalogIndex.cs` and the query types
 
 ```csharp
@@ -208,14 +291,16 @@ public sealed class StationCatalogIndex
     public static StationCatalogIndex Empty { get; }
 
     /// <summary>Copies <paramref name="entries"/> (order kept) and folds Name, NameLocal and City, extracts the
-    /// FrequencyFm digits and computes the FrequencyFm band (<see cref="StationCatalogQuery.BandOf"/>) of every entry.
+    /// FrequencyFm digits, computes the FrequencyFm band (<see cref="StationCatalogQuery.BandOf"/>) and splits Language
+    /// into its names (D84) of every entry.
     /// O(n); throws ArgumentNullException for a null list or a null entry, and never throws on text content (§3.3, D77, D79).</summary>
     public StationCatalogIndex(IReadOnlyList<StationCatalogEntry> entries);
 
     public IReadOnlyList<StationCatalogEntry> Entries { get; }
 }
 
-/// <summary>Filter values; null means "All". Values compare ordinally with the entry's field (Country is the code).</summary>
+/// <summary>Filter values; null means "All". Values compare ordinally with the entry's field (Country is the code);
+/// Language matches when it equals any one of the entry's language names (§3.3, D84).</summary>
 public sealed record CatalogFilters(
     string? Country = null, string? City = null, string? Type = null, string? Genre = null, string? Language = null)
 {
@@ -239,6 +324,10 @@ public static class StationCatalogQuery
 {
     public const int DefaultCap = 50;
 
+    /// <summary>The separator of an entry's language names (§2.1, D84). Internal: the index splits on it, and the tests
+    /// see it through InternalsVisibleTo.</summary>
+    internal const string LanguageSeparator = ", ";
+
     public static CatalogSearchResult Search(StationCatalogIndex catalog, string? text, CatalogFilters filters, int cap = DefaultCap);
 
     public static IReadOnlyList<CatalogFilterValue> AvailableValues(IReadOnlyList<StationCatalogEntry> entries, CatalogField field);
@@ -253,6 +342,8 @@ public static class StationCatalogQuery
 ```
 
 **Amendment of the brief's signature (D70):** the brief wrote `Search(IReadOnlyList<StationCatalogEntry>, …)`. `Search` takes the `StationCatalogIndex` instead, because culture-aware matching per call (`CompareInfo.IndexOf` with `IgnoreCase | IgnoreNonSpace`, per field) measured up to 11.2 ms on the real data before ranking, while folding every entry once took 7.3 ms (§1). The index is built once, inside the load. Files: `StationCatalogEntry.cs`, `StationCatalogIndex.cs`, `StationCatalogQuery.cs` (with `CatalogFilters`, `CatalogSearchResult`, `CatalogField`, `CatalogFilterValue`).
+
+**Language is multi-valued (D84).** The index's per-entry keys (`SearchKeys`) gain the entry's language names, `entry.Language.Split(LanguageSeparator)` with `StringSplitOptions.None`, computed once in the constructor, so `Search` allocates nothing per entry for the Language filter. No public signature changes.
 
 ### 3.3 Matching and ranking (normative, testable)
 
@@ -303,7 +394,7 @@ The empty and `Shortwave` entries match no row. The results within a row follow 
 
 Not adopted by D79 (recorded there): German transliteration (`koeln` for Köln), other band words (`UKW`, `MW`, `OM`, `PO`), and separator-insensitive matching of frequencies written inside names (`90.3` for `NDR 90,3`).
 
-**Filters.** Every non-null field of `CatalogFilters` must equal the entry's field with `StringComparison.Ordinal` (`Country` against `entry.Country`). All filters AND with each other and with the text.
+**Filters.** Every non-null field of `CatalogFilters` must equal the entry's field with `StringComparison.Ordinal` (`Country` against `entry.Country`), except `Language` (D84): it must equal, ordinally and exactly, **any one** of the entry's language names, which are `entry.Language.Split(", ")` with `StringSplitOptions.None`, not trimmed and not folded. For an entry whose `Language` has no `", "` this is the old whole-field rule, and `Language: ""` still matches the entries without a language, as `City: ""` matches those without a city. `Language: "German"` matches the entries `German`, `German, English` and `English, German`, and not `german`, `Deutsch` or `German,English` (no space: the one name `German,English`); a filter value that is itself a combination (`"German, English"`) matches no entry, since no name contains `", "`. All filters AND with each other and with the text. Language is still not searched by the text (tiers below).
 
 **Tiers** (an entry takes the lowest tier it satisfies; no tier = no match; with `q == ""` every filtered entry is tier 0):
 
@@ -320,7 +411,7 @@ Only Name, NameLocal, City and FrequencyFm are searched; genre, notes and tags a
 
 **Result.** `TotalCount` = number of matches; `Items` = the first `min(cap, TotalCount)` of the total order. `cap < 1` → `ArgumentOutOfRangeException`; `catalog` or `filters` null → `ArgumentNullException`. Those are the only exceptions: no `text` content throws, including an unpaired surrogate (D77). The scan is O(n) over precomputed keys with a bounded top-`cap` selection; no allocation per non-matching entry.
 
-**AvailableValues(entries, field).** Distinct non-empty values of the field (ordinal distinct). `Label` = `Value`, except for `Country`: the first non-empty `CountryLabel` of an entry with that code (list order), else the code. Ordered by `Fold(Label)` ordinal, then `Label` ordinal, then `Value` ordinal. Filter lists are flat, computed from the whole catalog, never cascading (D72).
+**AvailableValues(entries, field).** Distinct non-empty values of the field (ordinal distinct). For `Language` (D84) the values are the entries' individual language names (each `Language` split on `", "` as in the Filters rule, empty names skipped), never a joined combination, so every value is one a Language filter can match. `Label` = `Value`, except for `Country`: the first non-empty `CountryLabel` of an entry with that code (list order), else the code. Ordered by `Fold(Label)` ordinal, then `Label` ordinal, then `Value` ordinal, for every field. `AvailableValues` takes the entry list, not the index, so it splits each `Language` itself; it runs once per load, off the search path. Filter lists are flat, computed from the whole catalog, never cascading (D72).
 
 ## 4. App contracts: provider, logo loader, build and package
 
@@ -648,6 +739,10 @@ No two lanes own the same file in the same phase. A lane that needs a change in 
 | 5 | QA (`qa-auditor`), design (`design-reviewer`) | nothing (read-only reports) | everything |
 | 6 | docs (`docs-engineer`) | `README.md`, `docs/**`, `AGENTS.md`, `CLAUDE.md`, `data/README.md` prose, `THIRD-PARTY-NOTICES.md` text (with the release lane) | code, scripts, workflows, generated data |
 | 6 | release (`release-engineer`) | `.github/workflows/*.yml` if a step is needed, `.claude/skills/release-packaging/SKILL.md`, the "Station catalog data" source list the notices need (D76) | code, `CHANGELOG.md` release section (release-time only) |
+| D84 | data (`data-engineer`) | new `data/languages.yaml`; `data/build/common.py` (`language_key`, `language_table`), `data/build/app_catalog.py` (§2.4, §2.6, rule 7, the self-test), `data/build/build_all.py` (load the table, the §2.3 lines); `data/output/app-catalog.json` regenerated **without `--refresh`** (only `language` values change, plus the allowed collection-vote drift); `data/README.md`, `.claude/rules/data-catalog-only.md` and `.claude/skills/radio-catalog-pipeline/SKILL.md` (where language facts live) | `data/canonical/*.csv` (byte-identical), the XLSX's `language` cells, any C# |
+| D84 | core (`core-engineer`), in parallel with data | `DialShift.Core/Catalog/StationCatalogIndex.cs` (the names key), `StationCatalogQuery.cs` (`LanguageSeparator`, the filter, `AvailableValues`) | anything outside `DialShift.Core/Catalog`; no public signature change |
+| D84 | test (`test-engineer`), after both | the CAT-01 checks in `CatalogExportContractTests.cs` and the CAT-08 checks in `CatalogQueryTests.cs` (§8) | product code |
+| D84 | UI | nothing: the Language picker already lists `AvailableValues` and passes the picked value; the detail pane shows `entry.Language`, now the joined list, and hides it when empty | — |
 
 **Dependencies.** Phase 1 and Phase 2 start together. Phase 3 starts with Phase 2 and needs Core's `StationCatalogIndex` before `CatalogProvider` compiles, so the core lane lands `StationCatalogEntry.cs` + `StationCatalogIndex.cs` first; the integration lane lands `ICatalogProvider.cs` + `ICatalogLogoLoader.cs` as its first commit. Phase 4a starts when both first commits are in; 4b follows 4a. Phase 3's end-to-end publish checks need Phase 1's JSON. Phase 5 starts when 1–4 are merged on the branch; Phase 6 after Phase 5 is clean. Implementer ≠ reviewer ≠ auditor: `qa-auditor`, `design-reviewer` and `perf-auditor` never review their own work, and no implementing lane reviews itself.
 
@@ -657,14 +752,14 @@ Check names start with the row id (`"CAT-06 …"`), as the timezone rows start w
 
 | Row | Proof (suite / check / command) | Local macOS evidence | Windows evidence still needed |
 |---|---|---|---|
-| CAT-01 | `app_catalog.py --self-test`; the pipeline log line (§2.3); `Catalog`: "CAT-01 …" reads the checked-in JSON and `data/canonical/*.csv` (the repo root found by walking up to `DialShift.slnx`; SKIP with a reason when absent), with a small RFC 4180 reader in the test: 18 keys in order, schema 1, every entry valid, no duplicate `(name, country, stream_url)`, the `(country, name, stream_url)` set equals the Working rows that pass the URL rule, order rule, collections labelled `Internet (collections)`, `tag` non-empty | yes | none (OS-independent data; the `Catalog` suite also runs on `windows-latest` for the DoD) |
+| CAT-01 | `app_catalog.py --self-test`; the pipeline log line (§2.3); `Catalog`: "CAT-01 …" reads the checked-in JSON and `data/canonical/*.csv` (the repo root found by walking up to `DialShift.slnx`; SKIP with a reason when absent), with a small RFC 4180 reader in the test: 18 keys in order, schema 1, every entry valid, no duplicate `(name, country, stream_url)`, the `(country, name, stream_url)` set equals the Working rows that pass the URL rule, order rule, collections labelled `Internet (collections)`, `tag` non-empty. **D84 adds:** the self-test's language checks (§2.4: the §2.6 split, case-insensitive lookup, one-name and list aliases, drops, first-seen dedupe, the `", "` join, an unknown token kept in `capwords` form and reported once per key with its count, every `language_table` error, rule 7); the pipeline's `app-catalog: languages=<n> unknown=0` line on today's data; and `Catalog` "CAT-01 …" over the checked-in JSON: every `language` is `""` or names joined with exactly `", "`, each name non-empty, trimmed with single spaces, free of `,` and `;`, no name twice in one entry, and no two distinct names in the whole file with equal `Fold` (a case or accent variant the table missed); plus, against `data/canonical/*.csv`, an entry's `language` is `""` whenever its row's raw language is empty (the export invents nothing). The C# checks hold no language names (CAT-17): the mapping itself is the self-test's | yes | none (OS-independent data; the `Catalog` suite also runs on `windows-latest` for the DoD) |
 | CAT-02 | `dotnet build -c Debug` and `-c Release`, `dotnet publish -r osx-arm64 --self-contained` and `-r win-x64 --self-contained`: `app-catalog.json` in each output, `cmp` equal to `data/output/app-catalog.json`; `Catalog`: "CAT-02 …" the test output folder has the file (the Content item flows through the project reference) | yes (win-x64 cross-published) | `windows-latest` build and publish (CI matrix) |
 | CAT-03 | `scripts/build-mac-app.sh` + `scripts/verify-mac-app.sh --zip` (the JSON check, after `ditto` and `unzip`); `pwsh scripts/build.ps1 -SkipTests` + `verify-win-package.ps1` on this Mac (D58); the bundle smoke's catalog check; the D81 verifier checks, each run against a copy of a verified package with its `app-catalog.json` replaced: each of these fails **both** verifiers: a `stations` array holding one non-object element (`1`, `"x"`, `[]`, `null`), `NaN` or `Infinity` in a value, a comment, a trailing comma (in `stations` and in a station), a second value after the root object, a root array, a number `01`, and `schema_version` `"1"`, `true`, `1.0`, `1e0` or missing; a file with a UTF-8 byte order mark, and a station name holding `,]`, `{`, `}` or an escaped quote, pass both (the Windows fallback blanks strings before its own checks). **Not verifier checks (D82 (c)):** a quoted number, a number past `Int32` and an escaped lone surrogate pass both verifiers and fail the bundle smoke's catalog check, which pins the accepted scope | yes (`verify-win-package.ps1` under `pwsh` only) | the Windows native smoke from the zip (the file resolves next to `DialShift.exe` at run time); **NC-18**: the same fixtures under Windows PowerShell 5.1, the fallback parser, with the same verdicts as under `pwsh` (D82 (d)) |
 | CAT-04 | `Catalog`: "CAT-04 …" for missing, empty, not JSON, truncated, `schema_version` 2 / `"1"` / missing, `stations` missing / null, every entry invalid, 10,001 entries (and no `catalog.entries_skipped`, §4.2 step 5), a directory, an unreadable file (SKIP on Windows), a FIFO with no writer and the character devices `/dev/null` and `/dev/zero` (runs on macOS arm64 only: the provider's `stat` check before the open is osx-arm64 code, so elsewhere the check reports SKIP with its reason; D81, `80eed1f`): exactly `the path is not a regular file.` within a bounded wait, the FIFO never opened, so the load completes instead of hanging: Unavailable with the §4.2 reason as `Message`, exactly one `catalog.unavailable` (`RecordingAppLog`) in the §4.2 shape, no exception; a fixture with a UTF-8 BOM loads (D80); a log that throws on every call (D80 item 4, `80eed1f`) leaves a good file Loaded, a file with skipped entries Loaded, and a missing file Unavailable with its reason, never a fault; the parser's accept/reject set (§4.2 step 3): comments, trailing commas, data after the root, a quoted number, a number past `Int32`, a non-object element, a root array, an escaped lone surrogate in a value and in a key are `not valid catalog JSON`, while an escaped key, a duplicate key (the last wins), unknown keys of every JSON type and `null` members load; `catalog.loaded` names `[DIALSHIFT_CATALOG_PATH]` for a fixture and says `(generated unknown)` without `generated_utc`; a station whose `name` contains U+FFFE (raw or as `\ufffe`) still loads (D77), while an escaped lone surrogate (`\ud800`) is a JSON error that makes the file Unavailable (`not valid catalog JSON`, measured: `System.Text.Json` rejects it before `Fold` sees it); the default location in the test process loads the real file; `UiViewModels`: "CAT-04 …" a provider that never completes leaves the dialog responsive and manual Save working; the smoke catalog check | yes | the Windows smoke catalog check |
 | CAT-05 | `Catalog`: "CAT-05 …" `ResolveLocation` for unset / empty / whitespace / relative / absolute values and a fully qualified value with an embedded NUL (`is not a valid path.`, no exception, D80), a fixture loaded through the override, no fallback for a relative value | yes | `windows-latest` (drive-letter and UNC rules of `IsPathFullyQualified`) |
 | CAT-06 | `Catalog`: "CAT-06 …" the §3.3 `Fold` examples, name / name_local / city matching, genre and notes not searched, whitespace collapse, Greek with tonos and final sigma, German umlauts and ß, French accents; lone surrogates (D77): the §3.3 surrogate and U+FFFE `Fold` examples, `Search(StationCatalogIndex.Empty, "\uD800", CatalogFilters.None)` and the same with `"\uFFFE"` return an empty result instead of throwing, and an index over a `Name` with a lone surrogate or a U+FFFE builds and matches a query containing the same character | yes | `windows-latest` (the OS normalization data behind `string.Normalize`) |
 | CAT-07 | `Catalog`: "CAT-07 …" every row of the §3.3 frequency example table (D79) as its own named case, over the table's catalog; in particular the D79 changes: `FM 101.5` finds FM 101.5 (leading token), `101.50` finds FM 101.5 (trailing zero), `101.7` finds FM 101.7 but not kHz 1017 while `1017` finds both, `AM 1017` / `1017 kHz` find only kHz 1017; `101.` no longer finds kHz 1017; conflicting bands (`AM 101.7`, `101.5 kHz`) and `UKW 101.5` are not frequency queries; `BandOf` over `101.5`, `89.0`, `108.0`, `64`, `1017`, `150`, `8500` (`Fm` for the first four, `Kilohertz` for the last three), `108.5` / `149` / `1593.0` / `87,5` / `1,017` / ` 101.5` / `+101.5` / `Shortwave` / `""` (None), and null throws; empty `FrequencyFm` and band `None` entries never match a banded query; a frequency query ANDs with a filter; tier 3 ranks below name matches. `UiViewModels`: "CAT-07 …" `UiText.FrequencyText` ends in ` FM` exactly when `BandOf` is `Fm` and in ` kHz` exactly when it is `Kilohertz`, over the same inputs. `koeln` does not find Köln (pinned as the D79 non-goal) | yes | DoD only |
-| CAT-08 | `Catalog`: "CAT-08 …" each filter alone, all five ANDed with text, `null` = All, ordinal equality, `AvailableValues` distinct / non-empty / ordered / country labels; `UiViewModels`: "CAT-08 …" options = All + catalog values, a filter change re-searches, Clear resets | yes | DoD only |
+| CAT-08 | `Catalog`: "CAT-08 …" each filter alone, all five ANDed with text, `null` = All, ordinal equality, `AvailableValues` distinct / non-empty / ordered / country labels. **D84 adds** (fixtures with the entries `German`, `German, English`, `English, German`, `French`, `German,English`, `""` and `German, `): `Language: "German"` matches exactly `German`, `German, English`, `English, German` and `German, ` (a name in any position), not `German,English`; `Language: "English"` matches the two lists; `Language: "german"` and `"German, English"` match nothing (ordinal, one name); `Language: ""` matches `""` and `German, ` only; Language ANDs with the other filters and the text; the text does not match a language (`english` finds no entry by its language); `AvailableValues(…, Language)` is `English`, `French`, `German`, `German,English` in folded order, distinct across entries, with no empty value and no value containing `", "`; every value it returns, used as the filter, matches at least one entry; the other four fields' `AvailableValues` are unchanged (a `Genre` of `Pop, Rock` stays one value); and over the checked-in catalog (SKIP without a repository root, as CAT-01), no value of the Language list contains `,` or `;`, and a Language filter on each value returns exactly the entries whose `language` lists that name. `UiViewModels`: "CAT-08 …" options = All + catalog values, a filter change re-searches, Clear resets | yes | DoD only |
 | CAT-09 | `Catalog`: "CAT-09 …" tier order, votes desc (null = 0), every tie-break, same result for a shuffled catalog, cap 50 with the true total, `cap < 1` throws; `UiViewModels`: `TotalCountText` for 0, 1, 50-of-50 and 50-of-214 | yes | DoD only |
 | CAT-10 | `UiViewModels`: "CAT-10 …" select fills Name/Tag/Url (with the 100/160 truncation, and a surrogate pair at the limit dropped whole, D83), `SelectedEntry`, detail texts (notes full, votes, frequency, language, location); `UiText.Initial` for `""`, `"kosmos"`, a name starting with an emoji (the pair kept whole, D83); Save stores `Notes` only when the URL is unchanged; `HeadlessUi`: pick by keyboard fills the real text boxes (found by automation name), the detail pane beside the form shows the notes and stays visible while Down walks the open overlay (its name follows the highlight), and shows `CatalogDetailPlaceholder` before any highlight or pick; `Catalog` (`DialShift.Tests/Catalog/CatalogLogoLoaderTests.cs`, on Avalonia's headless platform, where Skia is initialized, which decoding needs): "CAT-10 …" the logo loader (§4.3, D80, D81, D82) with a test handler: a non-http(s) URL is never requested, a failure is cached (one request for two calls), concurrent calls for one URL make one request, when every caller cancels the request is cancelled and the next call requests again, a body over `MaxBytes` gives `null`, every request carries `User-Agent: DialShift/…`. **D81 checks:** (a) *the two bomb images*, the 145-byte truncated PNG whose header claims 20000 × 20000 and the 177-byte 1 × 20000 PNG, each give `null` or a bitmap of at most 64 × 64, and memory stays bounded: `Process.WorkingSet64`, refreshed and sampled every few milliseconds on a background thread while the two bombs load (and nothing else runs in the check), never exceeds its value before the loads by 128 MiB (the pre-D81 code peaked at about 2.4 GiB and kept a 64 × 1,280,000 bitmap). `Process.PeakWorkingSet64` cannot be used: it reads 0 on macOS (spec lane, .NET 10, measured); the 20000 × 20000 header gives `null` from the header check alone; a PNG of exactly `MaxPixels` (4096 × 4096) decodes to 64 × 64, and one of 4097 × 4096 gives `null` (there is no single-side cap, §4.3); a valid PNG truncated in its pixel data gives `null` (only a complete decode counts); (b) *longest side 64*: 128 × 96 → 64 × 48 (landscape), 96 × 128 → 48 × 64 (portrait), 1 × 20000 → 1 × 64, 32 × 32 → 64 × 64; (c) *private hosts never requested*: `localhost`, `127.0.0.1`, `127.255.255.254`, `10.1.2.3`, `172.16.0.1`, `172.31.255.255`, `192.168.1.1`, `169.254.169.254`, `0.0.0.0`, `[::1]`, `[::]`, `[fd00::1]`, `[fe80::1]` and `[::ffff:127.0.0.1]`, the shorthand spellings `127.1`, `2130706433`, `0x7f000001` and `0` (D81 as implemented), and **the D82 additions** `a.localhost`, `A.LOCALHOST.`, `0.1.2.3`, `0.255.255.255`, `[fec0::1]`, `[feff::1]`, `[::127.0.0.1]` and `[::10.0.0.1]` (IPv4-compatible, judged by the embedded IPv4) each give a completed `null` with zero requests, and a second call makes none either (not cached, still refused); the neighbours `172.15.0.1`, `172.32.0.1`, `1.0.0.1`, `localhost.example`, `mylocalhost` (ends in `localhost` but not `.localhost`), `[fe7f::1]`, `[::1:0:0:1]`, `[::8.8.8.8]` (IPv4-compatible with a public IPv4) and a public name are requested, so the ranges are not wider than §4.3; (d) *redirects*: a 302 to `http://127.0.0.1/…`, to `http://[::1]/…`, to `file:///etc/passwd` and to `ftp://…` each give `null`, the target is never requested, and the result is cached (a second call makes no request); a relative `Location` and a 301/307/308 to a public URL are followed and decode, with the `User-Agent` on every hop; `MaxRedirects` hops succeed and one more gives `null`; **D82 downgrade:** a 302 from an https URL to an http one (also as the second hop, after an https → https hop) gives `null`, the http target is never requested, and the result is cached, while http → https, https → https and a protocol-relative `//host/…` `Location` from an https URL (requested as https) are followed and decode; a 3xx other than the five (a 300 or 304 with a `Location`) is not followed and gives `null`; (e) *join after abandon*: a caller cancels the only wait on a download whose handler is still running, and another caller for the same URL arrives at once from another thread; the second caller always gets the logo (never `null`) and its request is a new one; repeated at least 1,000 times within a bounded time, since the window is a race; (f) **D82 serialized decodes:** four distinct URLs serving a 4096 × 4096 PNG, started together, all decode to 64 × 64, and the working set, sampled as in (a), never rises more than 256 MiB above its value before the loads (measured at `b2106d6`: peak +86 MiB one at a time, +342 MiB with four concurrent decodes before it); (g) **D82 cancellation while waiting for the gate:** while one large decode holds the gate, the only caller of a second, downloaded logo cancels; it gets `null` (not an exception), the second logo is not cached (the next call requests it again and decodes it), the first decode still completes and is cached, and a later decode still gets the slot (the cancelled wait released nothing) | yes | DoD only |
 | CAT-11 | `HeadlessUi` + `UiViewModels`: every existing HS-02 check green (the focus check amended per D68), plus "CAT-11 …" Edit mode shows no catalog panel and no detail pane, name field focused, BHV-52 messages unchanged, the window 680 wide, and Tab from the name field visits Description, Stream URL, Save, Cancel, Delete in that order (D83) | yes | `windows-latest` headless run |
