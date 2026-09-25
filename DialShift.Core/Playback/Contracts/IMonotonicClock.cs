@@ -14,6 +14,13 @@ public interface IMonotonicClock
 }
 
 /// <summary>Production <see cref="IMonotonicClock"/> backed by <see cref="Stopwatch"/>.</summary>
+/// <remarks>
+/// On macOS, <see cref="Stopwatch"/> reads <c>CLOCK_UPTIME_RAW</c>, which does not advance while the machine sleeps
+/// (measured on the dev Mac: Stopwatch equals UPTIME_RAW and trails the sleep-inclusive <c>CLOCK_MONOTONIC</c> by the
+/// total sleep time since boot). With this clock, the tick-gap wake heuristic therefore sees no gap after a real sleep on
+/// macOS. Retry, stall and settle timing are unaffected. Wake detection on macOS needs the OS wake notification, or an
+/// App-layer sleep-inclusive clock (native call, so it cannot live in Core).
+/// </remarks>
 public sealed class StopwatchMonotonicClock : IMonotonicClock
 {
     public static StopwatchMonotonicClock Instance { get; } = new();
