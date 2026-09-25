@@ -30,6 +30,10 @@ The native VLC libraries stay separate in `libvlc/win-x64`, so a compatible repl
 - Playback uses **Apple AVFoundation (AVPlayer)**, which is part of macOS and linked from the system. It is not bundled. **The macOS package contains no VLC or LibVLC native libraries.**
 - Native Avalonia, Skia and HarfBuzz for macOS (`libAvaloniaNative.dylib`, `libSkiaSharp.dylib`, `libHarfBuzzSharp.dylib`).
 
+## Not shipped
+
+The test project `DialShift.Tests` also uses **Avalonia.Headless 12.1.2** (MIT) for its headless UI checks and, when built on Windows, the VLC runtime above for its LibVLC checks. Neither package's test use ships: `DialShift.Tests` is not part of either package. Build-time packages such as `Avalonia.BuildServices` are not shipped either.
+
 ## License texts
 
 The texts are in [`licenses/`](licenses/) in the repository. Each package carries the ones that apply to it: `licenses/` in the Windows zip, and `DialShift.app/Contents/Resources/licenses/` in the macOS bundle.

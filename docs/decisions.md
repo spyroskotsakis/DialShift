@@ -40,6 +40,19 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D34 | 2026-09-25 | The macOS tray keeps one 44×44 alpha-only `tray.png`; the unused `tray@2x.png` is deleted | brief 1 §7.2, §7.6; D4 |
 | D35 | 2026-09-25 | `DIALSHIFT_AUDIO_OUTPUT=dummy` is a CI/headless seam, read once in the composition layer and honoured on Windows only | brief 1 §4.5, §7.7; D21, D23 |
 | D36 | 2026-09-25 | The macOS artifact label is `native-avplayer`; the build is still ad-hoc signed and not clean-machine tested | brief 1 §4.3, §8; D2, D7, D13 |
+| D37 | 2026-09-25 | An activation that arrives before the app subscribes is latched (one pending, coalesced) and replayed (F3) | brief 1 §7.5; HZ-06 |
+| D38 | 2026-09-25 | Only lock contention means "already running"; any other lock error is a startup failure (`LockFailed`, exit 1) (F6/F7) | brief 1 §7.5; D29 |
+| D39 | 2026-09-25 | Launch at login honors the OS "disabled" switches (Task Manager, launchd); an uncertain check is "not enabled" (F1/F2) | brief 1 §4.2, §7.4; OQ-4 |
+| D40 | 2026-09-25 | One redactor, `StreamUrlRedactor`, for the log and both engines; it prefers over-redaction to a leak (F4) | brief 1 §7.9, §11 DoD; D11 |
+| D41 | 2026-09-25 | The AVPlayer notification observer is retried at each session start until it registers (F9) | brief 1 §7.8; D27 |
+| D42 | 2026-09-25 | LibVLC's same-server, same-path reuse of user-info credentials is accepted and documented (LV-08) | brief 1 §7.8; HS-17 |
+| D43 | 2026-09-25 | The Windows time-zone picker offers every region-mapped IANA id, with legacy CLDR ids renamed to current tzdata names (UI-D3, QA-B4) | brief 2 §4.5, §6; D12 |
+| D44 | 2026-09-25 | Text buttons get a `MinWidth` with at least 15 % headroom and trim with an ellipsis instead of clipping (UI-D2) | brief 1 §10; QG-03 |
+| D45 | 2026-09-25 | Accent (lime) buttons keep dark ink text, 12.7:1 contrast | brief 1 §10; QG-03; D1 |
+| D46 | 2026-09-25 | Single instance: a client gone before accept is per-connection (no back-off); the service enforces its own 3-instance bound; the OS limit is the maximum (CT-SI-13; amends D24) | brief 1 §7.5; D24, D31 |
+| D47 | 2026-09-25 | Phase 2: a slot with no zone keeps `now`'s `Kind` in `At` (the null path is byte-identical) | brief 2 §4.3, §7.9; QA-B1, QA-N9 |
+| D48 | 2026-09-25 | Phase 2 dedup: identity is the zone wall-time key; an older occurrence fires only after a forward wall-clock transition | brief 2 §7.8; QA-N8, CF-02 |
+| D49 | 2026-09-25 | Windows `Resumed` is most likely raised on the UI thread, not a separate `SystemEvents` thread (amends D30; NC-02 confirms) | brief 1 §4.4; D30 |
 
 ---
 
@@ -110,7 +123,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   Native Windows UI smoke stays open as a listed native check. It is not faked.
 - **Rationale:** Keeping WPF alive for a release cycle would mean maintaining two UIs, which is what the refactor removes. The tag keeps a known-good rollback point.
 - **Brief ref:** brief 1 §12 steps 9–11, §4.5, §11 ("legacy WPF/WinForms app is removed only after equivalent checks pass").
-- **Status (2026-09-25):** the retirement was executed in `0d0e524`: `DialShift/` deleted, `DialShift.slnx` = Core, Tests, App (DOD-01, DOD-10). The gate was met by CI run `36100367406` at `4f22dd0`: compile, test and publish green on both runners, and the app's native smoke (`--smoke-test --recovery-test`) 34/34 on `windows-latest` and `macos-latest`, which covered every legacy `SmokeChecks` check (matrix §4). That smoke stood in for the "headless smokes" condition; the headless UI suites (HS-01..08, HS-13, HS-14) are still in progress and tracked on their own rows. "Native Windows UI smoke stays open" is **superseded** by the 34/34 CI smoke on `windows-latest`: it ran the real window, tray and LibVLC playback in the runner's desktop session. What stays open as native checks (matrix §9) is what a hosted runner cannot do: real-hardware sleep/wake and `SystemEvents` delivery (NC-02, NC-08), the tray at a real login (NC-04, NC-10), a real click on the tray and focus rules (NC-01, NC-06), and audible output (NC-01, NC-03).
+- **Status (2026-09-25):** the retirement was executed in `0d0e524`: `DialShift/` deleted, `DialShift.slnx` = Core, Tests, App (DOD-01, DOD-10). The gate was met by CI run `36100367406` at `4f22dd0`: compile, test and publish green on both runners, and the app's native smoke (`--smoke-test --recovery-test`) 34/34 on `windows-latest` and `macos-latest`, which covered every legacy `SmokeChecks` check (matrix §4). That smoke stood in for the "headless smokes" condition. The headless UI suites (HS-01..08, HS-13, HS-14) landed afterwards (`bafffc0`) and are green on both OSes (CI `36108959649`). "Native Windows UI smoke stays open" is **superseded** by the 34/34 CI smoke on `windows-latest`: it ran the real window, tray and LibVLC playback in the runner's desktop session. What stays open as native checks (matrix §9) is what a hosted runner cannot do: real-hardware sleep/wake and `SystemEvents` delivery (NC-02, NC-08), the tray at a real login (NC-04, NC-10), a real click on the tray and focus rules (NC-01, NC-06), and audible output (NC-01, NC-03).
 
 ## D9 — Spikes run concurrently with the inventory
 
@@ -231,6 +244,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Rationale:** This fixes SI-D1. On Unix all instances share one ref-counted listening socket, so disposing the last instance between connections closed it, and a client that connected in that gap was dropped. With one armed instance, a stalled client (held for at most the 2 s read timeout) can't block a real activation.
 - **Consequence:** This supersedes the `maxNumberOfServerInstances: 1` option in matrix §8.2.4. It is tested by the SI-D1 check (5 of 5 activations served during teardown), CT-SI-12 (0600 after start and after a re-bind), and the stale-socket checks.
 - **Brief ref:** brief 1 §7.5; matrix §8.2.4, CT-SI-*.
+- **Amended by D46:** the 3-instance bound is enforced by the service itself (its handler slots), and the `maxNumberOfServerInstances` passed to the OS is `NamedPipeServerStream.MaxAllowedServerInstances`. A client that leaves before its connection is accepted is a per-connection failure with no back-off.
 
 ## D25 — Cross-process log lock (LOG-D1)
 
@@ -289,6 +303,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Decision:** `MacPowerEvents` raises `Resumed` **synchronously on the thread that posted the notification**. For a real wake, AppKit posts `NSWorkspaceDidWakeNotification` on the main thread, which is the Avalonia UI thread. `WindowsPowerEvents` raises it on the `SystemEvents` thread. The `ISystemPowerEvents` contract still says "arbitrary thread": consumers must return quickly and must not block. The App forwards it to `NotifyWakeAsync()`, which is safe from any thread (D18).
 - **Rationale:** This was measured in the spike (N1 and N1b) and asserted by HS-16. Documenting it avoids a needless re-dispatch, while keeping the contract portable.
 - **Brief ref:** brief 1 §4.4; matrix §8.2.2.
+- **Amended by D49:** the Windows half ("on the `SystemEvents` thread") is probably wrong. `Start()` subscribes from the STA UI thread, and `SystemEvents` then creates its hidden window on that thread, so `Resumed` most likely arrives on the UI thread. NC-02 records the actual thread. The macOS half stands.
 
 ## D31 — The single-instance concurrency limit stays at 2
 
@@ -312,7 +327,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 
 - **Decision:** Keep the single **44×44, alpha-only** `DialShift.App/Assets/tray.png` as the macOS menu-bar template image. The unused `tray@2x.png` is deleted (`554228a`, merged in `82a9900`).
 - **Rationale:** The release lane disassembled `AvnTrayIcon::SetIcon` in `libAvaloniaNative` 12.1.2. Avalonia takes one PNG, sizes it to `floor(menuFont.pointSize × 1.3333)` pt (17 pt, which is 34 px on a Retina display here), and marks it as a template. An `@2x` file is never used. Downscaling a 44 px source to 34 px stays sharp, while a 22 px source would be upscaled and blurry.
-- **Consequence:** Menu-bar rendering in light and dark is still verified natively (NC-12). The icon asset assertion in HS-15 is still open (PK-04).
+- **Consequence:** Menu-bar rendering in light and dark is still verified natively (NC-12). The tray icons are Avalonia resources compiled into the app, so there is no loose file for HS-15 to find. HS-03 shows they load on both OSes (matrix PK-04).
 - **Brief ref:** brief 1 §7.2, §7.6; D4.
 
 ## D35 — `DIALSHIFT_AUDIO_OUTPUT=dummy` is a CI/headless seam
@@ -332,3 +347,118 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Basis:** SP-01 is green (the production-adapter corpus on macOS 26.5 arm64), SP-02 checkpoint B passed, and the native smoke passed 34/34 on `macos-latest` with `rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine` (CI `36100367406`).
 - **Limits:** the label says what the build **is**: native arm64 with AVPlayer and no LibVLC. It does not say the build is release-ready. The build is still ad-hoc signed and not notarized (D7, NC-09), and it has not been tested on a clean machine (NC-07). The README says both. It changes when NC-07 passes, and again when the first release is signed.
 - **Brief ref:** brief 1 §4.3 (honest labeling), §8; D2, D7, D13; DOD-08.
+
+## D37 — Latch an early activation (F3)
+
+- **Decision:** `SingleInstanceService` starts listening in `Program.Main`, before Avalonia exists. The app subscribes to `ActivationRequested` only once the desktop lifetime starts. An `activate` that arrives while nobody is subscribed is:
+  - acknowledged `ok`;
+  - kept as **one** pending activation, with later ones coalescing into it;
+  - raised for the next subscriber, and only that one.
+
+  The log says `single_instance.activated … queued`, then `single_instance.activation_replayed`. A delivered activation logs `… delivered`. After disposal nothing is kept or raised, and a late message is answered `rejected`.
+- **Rationale:** Previously a second launch in the 100–200 ms startup window got an acknowledgement (it exited 0) but nothing showed the window, which mattered when the first instance started with `--tray` (HZ-06). A latch fixes that without starting the UI toolkit earlier.
+- **Consequence:** HZ-06 changes from "accepted" to fixed. Covered by the F3 checks in the `SingleInstance` suite. The replay goes through the normal activation path, so `ShowWindow` runs on the UI thread as before.
+- **Brief ref:** brief 1 §7.5; matrix §8.2.4, HZ-06.
+
+## D38 — Lock contention vs lock failure, and their exit codes (F6/F7)
+
+- **Decision:** `TryStartPrimary` returns `AlreadyRunning` only when another handle holds the lock file:
+  - Windows: `IOException.HResult` = `0x80070020` (sharing violation) or `0x80070021` (lock violation);
+  - macOS: `flock` `EWOULDBLOCK`, errno 35.
+
+  Any other failure to create or open `<data>/.single-instance.lock` (a file in the way of the data folder, a read-only volume, a full disk, access denied) logs `single_instance.lock_failed` and returns `LockFailed`. The app then shows the startup-failure dialog ("It couldn't create its lock file in <data folder>…") and exits **1** (`StartupFailed`). A lock that was acquired but whose activation pipe failed stays `Failed`, exit **3**. The D29 table is unchanged. The lock-failure case is added to code 1.
+- **Rationale:** Previously every `IOException` counted as contention. A broken data folder therefore sent the process down the second-launch path: it tried to activate a copy that wasn't running and exited 2 with no dialog. The user got no explanation and the log didn't show the cause.
+- **Consequence:** Covered by the F6 checks (a read-only data folder gives `LockFailed` on macOS; the Windows variant is skipped because it needs an ACL denial) and by HS-08 (the startup-failure dialog and exit codes).
+- **Brief ref:** brief 1 §7.5; D29; matrix §8.2.4.
+
+## D39 — Launch at login honors the OS "disabled" switches (F1/F2)
+
+- **Decision:** `IStartupRegistration.GetStatusAsync` reports enabled only if the entry exists, targets the current executable with `--tray`, **and** the OS has not switched it off:
+  - **Windows:** Task Manager's Startup apps switch is `HKCU\…\Explorer\StartupApproved\Run`, `REG_BINARY` value `DialShift`. The format is undocumented. Observed: byte 0 with the low bit set (`0x03`, `0x07`) means disabled, and a missing value means enabled. A value that isn't a non-empty `REG_BINARY` is not enabled. `SetEnabledAsync(true)` replaces a disabled or unreadable value with `02` followed by 11 zero bytes (what Task Manager writes on re-enable). `SetEnabledAsync(false)` removes both the `Run` and the `StartupApproved` values.
+  - **macOS:** the plist's `Disabled=true` is not enabled. launchd's override is read with `/bin/launchctl print-disabled gui/<uid>`: read-only, `ArgumentList`, 5 s timeout. `=> disabled` (or the legacy `=> true`) is not enabled.
+  - **Uncertain means not enabled.** If `print-disabled` can't run, exits non-zero, times out, or doesn't show a readable state for the label, the status is **not enabled**, with a diagnostic that points at System Settings → Login Items. DialShift never shows "on" for something it could not confirm.
+  - **`launchctl enable` only removes an override.** `SetEnabledAsync(true)` runs `launchctl enable gui/<uid>/com.tsiger.dialshift`, which clears the disabled override and neither loads nor starts the job. There is still no `bootstrap`/`bootout` (OQ-4), so no second instance is spawned and the entry takes effect at the next login.
+- **Rationale:** The checkbox must reflect the OS state (§8.2.1). A switch the user turned off elsewhere is the most common reason an entry "exists" but does not run.
+- **Consequence:** The macOS 13+ "Allow in the Background" switch lives in the Background Task Management database, which has no public read API. Whether it shows up in `print-disabled` is confirmed natively by NC-10. The Windows flag semantics are confirmed natively by NC-04. Covered by the F1/F2 checks in `StartupRegistration` (HS-11).
+- **Brief ref:** brief 1 §4.2, §7.4; OQ-4; matrix §8.2.1.
+
+## D40 — One redactor for the log and the engines (F4)
+
+- **Decision:** `DialShift.App/Services/StreamUrlRedactor` is the **only** redaction code. `FileAppLog` runs every `msg` and `ex` through it, and both engines run their diagnostics through it before those reach the coordinator. It never throws, runs in linear time (`NonBacktracking` regexes; it is on the log hot path), and prefers over-redaction to a leak. Its passes are URLs (any scheme and case, glued, JSON-escaped, scheme-less `//host`, IPv6, whitespace-split continuations) → `scheme://host[:port]/…`; user-info anywhere; detached queries; secret-named pairs, `Authorization:` headers and `Bearer` tokens; the home directory → `~`.
+- **Rationale:** The review (F4) found two redactors with different coverage, and leak shapes (glued, split, escaped) that one of them missed. One implementation tested against one table cannot drift.
+- **Consequence:** The case table is `DialShift.Tests/App/RedactionTests.cs` (the `Redaction` suite), including a real-log check of the README's "never contains stream credentials". HS-17 LV-11 checks the real LibVLC diagnostics. Matrix §8.2.7 rule 2 describes the passes.
+- **Brief ref:** brief 1 §7.9, §11 DoD; D11.
+
+## D41 — Retry the AVPlayer notification observer (F9)
+
+- **Decision:** `MacAvPlayerPlaybackEngine` registers its single `NotificationObserver` (end, failure-to-play-to-end, stall) at the first session start where the registration succeeds. The engine calls `EnsureObserver` at every session start. A failed registration is disposed, logged as `playback.observer_unavailable`, and retried by the next session. It is never lost for the engine's lifetime.
+- **Rationale:** A session without the observer still works on the 250 ms poll, which detects Failed, end of stream and stalls. But it loses the NSError of a mid-stream failure and the immediacy of the stall notification. One transient failure should not degrade every later session.
+- **Brief ref:** brief 1 §7.8; D27.
+
+## D42 — LibVLC's credential reuse on the same path is accepted (LV-08)
+
+- **Decision:** LibVLC 3.0.23.1 keeps a station URL's user-info credentials for the life of the LibVLC instance (the app's lifetime). It sends them preemptively with later requests to the same `scheme://host:port` **and path**, even for a station whose URL has none. This is accepted and documented in the README ("Stream passwords"). LV-08 accepts "Playing with the reused credentials" or `HttpError` for the same-path station, and fails on any `Authorization` header sent to another path or realm.
+- **Rationale:** This matches how browsers treat a Basic-auth protection space, and it never crosses to another server or path (CI evidence, `windows-latest`). LibVLC 3 has no option that disables or scopes the store; `--keystore` only selects the persistent store. A LibVLC instance per session would reload the plugins at every station change. AVPlayer (macOS 26) reuses credentials only after a 401 from the same server and realm.
+- **Consequence:** Removing a password from a station URL keeps playback working until DialShift quits. The README says so for both platforms.
+- **Brief ref:** brief 1 §7.8; HS-17; matrix §7.9.
+
+## D43 — Windows time-zone picker: every region-mapped IANA id, current tzdata names (UI-D3, QA-B4)
+
+- **Decision:** `TimeZoneCatalog` builds the picker from `TimeZoneInfo.GetSystemTimeZones()`:
+  - A zone with a Windows id (every zone on Windows) becomes **every** IANA id CLDR maps it to. That is its default id, plus `TryConvertWindowsIdToIanaId(id, region)` for each ISO region this computer's cultures know. So `GTB Standard Time` gives `Europe/Bucharest`, `Europe/Athens` and `Asia/Nicosia`.
+  - An id CLDR still spells the old way is offered under its current tzdata name, from `TimeZoneCatalog.Renamed` (14 entries, for example `Asia/Calcutta` → `Asia/Kolkata`, `Europe/Kiev` → `Europe/Kyiv`, `America/Godthab` → `America/Nuuk`), but only when the new name resolves on this computer.
+  - A zone whose id is already IANA (every zone on macOS) is offered as it is. Nothing is added or dropped there.
+  - Only ids `FindSystemTimeZoneById` resolves are offered, and a Windows id is never offered.
+  - Search matches every typed word against the id and its segments, the zone's display, standard and daylight names, the Windows id and its display name, and the country (code and English name, from the region mapping and, on macOS, `zone.tab`), plus the offset as `UTC+03:00` or `UTC+3`. Cities of the same Windows zone's other entries are removed from each entry's search text, so "athens" finds `Europe/Athens` and not also `Europe/Bucharest`.
+- **Rationale:** The plain mapping gave one id per Windows zone, so "athens" found nothing on Windows (UI-D3). A Windows user choosing "GTB" would store `Europe/Bucharest` where a Mac user stores `Europe/Athens`. Renaming the legacy ids makes both OSes store the same name, so the conflict hint (QA-N5) sees them as equal.
+- **Consequence:** A test checks the `Renamed` table against the macOS zone list. A stored id that isn't listed (an alias, a hand-typed Windows id, an unknown id) is kept as its own entry and is never rewritten by an untouched save (TZ-14).
+- **Brief ref:** brief 2 §4.5, §6; QA-B4; D12.
+
+## D44 — Button sizing: headroom, then an ellipsis (UI-D2)
+
+- **Decision:** A button's label box stretches across the button and centers its text. Every text button sets a `MinWidth` that leaves at least **15 %** of the label's width free. That absorbs wider platform fonts (Segoe UI on Windows) and fallback glyphs (`▶ ↘ ↗`). A button that is squeezed anyway ends its label with `…` (`TextTrimming=CharacterEllipsis`) rather than cutting a glyph. Pickers trim long names the same way, and a drop-down is never wider than its picker (UI-D1).
+- **Rationale:** On Windows some labels ("Hide to tray", "Skip →", the tabs) were clipped mid-glyph at the compact size, because the buttons were sized to macOS font metrics.
+- **Consequence:** The compact 780×650 headless check (with a negative control) asserts no clipped text on both OSes, and the CI smoke screenshots show it natively. The native visual pass is NC-01/NC-17.
+- **Brief ref:** brief 1 §10 (UX gate); QG-03.
+
+## D45 — Accent buttons keep dark ink
+
+- **Decision:** Buttons with the `accent` class (lime `#C2F278`, hover `#D2F79A`, pressed `#A9D95F`) always draw their text in the dark ink `#172216`, including over Fluent's own accent template, which paints white text. A disabled accent button keeps Fluent's disabled colors.
+- **Rationale:** White on lime is 1.3:1, unreadable. Dark ink is 12.7:1 on the resting fill, 13.7:1 on hover and 10.0:1 when pressed, all well above WCAG AA (4.5:1).
+- **Brief ref:** brief 1 §10; QG-03; D1.
+
+## D46 — Single-instance accept failures and the instance bound (CT-SI-13)
+
+- **Decision:**
+  - **A client that left before its connection was accepted** (Windows `ERROR_NO_DATA` and similar) is a **per-connection** failure. The dead instance is replaced before it is released, so the name stays served, and the loop goes on with **no back-off**. It is logged as `single_instance.connection_error`.
+  - **Any other accept or create failure** is a listener error: `single_instance.listener_error`, a 1 s back-off, then the loop continues. Only disposal stops the listener.
+  - **The service enforces its own bound** of `MaxServerInstances` = 3 (2 handled connections plus the armed instance, D24/D31) through its handler slots. A slot is taken before waiting on an instance.
+  - **The OS limit is the maximum**, `NamedPipeServerStream.MaxAllowedServerInstances`, not 3.
+- **Rationale:** On Windows a pipe instance counts against the OS limit as long as *any* handle to it is open, including a client's. A client that is slow to close, or a stalled one that keeps its handle after the read timeout, could use up an OS limit of 3. Creating the next armed instance would then fail with "All pipe instances are busy", so a real activation was refused. A burst of clients that connect and leave used to trigger the 1 s back-off each time.
+- **Consequence:** CT-SI-13 checks 50 rapid connect-then-close and disconnect-before-reply cycles and two stalled clients. It asserts the peak instance count (3), that no back-off is needed, and that the next second launch is `Activated`. Matrix §8.2.4 is updated. D24's instance numbers stand as the service's own bound.
+- **Brief ref:** brief 1 §7.5; D24, D31.
+
+## D47 — Phase 2: the null path keeps `now`'s `Kind`
+
+- **Decision:** A slot without a zone, or with an id this computer can't resolve, is evaluated exactly as in Phase 1: `now.Date.AddDays(offset).Add(time)`. Its `Occurrence.At` therefore has the `Kind` of the `now` it was given. Only zoned slots normalize `now` to `Unspecified` (for the 3-argument conversions, QA-B2), and a converted `At` is always `Unspecified`.
+- **Rationale:** Brief 2 §4.3 sketched `now = SpecifyKind(now, Unspecified)` at the top of `Evaluate`. That would make the null path's `At.Kind` `Unspecified` where Phase 1 gave `Local`, breaking the "byte-identical" guarantee of QA-B1 and TZ-01. `Kind` is only a tag here (QA-N9: never call `ToLocalTime`/`ToUniversalTime` on `At`), so keeping it costs nothing.
+- **Consequence:** TZ-01 compares `At`, `At.Kind`, `Entry` and `Key` against a re-statement of Phase 1 `Evaluate` over 2026, for four blank spellings and three `Kind`s. The `Occurrence` doc comment states the invariant.
+- **Brief ref:** brief 2 §4.3, §7.9; QA-B1, QA-N9.
+
+## D48 — Phase 2 schedule dedup rule
+
+- **Decision:**
+  - **Identity** is `Occurrence.Key`, `{Entry.Id}:yyyy-MM-ddTHH:mm` of the slot's own zone wall time (plus `@{Zone.Id}` for a zoned slot), formatted culture-invariantly. The same start keeps the same key when the computer's zone changes.
+  - **`ScheduleSession.TakeChange`** returns the current occurrence when its key differs from the last one fired or held and it is **not older**, comparing `At` only within the same computer zone.
+  - **An older current occurrence fires only after a forward wall-clock transition:** a slot edit, a zone edit, an OS zone change, or a slot reached after a backward clock correction.
+  - **When the wall clock itself moves backward** (a correction, a DST fall-back), the older occurrence that becomes current is adopted silently: last week's slot is never replayed.
+  - `HoldCurrent` never moves the hold back to an older occurrence of the same clock. `force` (refresh) still replays (BHV-47).
+- **Rationale:** Brief 2 §7.8 found that the Phase 1 guard `current.At < last.At` swallowed a genuinely new current occurrence after a zone edit (QA-N8). CF-02 found the same after a backward clock jump. A key-only rule would replay last week's slot after a backward jump, so the age check stays, narrowed to the one case where it is right.
+- **Consequence:** CT-SES-08 and "Backward clock jump: Tue 09:00" flipped to "fires"; "does not replay last week's Wed slot" stays. QA-N8 and TZ-11 checks cover zone edits, OS zone changes and DST.
+- **Brief ref:** brief 2 §7.8; QA-N8; CF-02.
+
+## D49 — Thread of Windows `Resumed` (amends D30)
+
+- **Decision:** D30's Windows half ("raised on the `SystemEvents` thread") is withdrawn. `WindowsPowerEvents.Start()` runs on the UI thread, which is STA (`[STAThread] Main`) and pumps messages. When the first subscription comes from such a thread, `SystemEvents` creates its hidden notification window on that thread instead of starting its own. `PowerModeChanged` is therefore most likely raised on the Avalonia UI thread. NC-02 records the actual thread.
+- **Consequence:** Nothing in the App depends on either answer. `NotifyWakeAsync` is safe from any thread (D18), and the `ISystemPowerEvents` contract still says "arbitrary thread". The `WindowsPowerEvents` doc comment still says "the `SystemEvents` thread", and the platform lane corrects it when NC-02 has run (matrix §7.10 SR-02).
+- **Brief ref:** brief 1 §4.4; D30; matrix §8.2.2, NC-02.

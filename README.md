@@ -28,7 +28,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 ## Listen
 
 - **Stations → Add station:** name, optional description, direct HTTP/HTTPS audio URL. MP3, AAC and HLS streams play on both platforms, and so do `.pls`/`.m3u` playlist files (the first entry plays). Ordinary webpage URLs are not supported; use the direct stream URL.
-- **Schedule → Add time slot:** choose a station, 24-hour start time, time zone and days. Optional show label and enabled toggle. Enabled slots with the same start time, day and time zone conflict and are rejected. This check compares zone names, so two differently named zones that share a clock (such as Europe/Athens and Europe/Helsinki) are not flagged.
+- **Schedule → Add time slot:** choose a station, 24-hour start time, time zone and days. Optional show label and enabled toggle. Enabled slots with the same start time, day and time zone conflict and are rejected (a zone this computer doesn't recognize counts as local time). This check compares zone names, so two differently named zones that share a clock (such as Europe/Athens and Europe/Helsinki) are not flagged.
 - **Time zones:** each slot has its own time zone and defaults to **Local time** (this computer's zone). Pick another zone to follow a station's program guide abroad: type a city, region or offset (for example `Athens`, `new york` or `UTC+2`) or use **Browse**. The start time and days are in that zone, and DialShift switches at the matching moment on this computer. A slot with a zone shows it on the Schedule page with its next start in your time, for example `Next: Sun 11:00 your time`. A slot can fire on a different local day than its tab: a Monday 01:00 slot in `Asia/Kolkata` plays on Sunday evening in New York. **UP NEXT** adds the slot's own time and zone.
 - Turn on **Follow my schedule** to immediately tune into the latest matching slot, even if that slot began on a previous day.
 - Each station continues until the next scheduled start. There are no end-time/stop slots in this version.
@@ -52,7 +52,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 |---|---|---|
 | Settings | `%LOCALAPPDATA%\DialShift\settings.json` | `~/Library/Application Support/DialShift/settings.json` |
 | Log | `dialshift.log` in the same folder (rotated to `dialshift.log.1` at 1 MiB) | same |
-| Launch at sign-in | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `DialShift`. Settings shows it as off when it's turned off in Task Manager's Startup apps; turning it on in DialShift turns it back on there too. | `~/Library/LaunchAgents/com.tsiger.dialshift.plist`. Settings shows it as off when launchd has it disabled. If macOS Login Items shows DialShift as not allowed, enable it there. |
+| Launch at sign-in | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `DialShift`. Settings shows it as off when it's turned off in Task Manager's Startup apps; turning it on in DialShift turns it back on there too. | `~/Library/LaunchAgents/com.tsiger.dialshift.plist`. Settings shows it as off when launchd has it disabled, and when DialShift can't confirm the state with launchd. If macOS Login Items shows DialShift as not allowed, enable it there. |
 
 Writes are atomic. An unreadable settings file is preserved as `settings.json.unreadable-*` before defaults are used. Back up the settings folder to move stations and schedules. Settings move between Windows and macOS: slot time zones are saved as IANA names (such as `Europe/Athens`), which both systems understand. If this computer doesn't recognize a saved zone, the slot runs on local time and shows `(unknown zone)` in the warning color. Editing the slot keeps the saved zone unless you pick another one. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
@@ -93,7 +93,12 @@ These are resolved by `dotnet restore`; you never download them by hand.
 | `LibVLCSharp` | 3.10.1 | managed bindings over LibVLC (Windows playback) |
 | `VideoLAN.LibVLC.Windows` | 3.0.23.1 | VLC native runtime for Windows (`win-x64` builds only) |
 
-`DialShift.Core` and `DialShift.Tests` add no external packages — they are plain `net10.0` class libraries/console.
+`DialShift.Core` adds no external packages; it is a plain `net10.0` class library. `DialShift.Tests` (a `net10.0` console app) adds two, and neither ships in a package:
+
+| Package | Version | Used by |
+|---|---|---|
+| `Avalonia.Headless` | 12.1.2 | the headless UI checks (the real views and dialogs, rendered with Skia, no display needed) |
+| `VideoLAN.LibVLC.Windows` | 3.0.23.1 | the real-LibVLC checks, referenced only when the tests are built on Windows |
 
 ### Run — what the end user needs
 
@@ -113,9 +118,9 @@ dotnet build DialShift.slnx -warnaserror
 dotnet run --project DialShift.Tests/DialShift.Tests.csproj
 ```
 
-The tests are deterministic console checks (no test framework); a non-zero exit code means a failure. A handful of platform checks are skipped on the other OS.
+The tests are deterministic console checks (no test framework); a non-zero exit code means a failure. The UI checks drive the real views headless, so no display is needed. A handful of checks that need the other OS, or its time-zone data, are reported as `SKIP`.
 
-On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS the suite reports `SKIP (Windows only)`.
+On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS its LibVLC checks report `SKIP (Windows only)`; the suite's audio-output and composition checks run on both.
 
 Publish per runtime identifier. `DialShift.App` has exactly two, `win-x64` and `osx-arm64`:
 
@@ -152,10 +157,10 @@ DIALSHIFT_DATA_DIR=/tmp/dialshift-dev dotnet run --project DialShift.App -- --tr
 | Exit code | Meaning |
 |---|---|
 | 0 | Normal quit, or a second launch whose activation was acknowledged |
-| 1 | Startup failed and the startup-failure dialog was shown (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
+| 1 | Startup failed and the startup-failure dialog was shown, including a single-instance lock file that can't be created in the data folder (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
 | 2 | A second launch whose activation was rejected or not answered |
 | 3 | The lock was acquired but the activation channel could not start |
-| 4 | `--smoke-test`: at least one check failed |
+| 4 | `--smoke-test`: at least one check failed, or the smoke watchdog fired (`results.json` says which) |
 
 ### Native smoke test
 
