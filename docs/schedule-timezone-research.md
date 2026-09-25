@@ -450,4 +450,4 @@ Implemented in `30cc8b5` (Core), `eef6168` (the `Timezone` suite), `5ef803b` (UI
 
 ### 13.3 Open
 
-- **§9.2 row 12 (TZ-12).** The coordinator's wake tests (CT-PB-29..34, both wake sources) and its zoned-slot integration check pass separately. No check yet wakes the coordinator into a slot defined in another zone. The unit variant is TODO (test lane), and the native half is NC-02 (Windows) and NC-08 (macOS).
+- **§9.2 row 12 (TZ-12).** The unit half is done (`59c6b7c`): 87 checks in the `Timezone` suite wake the coordinator into a `Europe/Athens` slot on a New York computer, through the OS notification and through a tick gap (exactly 15 s, and the whole sleep), including the Athens fall-back and spring-forward days, a gap slot, an overlap slot and a user stop inside the zoned slot. The native half is still open: NC-02 (Windows) and NC-08 (macOS).
