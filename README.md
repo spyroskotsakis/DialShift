@@ -108,6 +108,10 @@ Run `DialShift.App` against a throwaway data folder (developer and CI use only).
 DIALSHIFT_DATA_DIR=/tmp/dialshift-dev dotnet run --project DialShift.App -- --tray
 ```
 
+`DIALSHIFT_AUDIO_OUTPUT=dummy` (developer and CI use only) makes the Windows build play through LibVLC's silent `adummy` output, so playback advances on machines without an audio device, such as hosted CI runners. Other values are ignored with a `playback.audio_output` warning in the log. macOS ignores the variable, because AVPlayer always uses the system output.
+
+On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS the suite reports `SKIP (Windows only)`.
+
 `--tray` starts with the window hidden. A second launch with the same data folder brings the running window to the front and exits 0. It exits 2 if the running copy does not answer, 3 if the activation channel cannot start, and 1 after the startup-failure dialog. SIGTERM and Ctrl+C quit through the same clean path as **Quit DialShift**.
 
 Application integration checks (isolated temporary preferences, muted live playback, no startup changes):

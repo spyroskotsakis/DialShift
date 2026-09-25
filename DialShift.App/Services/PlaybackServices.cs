@@ -12,15 +12,47 @@ public static class PlaybackServiceCollectionExtensions
     /// <summary>
     /// Registers the singleton <see cref="PlaybackEngineFactory"/> for this OS. It deliberately does not register an
     /// <see cref="IPlaybackEngine"/>: see the factory for why. Any OS other than Windows or macOS throws
-    /// <see cref="PlatformNotSupportedException"/>. The engine receives the registered <see cref="IAppLog"/> when there is one.
+    /// <see cref="PlatformNotSupportedException"/>. The engine receives the registered <see cref="IAppLog"/> when there is
+    /// one. <see cref="PlaybackEngineOptions.AudioOutputVariable"/> is read once, when the factory is first resolved.
     /// </summary>
     public static IServiceCollection AddDialShiftPlayback(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
             throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
-        services.TryAddSingleton(sp => new PlaybackEngineFactory(sp.GetService<IAppLog>() ?? NullAppLog.Instance));
+        services.TryAddSingleton(sp => new PlaybackEngineFactory(
+            sp.GetService<IAppLog>() ?? NullAppLog.Instance,
+            PlaybackEngineOptions.FromEnvironment(Environment.GetEnvironmentVariable)));
         return services;
+    }
+}
+
+/// <summary>Engine settings the composition root reads once from the environment (developer, CI and smoke runs only).</summary>
+/// <param name="AudioOutput">The trimmed value of <see cref="AudioOutputVariable"/>, or null when it is unset or blank.</param>
+/// <remarks>
+/// Only <c>DIALSHIFT_AUDIO_OUTPUT=dummy</c> (any case) has an effect: on Windows, LibVLC then uses its <c>adummy</c>
+/// output (<see cref="LibVlcEngineOptions.Dummy"/>), so playback advances on machines without an audio device, such as
+/// hosted CI runners. macOS ignores it: AVPlayer always uses the system output. Any other value is ignored with a warning.
+/// </remarks>
+public sealed record PlaybackEngineOptions(string? AudioOutput)
+{
+    public const string AudioOutputVariable = "DIALSHIFT_AUDIO_OUTPUT";
+
+    /// <summary>The only value of <see cref="AudioOutputVariable"/> that has an effect.</summary>
+    public const string DummyAudioOutputValue = "dummy";
+
+    /// <summary>No override: the system audio output.</summary>
+    public static PlaybackEngineOptions Default { get; } = new((string?)null);
+
+    /// <summary>True when <see cref="AudioOutput"/> asks for the dummy output.</summary>
+    public bool DummyAudioOutput => string.Equals(AudioOutput, DummyAudioOutputValue, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Reads <see cref="AudioOutputVariable"/> through <paramref name="getVariable"/> (<see cref="Environment.GetEnvironmentVariable(string)"/> in the app).</summary>
+    public static PlaybackEngineOptions FromEnvironment(Func<string, string?> getVariable)
+    {
+        ArgumentNullException.ThrowIfNull(getVariable);
+        var value = getVariable(AudioOutputVariable)?.Trim();
+        return string.IsNullOrEmpty(value) ? Default : new PlaybackEngineOptions(value);
     }
 }
 
@@ -38,29 +70,49 @@ public static class PlaybackServiceCollectionExtensions
 public sealed class PlaybackEngineFactory
 {
     private readonly IAppLog log;
+    private readonly PlaybackEngineOptions options;
     private int created;
 
-    public PlaybackEngineFactory(IAppLog log)
+    public PlaybackEngineFactory(IAppLog log, PlaybackEngineOptions options)
     {
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(options);
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
             throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
         this.log = log;
+        this.options = options;
         EngineName = OperatingSystem.IsWindows() ? nameof(LibVlcPlaybackEngine) : nameof(MacAvPlayerPlaybackEngine);
     }
 
     /// <summary>The engine type this OS uses, for the <c>app.start</c> log line.</summary>
     public string EngineName { get; }
 
-    /// <summary>Creates the engine. The caller (the coordinator registration) takes ownership.</summary>
+    /// <summary>
+    /// Creates the engine. The caller (the coordinator registration) takes ownership. When
+    /// <see cref="PlaybackEngineOptions.AudioOutput"/> is set, logs <c>playback.audio_output</c> saying whether it was applied.
+    /// </summary>
     /// <exception cref="InvalidOperationException">An engine was already created: the coordinator's engine is the only one (D17).</exception>
     public IPlaybackEngine Create()
     {
         if (Interlocked.Exchange(ref created, 1) != 0)
             throw new InvalidOperationException("The playback engine is created once, for the playback coordinator, which owns it (D17).");
-        if (OperatingSystem.IsWindows()) return new LibVlcPlaybackEngine(log);
+        LogAudioOutputOverride();
+        if (OperatingSystem.IsWindows())
+            return new LibVlcPlaybackEngine(log, options.DummyAudioOutput ? LibVlcEngineOptions.Dummy : LibVlcEngineOptions.Default);
         if (OperatingSystem.IsMacOS()) return new MacAvPlayerPlaybackEngine(log);
         throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
+    }
+
+    private void LogAudioOutputOverride()
+    {
+        const string variable = PlaybackEngineOptions.AudioOutputVariable;
+        if (options.AudioOutput is null) return;
+        if (!options.DummyAudioOutput)
+            log.Warn("playback.audio_output", $"{variable} is ignored: the only supported value is '{PlaybackEngineOptions.DummyAudioOutputValue}'.");
+        else if (OperatingSystem.IsWindows())
+            log.Info("playback.audio_output", $"{variable}={PlaybackEngineOptions.DummyAudioOutputValue}: LibVLC discards audio (--aout={LibVlcEngineOptions.Dummy.AudioOutput}).");
+        else
+            log.Info("playback.audio_output", $"{variable}={PlaybackEngineOptions.DummyAudioOutputValue} is ignored on macOS: AVPlayer always uses the system audio output.");
     }
 }
 
