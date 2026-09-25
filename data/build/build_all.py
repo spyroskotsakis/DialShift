@@ -11,7 +11,8 @@ Outputs:
     output/app-catalog.json            (the Add-station picker's catalog; validated, see app_catalog.py)
     output/dialshift-radio-catalog.xlsx
 
-A failed app-catalog validation exits non-zero before the JSON and the XLSX are written.
+A bad languages.yaml (the app catalog's language table) exits non-zero before anything is written; a
+failed app-catalog validation exits non-zero before the JSON and the XLSX are written.
 
 The XLSX is deliberately plain (openpyxl basics only: freeze panes, auto-filter,
 column widths) so it opens cleanly in macOS Numbers.
@@ -26,17 +27,19 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from app_catalog import build_app_catalog, validate_app_catalog, write_app_catalog
+from app_catalog import build_app_catalog, unknown_language_name, validate_app_catalog, write_app_catalog
 from build_stations import all_collections, all_countries, build_collection, build_country
-from common import app_tag
+from common import app_tag, language_table
 
 DATA_DIR = Path(__file__).resolve().parent.parent
 CANONICAL = DATA_DIR / 'canonical'
 OUTPUT = DATA_DIR / 'output'
+LANGUAGES = DATA_DIR / 'languages.yaml'         # the app catalog's language table (D84)
 FAVICON_DIR = DATA_DIR / 'raw' / 'favicons'     # gitignored cache
 
 CANON_COLS = ['country', 'name', 'name_local', 'city', 'region', 'frequency_fm', 'type', 'genre',
@@ -136,8 +139,20 @@ def embed_logos(ws, logo_col, logo_paths):
             continue
 
 
+def load_languages():
+    """data/languages.yaml checked by common.language_table; a bad table stops the run before anything is
+    built or written."""
+    try:
+        with open(LANGUAGES, encoding='utf-8') as f:
+            return language_table(yaml.safe_load(f), LANGUAGES.name)
+    except ValueError as e:                        # yaml.YAMLError is not a ValueError: it keeps its traceback
+        print(f'languages: {e}', file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     refresh = '--refresh' in sys.argv
+    languages = load_languages()
     countries = all_countries()
     per_country = {}
     for cfg in countries:
@@ -169,13 +184,18 @@ def main():
     sources = [(cfg, per_country[cfg['code']]) for cfg in countries] + \
               [(cfg, per_collection[cfg['name']]) for cfg in collections]
     app_doc, app_stats = build_app_catalog(
-        sources, datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+        sources, datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), languages)
     app_json = OUTPUT / 'app-catalog.json'
     app_json_rel = app_json.relative_to(DATA_DIR.parent)
     print(f"app-catalog: working={app_stats['working']} url_excluded={app_stats['url_excluded']} "
           f"duplicates_removed={app_stats['duplicates_removed']} exported={app_stats['exported']} "
           f"-> {app_json_rel}")
-    problems = validate_app_catalog(app_doc, [r for _, rows in sources for r in rows])
+    unknown = app_stats['unknown_languages']
+    print(f"app-catalog: languages={app_stats['languages']} unknown={len(unknown)}")
+    for _, (first, count) in sorted(unknown.items(), key=lambda kv: (-kv[1][1], kv[0])):
+        print(f'app-catalog: unknown language "{first}" in {count} entries, exported as '
+              f'"{unknown_language_name(first)}"; add it to data/{LANGUAGES.name}')
+    problems = validate_app_catalog(app_doc, [r for _, rows in sources for r in rows], languages)
     if problems:
         print(f'app-catalog: validation failed with {len(problems)} problem(s); {app_json_rel} is unchanged '
               f'(fix the YAML, not the script):', file=sys.stderr)

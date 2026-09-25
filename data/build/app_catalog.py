@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The app catalog: data/output/app-catalog.json, the station list behind the Add-station picker.
 
-Contract: docs/catalog-contracts.md §2 (decisions D59, D69, D71). Pure export, validation and writer;
+Contract: docs/catalog-contracts.md §2 (decisions D59, D69, D71, D84). Pure export, validation and writer;
 build_all.py calls build_app_catalog, validate_app_catalog and write_app_catalog with the same rows it
 writes to data/canonical/, after the CSVs and before the XLSX. Station facts come only from those rows
-(YAML + sources); nothing here names a station, a URL or a country.
+(YAML + sources) and language facts only from data/languages.yaml (the table build_all.py passes in);
+nothing here names a station, a URL, a country or a language.
 
 Stdlib only, so the fixture checks run anywhere:
     data/.venv/bin/python data/build/app_catalog.py --self-test
@@ -12,19 +13,21 @@ Stdlib only, so the fixture checks run anywhere:
 import json
 import os
 import re
+import string
 import sys
 import tempfile
 import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from common import app_tag, city_aliases, norm, norm_city, row_score, url_norm
+from common import app_tag, city_aliases, language_key, language_table, norm, norm_city, row_score, url_norm
 
 SCHEMA_VERSION = 1
 MAX_ENTRIES = 10_000
 MAX_URL_LENGTH = 2_048
 KEYS = ('name', 'name_local', 'country', 'country_label', 'city', 'region', 'frequency_fm', 'type', 'genre',
         'language', 'internet_only', 'stream_url', 'codec', 'bitrate', 'votes', 'notes', 'logo', 'tag')
+LANGUAGE_SEPARATOR = ', '
 
 # Collections (build_stations.build_collection) carry this country instead of a YAML code.
 COLLECTION_COUNTRY = 'Internet'
@@ -39,6 +42,7 @@ _INTEGER = re.compile(r'-?[0-9]+')
 # punctuation after it: the pipeline's provenance prefix of an empty note, never shown in the app.
 _BARE_LABEL = re.compile(r'[^\W_][\w+\-]*:[\W_]*')
 _EMPHASIS = re.compile(r'(?<!\w)_([^_\n]+?)_(?!\w)')        # Wikipedia _emphasis_ markers
+_LANGUAGE_LIST = re.compile('[,;]')                          # radio-browser's list syntax; not - / or .
 
 
 def _text(value):
@@ -87,10 +91,34 @@ def _notes(value):
     return s
 
 
-def _entry(row, country_label):
-    """One canonical row as an app-catalog station (keys in KEYS order, §2.1 normalization)."""
+def unknown_language_name(token: str) -> str:
+    """The exported name of a token the language table does not know: its string.capwords form (NFC)."""
+    return string.capwords(unicodedata.normalize('NFC', token))
+
+
+def normalize_language(raw: str, table: dict[str, tuple[str, ...]]) -> tuple[str, list[str]]:
+    """§2.6: the exported language value, and the unknown tokens in the order met (as written, whitespace
+    collapsed). Splits on , and ; only; each token becomes the table's names for its language_key (a
+    canonical name, an alias's names, nothing for a drop key) or, when unknown, its capwords form. Names
+    are kept once, first seen first, and joined with LANGUAGE_SEPARATOR."""
+    names, unknown = [], []
+    for part in _LANGUAGE_LIST.split(_text(raw)):
+        part = ' '.join(part.split())
+        if not part:
+            continue
+        found = table.get(language_key(part))
+        if found is None:
+            unknown.append(part)
+            found = (unknown_language_name(part),)
+        names += found
+    return LANGUAGE_SEPARATOR.join(dict.fromkeys(names)), unknown
+
+
+def _entry(row, country_label, language):
+    """One canonical row as an app-catalog station (keys in KEYS order, §2.1 normalization), with its
+    language already normalized (normalize_language)."""
     s = {k: _text(row.get(k)) for k in ('name', 'name_local', 'country', 'city', 'region', 'frequency_fm',
-                                         'type', 'genre', 'language', 'stream_url', 'codec', 'logo')}
+                                         'type', 'genre', 'stream_url', 'codec', 'logo')}
     for key, marker in PLACEHOLDERS.items():
         if s[key] == marker:
             s[key] = ''
@@ -98,7 +126,7 @@ def _entry(row, country_label):
     return {
         'name': s['name'], 'name_local': s['name_local'], 'country': s['country'],
         'country_label': country_label, 'city': s['city'], 'region': s['region'],
-        'frequency_fm': s['frequency_fm'], 'type': s['type'], 'genre': s['genre'], 'language': s['language'],
+        'frequency_fm': s['frequency_fm'], 'type': s['type'], 'genre': s['genre'], 'language': language,
         'internet_only': _text(row.get('internet_only')) == 'Yes', 'stream_url': s['stream_url'],
         'codec': s['codec'], 'bitrate': bitrate if bitrate is not None and bitrate > 0 else None,
         'votes': votes if votes is not None and votes >= 0 else None, 'notes': _notes(row.get('notes')),
@@ -116,9 +144,11 @@ def _order(entry):
     return entry['country'], -(entry['votes'] or 0), entry['name'], entry['stream_url']
 
 
-def build_app_catalog(sources: list[tuple[dict, list[dict]]], generated_utc: str) -> tuple[dict, dict]:
-    """sources: (yaml cfg, canonical rows) per country and per collection, in build order.
-    Returns (document, stats) with stats keys working, url_excluded, duplicates_removed, exported."""
+def build_app_catalog(sources: list[tuple[dict, list[dict]]], generated_utc: str,
+                      languages: dict[str, tuple[str, ...]]) -> tuple[dict, dict]:
+    """sources: (yaml cfg, canonical rows) per country and per collection, in build order; languages: the table
+    of common.language_table. Returns (document, stats) with stats keys working, url_excluded, duplicates_removed,
+    exported, languages (distinct names exported) and unknown_languages ({key: (first spelling, entry count)})."""
     working = url_excluded = duplicates = 0
     kept = {}                                       # dedupe key -> (row, country_label); first wins ties
     for cfg, rows in sources:
@@ -142,18 +172,49 @@ def build_app_catalog(sources: list[tuple[dict, list[dict]]], generated_utc: str
                 if _score(row) <= _score(prev[0]):
                     continue
             kept[key] = (row, label)
-    stations = sorted((_entry(row, label) for row, label in kept.values()), key=_order)
+    # the language after the dedupe: its key, row_score and the order never read it (§2.2)
+    stations, unknown = [], {}                      # unknown: key -> (first spelling, entry count)
+    for row, label in kept.values():
+        language, tokens = normalize_language(row.get('language'), languages)
+        for key, token in {language_key(t): t for t in reversed(tokens)}.items():   # once per entry, first spelling
+            first, count = unknown.get(key, (token, 0))
+            unknown[key] = (first, count + 1)
+        stations.append(_entry(row, label, language))
+    stations.sort(key=_order)
+    names = {n for e in stations if e['language'] for n in e['language'].split(LANGUAGE_SEPARATOR)}
     doc = {'schema_version': SCHEMA_VERSION, 'generated_utc': generated_utc, 'stations': stations}
     return doc, {'working': working, 'url_excluded': url_excluded, 'duplicates_removed': duplicates,
-                 'exported': len(stations)}
+                 'exported': len(stations), 'languages': len(names), 'unknown_languages': unknown}
 
 
 def _score(row):
     return row_score({**row, 'votes': _integer(row.get('votes')) or 0})
 
 
-def _entry_problems(i, e):
-    """Rules 2 and 3 of §2.3 for one entry, plus the §2.1 guarantees of its values."""
+def _language_problem(value, mapped):
+    """Rule 7 of §2.3 for one language value, or None when it holds: "" or names joined with
+    LANGUAGE_SEPARATOR, each non-empty, trimmed with single spaces, free of , and ;, not repeated, and not a
+    key the table maps elsewhere (mapped: the alias and drop keys), so every mapping was applied."""
+    if value == '':
+        return None
+    names = value.split(LANGUAGE_SEPARATOR)
+    for name in names:
+        if not name or name != ' '.join(name.split()) or ',' in name or ';' in name:
+            return f'name {name!r} is empty, untrimmed or has doubled spaces, or contains , or ;'
+        if language_key(name) in mapped:
+            return f'name {name!r} is an alias or drop key of the language table (the mapping was not applied)'
+    if len(set(names)) != len(names):
+        return 'a name appears twice'
+    return None
+
+
+def _mapped_keys(languages):
+    """The alias and drop keys of a language_table lookup: every key but the canonical names' own."""
+    return {k for k, v in languages.items() if not (len(v) == 1 and language_key(v[0]) == k)}
+
+
+def _entry_problems(i, e, mapped):
+    """Rules 2, 3 and 7 of §2.3 for one entry, plus the §2.1 guarantees of its values."""
     if not isinstance(e, dict):
         return [f'stations[{i}]: not an object']
     where = f"stations[{i}] ({e.get('name')!r}, {e.get('country')!r})"
@@ -186,12 +247,15 @@ def _entry_problems(i, e):
         out.append(f'{where}: logo is not an http(s) URL')
     if not e['tag']:
         out.append(f'{where}: empty tag')
+    language = _language_problem(e['language'], mapped)
+    if language:
+        out.append(f"{where}: language {e['language']!r}: {language}")
     return out
 
 
-def validate_app_catalog(doc: dict, source_rows: list[dict]) -> list[str]:
+def validate_app_catalog(doc: dict, source_rows: list[dict], languages: dict[str, tuple[str, ...]]) -> list[str]:
     """Every problem found (empty list = valid)."""
-    problems = []
+    problems, mapped = [], _mapped_keys(languages)
     version = doc.get('schema_version')
     if isinstance(version, bool) or version != SCHEMA_VERSION:
         problems.append(f'schema_version is {version!r}, not {SCHEMA_VERSION}')
@@ -205,7 +269,7 @@ def validate_app_catalog(doc: dict, source_rows: list[dict]) -> list[str]:
         problems.append(f'{len(stations)} stations, outside 1..{MAX_ENTRIES}')
     triples = []
     for i, e in enumerate(stations):
-        found = _entry_problems(i, e)
+        found = _entry_problems(i, e, mapped)
         problems += found
         if not found:
             triples.append((e['country'], e['name'], e['stream_url']))
@@ -253,11 +317,23 @@ def write_app_catalog(doc: dict, path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------ self-test
-# Inline fixtures only: fictional country codes, names and example.test URLs (no station facts).
+# Inline fixtures only: fictional country codes, names and example.test URLs (no station facts). The
+# language table is an inline stand-in for data/languages.yaml (no YAML read, so the test stays stdlib-only);
+# its names are the contract's examples (docs/catalog-contracts.md §2.6).
+_UTC = '2026-01-02T03:04:05Z'
+_LANGUAGE_FIXTURE = {
+    'languages': ['English', 'French', 'German', 'Greek', 'Low German', 'Luxembourgish', 'Serbo-Croatian'],
+    'aliases': {'deutsch': 'German', 'deutch': 'German', 'gernan': 'German', 'français': 'French',
+                'ελληνικά': 'Greek', 'american english': 'English', 'british english': 'English',
+                'deutsch fränkisch': 'German', 'swiss german': 'German',
+                'français - lëtzebuergesch': ['French', 'Luxembourgish'], 'english/ french': ['English', 'French']},
+    'drop': ['instrumental', 'multilingual'],
+}
+
 
 def _row(**over):
     base = dict(country='XA', name='Fixture One', name_local='', city='Fixton', region='North',
-                frequency_fm='', type='Music', genre='Pop', language='Fixtish', political_leaning='None',
+                frequency_fm='', type='Music', genre='Pop', language='German', political_leaning='None',
                 internet_only='No', stream_url='https://a.example.test/one', codec='MP3', bitrate=128,
                 stream_status='Working', votes=10, logo='', notes='', source='radio-browser')
     base.update(over)
@@ -273,7 +349,8 @@ def self_test() -> int:
         if not ok:
             failures.append(label)
 
-    xa, xb, coll = {'code': 'XA', 'name': 'Fixtureland'}, {'code': 'XB', 'name': 'Otherland'}, \
+    langs = language_table(_LANGUAGE_FIXTURE, 'languages-fixture.yaml')
+    xa, xb, coll ={'code': 'XA', 'name': 'Fixtureland'}, {'code': 'XB', 'name': 'Otherland'}, \
         {'code': 'FIX', 'name': 'Fixture Collection'}
     long_ok = 'https://a.example.test/' + 'x' * (2_048 - len('https://a.example.test/'))   # the contract's limit
     xa_rows = [
@@ -312,7 +389,7 @@ def self_test() -> int:
                       internet_only='Yes', stream_url='https://c.example.test/chill', genre='Ambient')]
     sources = [(xa, xa_rows), (xb, xb_rows), (coll, coll_rows)]
     source_rows = [r for _, rows in sources for r in rows]
-    doc, stats = build_app_catalog(sources, '2026-01-02T03:04:05Z')
+    doc, stats = build_app_catalog(sources, _UTC, langs)
     st = doc['stations']
     by_name = {}
     for e in st:
@@ -345,8 +422,8 @@ def self_test() -> int:
     alias_rows = [_row(country='XC', name='Alias One', city='Fixton North', stream_url='https://x.example.test/a'),
                   _row(country='XC', name='Alias One', city='Fixton', stream_url='https://x.example.test/a')]
     _, with_block = build_app_catalog([({'code': 'XC', 'name': 'Aliasland', 'city_aliases': aliases}, alias_rows)],
-                                      '2026-01-02T03:04:05Z')
-    _, no_block = build_app_catalog([({'code': 'XC', 'name': 'Aliasland'}, alias_rows)], '2026-01-02T03:04:05Z')
+                                      _UTC, langs)
+    _, no_block = build_app_catalog([({'code': 'XC', 'name': 'Aliasland'}, alias_rows)], _UTC, langs)
     check('dedupe key uses the YAML city_aliases', with_block['duplicates_removed'] == 1
           and no_block['duplicates_removed'] == 0)
     check('city_aliases: missing block -> {}', city_aliases(None, 'fixture.yaml') == {})
@@ -426,18 +503,18 @@ def self_test() -> int:
     check('countries in code-point order', [e['country'] for e in st] == sorted(e['country'] for e in st))
 
     # validation: the duplicate above had a different name spelling, so rule 5 reports the dropped row
-    problems = validate_app_catalog(doc, source_rows)
+    problems = validate_app_catalog(doc, source_rows, langs)
     check('rule 5 reports the deduped row', any('missing' in p and "'Fixture Two'" in p for p in problems)
           and any('stations exported' in p for p in problems))
     clean_rows = [r for r in source_rows if r['name'] != 'fixture  two']
     clean, _ = build_app_catalog([(xa, [r for r in xa_rows if r in clean_rows]), (xb, xb_rows), (coll, coll_rows)],
-                                 '2026-01-02T03:04:05Z')
-    check('a clean document validates', validate_app_catalog(clean, clean_rows) == [])
+                                 _UTC, langs)
+    check('a clean document validates', validate_app_catalog(clean, clean_rows, langs) == [])
 
     def broken(mutate):
         d = json.loads(json.dumps(clean))
         mutate(d)
-        return validate_app_catalog(d, clean_rows)
+        return validate_app_catalog(d, clean_rows, langs)
 
     check('rule 1: schema_version 2', broken(lambda d: d.update(schema_version=2)) != [])
     check('rule 1: schema_version true', broken(lambda d: d.update(schema_version=True)) != [])
@@ -458,10 +535,127 @@ def self_test() -> int:
           any('duplicate' in p for p in broken(lambda d: d['stations'].append(d['stations'][0]))))
     check('rule 5: a missing row', any('missing' in p for p in broken(lambda d: d['stations'].pop())))
     check('rule 6: empty', any('outside' in p for p in validate_app_catalog(
-        {'schema_version': 1, 'generated_utc': '2026-01-02T03:04:05Z', 'stations': []}, [])))
+        {'schema_version': 1, 'generated_utc': _UTC, 'stations': []}, [], langs)))
     many = [_row(name=f'Fixture {i}', stream_url=f'https://a.example.test/{i}') for i in range(MAX_ENTRIES + 1)]
-    big, _ = build_app_catalog([(xa, many)], '2026-01-02T03:04:05Z')
-    check('rule 6: more than 10,000', any('outside' in p for p in validate_app_catalog(big, many)))
+    big, _ = build_app_catalog([(xa, many)], _UTC, langs)
+    check('rule 6: more than 10,000', any('outside' in p for p in validate_app_catalog(big, many, langs)))
+    for value in ('German,French', 'German, German', 'German, ', ' German', 'Deutsch', 'Instrumental',
+                  'German,  French', 'German;French', ', German', 'Low  German'):
+        check(f'rule 7: language {value!r} fails',
+              any('language' in p for p in broken(lambda d: d['stations'][0].update(language=value))))
+        check(f'rule 7: {value!r} fails the language rule itself', _language_problem(value, _mapped_keys(langs)))
+    for value in ('', 'German', 'German, French', 'English, German, Low German', 'Klingon', 'Serbo-Croatian'):
+        check(f'rule 7: language {value!r} passes',
+              broken(lambda d: d['stations'][0].update(language=value)) == [])
+
+    # ---------------------------------------------------------------- languages (D84, contracts §2.6)
+    def lang(raw):
+        return normalize_language(raw, langs)
+
+    for raw, want in (
+            ('American English,British English,Deutsch Fränkisch,English,German,Low German,Swiss German',
+             'English, German, Low German'),                                          # the §2.6 examples
+            ('Deutch,Gernan', 'German'), ('Instrumental', ''),
+            ('German,French', 'German, French'), ('German;French', 'German, French'),  # split on , and ;
+            ('German , French ;English', 'German, French, English'),
+            ('Serbo-Croatian', 'Serbo-Croatian'),                                      # not on - / or .
+            ('English/ French', 'English, French'), ('Français - Lëtzebuergesch', 'French, Luxembourgish'),
+            ('GERMAN', 'German'), ('german', 'German'), ('  gErMaN  ', 'German'), ('low   GERMAN', 'Low German'),
+            ('Deutsch', 'German'), ('deutch', 'German'), ('Ελληνικά', 'Greek'), ('ΕΛΛΗΝΙΚΆ', 'Greek'),
+            ('Français', 'French'),                                                  # NFD input -> NFC key
+            ('German,Deutsch,English,german', 'German, English'),                      # first seen, once
+            ('German,,', 'German'), (',;, ;', ''), ('', ''), ('   ', ''), (None, ''),
+            ('Instrumental,English', 'English'), ('Multilingual,Instrumental', ''),
+            ('French,Français - Lëtzebuergesch,Luxembourgish', 'French, Luxembourgish')):
+        got = lang(raw)
+        check(f'normalize_language({raw!r}) -> {want!r}, no unknown', got == (want, []))
+    check('unknown: kept in capwords form and reported as written (whitespace collapsed)',
+          lang('hIGH   valyrian') == ('High Valyrian', ['hIGH valyrian']))
+    check('unknown: a token with . stays one token', lang('Fixt. lang') == ('Fixt. Lang', ['Fixt. lang']))
+    check('unknown: deduped by exported name, reported in the order met',
+          lang('German,Klingon,klingon') == ('German, Klingon', ['Klingon', 'klingon']))
+    check('unknown: a token with - or / is one token', lang('Fixt-Lang/Other') == ('Fixt-lang/other',
+                                                                                  ['Fixt-Lang/Other']))
+    check('LANGUAGE_SEPARATOR is exactly ", "', LANGUAGE_SEPARATOR == ', ')
+
+    xl = {'code': 'XL', 'name': 'Languageland'}
+    lang_rows = [_row(country='XL', name=f'Lang {i}', stream_url=f'https://l.example.test/{i}', language=raw)
+                 for i, raw in enumerate(('Klingon', 'German,klingon', 'KLINGON,klingon', 'Vulcan', 'Deutch',
+                                          'Instrumental', '', 'English;German'))]
+    # a duplicate whose language differs: the dedupe never reads the language
+    lang_rows.append(_row(country='XL', name='Lang 4', stream_url='https://l.example.test/4', language='French'))
+    ldoc, lstats = build_app_catalog([(xl, lang_rows)], _UTC, langs)
+    by_url = {e['stream_url'][-1]: e['language'] for e in ldoc['stations']}
+    check('languages: the exported values', by_url == {'0': 'Klingon', '1': 'German, Klingon', '2': 'Klingon',
+                                                       '3': 'Vulcan', '4': 'German', '5': '', '6': '',
+                                                       '7': 'English, German'})
+    check('languages: the dedupe ignores the language', lstats['duplicates_removed'] == 1)
+    check('languages: stats count the distinct exported names', lstats['languages'] == 4)
+    check('languages: unknown keys with first spelling and entry count (once per entry)',
+          lstats['unknown_languages'] == {'klingon': ('Klingon', 3), 'vulcan': ('Vulcan', 1)})
+    lang_expected = [r for r in lang_rows if r['language'] != 'French']
+    check('languages: unknown tokens are not a validation failure', validate_app_catalog(ldoc, lang_expected,
+                                                                                        langs) == [])
+    check('languages: a table-free build still exports every row', build_app_catalog(
+        [(xl, lang_rows)], _UTC, {})[1]['exported'] == 8)
+
+    # the table (common.language_table): shape of the lookup
+    check('language_table: canonical, alias, list alias and drop keys',
+          langs['german'] == ('German',) and langs['low german'] == ('Low German',)
+          and langs['deutsch'] == ('German',) and langs['français - lëtzebuergesch'] == ('French', 'Luxembourgish')
+          and langs['instrumental'] == () and 'Instrumental' not in langs)
+    check('language_table: aliases and drop may be missing or empty',
+          language_table({'languages': ['German']}, 'f.yaml') == {'german': ('German',)}
+          and language_table({'languages': ['German'], 'aliases': None, 'drop': []}, 'f.yaml')
+          == {'german': ('German',)})
+    check('language_key: NFC, lower case, whitespace runs to one space, trimmed',
+          language_key(' Low \t GERMAN\n') == 'low german' and language_key('Français') == 'français')
+
+    def table_error(doc):
+        try:
+            language_table(doc, 'languages-fixture.yaml')
+        except ValueError as e:
+            return str(e) if 'languages-fixture.yaml' in str(e) else ''
+        return ''
+
+    ok = {'languages': ['German', 'Low German']}
+    for label, doc, want in (
+            ('not a mapping', ['German'], 'mapping'),
+            ('no languages', {'aliases': {}}, 'non-empty list'),
+            ('empty languages', {'languages': []}, 'non-empty list'),
+            ('languages not a list', {'languages': 'German'}, 'non-empty list'),
+            ('unknown top-level key (a typo)', {**ok, 'alias': {}}, "'alias'"),
+            ('aliases not a mapping', {**ok, 'aliases': ['deutsch']}, 'aliases must'),
+            ('drop not a list', {**ok, 'drop': 'music'}, 'drop must'),
+            ('a canonical name not a string', {'languages': ['German', 1]}, 'canonical name 1'),
+            ('an empty canonical name', {'languages': ['German', '']}, "canonical name ''"),
+            ('an untrimmed canonical name', {'languages': [' German']}, "' German'"),
+            ('doubled spaces in a canonical name', {'languages': ['Low  German']}, "'Low  German'"),
+            ('a , in a canonical name', {'languages': ['German, French']}, "'German, French'"),
+            ('a ; in a canonical name', {'languages': ['German;French']}, "'German;French'"),
+            ('a canonical name not in NFC', {'languages': ['Français']}, 'NFC'),
+            ('two canonical names with one key', {'languages': ['German', 'GERMAN']}, 'same key'),
+            ('an unquoted boolean alias key', {**ok, 'aliases': {False: 'German'}}, 'quote it'),
+            ('an alias key not in key form', {**ok, 'aliases': {'Deutsch': 'German'}}, "write it as 'deutsch'"),
+            ('an alias key with doubled spaces', {**ok, 'aliases': {'swiss  german': 'German'}},
+             "write it as 'swiss german'"),
+            ('an alias to an unlisted name', {**ok, 'aliases': {'deutsch': 'Germna'}}, "['Germna']"),
+            ('an alias to a name in the wrong case', {**ok, 'aliases': {'deutsch': 'german'}}, "['german']"),
+            ('an alias to an empty list', {**ok, 'aliases': {'deutsch': []}}, 'non-empty list'),
+            ('an alias to nothing', {**ok, 'aliases': {'deutsch': None}}, 'non-empty list'),
+            ('an alias list with an unlisted name', {**ok, 'aliases': {'x y': ['German', 'Nope']}}, "['Nope']"),
+            ('an alias key that is a canonical key', {**ok, 'aliases': {'german': 'German'}}, 'matches itself'),
+            ('a key both alias and drop', {**ok, 'aliases': {'music': 'German'}, 'drop': ['music']},
+             'both an alias and a drop'),
+            ('a drop key that is a canonical key', {**ok, 'drop': ['low german']}, 'key of a canonical name'),
+            ('a drop key not a string', {**ok, 'drop': [True]}, 'quote it'),
+            ('a drop key not in key form', {**ok, 'drop': ['Instrumental']}, "write it as 'instrumental'"),
+            ('an empty drop key', {**ok, 'drop': ['']}, 'is empty'),
+            ('a drop key listed twice', {**ok, 'drop': ['music', 'music']}, 'listed twice')):
+        msg = table_error(doc)
+        check(f'language_table: {label} is a hard error naming the file and the problem', want in msg)
+    both = table_error({'languages': ['German'], 'aliases': {'Deutsch': 'German'}, 'drop': ['German']})
+    check('language_table: every problem is reported at once', "'Deutsch'" in both and "'German'" in both)
 
     # writer
     with tempfile.TemporaryDirectory() as tmp:
