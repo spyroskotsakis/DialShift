@@ -1,6 +1,6 @@
 # Open items: native verification and release sign-off
 
-> **As of 2026-09-25**, branch `refactor/single-codebase-timezone` at `1b16518`, after the pre-merge sweep.
+> **As of 2026-09-25**, branch `refactor/single-codebase-timezone`, code at `dc032fe` (SW-N4), after the pre-merge sweep; the CI evidence below is at `1b16518`.
 > This is the hand-off list for the work that is still open after both briefs were implemented. The implementation task is closed. Only the items below remain.
 >
 > Related documents:
@@ -199,7 +199,7 @@ NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-clos
 
 | Item | What's left | Severity | Owner | Done when |
 |---|---|---|---|---|
-| SW-N4 | **GREEN-pending-CI: `Install.ps1` robustness, fixed in `58b813a` (D56).** `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now copies into `DialShift.new-<id>` beside the install, renames the old install to `DialShift.old-<id>`, renames the new one in and deletes the old one (a failed delete is a warning); a failed copy or swap restores the old install and exits non-zero. A source inside or equal to the install folder, or an install folder inside the source, is refused before anything changes. The new `build.yml` step "Install.ps1 (fresh install, upgrade, refusals)" checks this on `windows-latest` under Windows PowerShell 5.1. Left: its first green CI run | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | The `build.yml` step "Install.ps1 (fresh install, upgrade, refusals)" passes, with `build.ps1` and `verify-win-package.ps1`, in a CI run at or after `58b813a`. Matrix §7.10 SW-N4 is GREEN. NC-04 step 6 then runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
+| SW-N4 | **GREEN-pending-CI: `Install.ps1` robustness, fixed in `58b813a` with the review fixes in `dc032fe` (D56).** `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now copies into `DialShift.new-<id>` beside the install, renames the old install to `DialShift.old-<id>` and the new one in (each rename retried for about 4 s), and deletes the old one (a failed delete is a warning). A failed copy or swap restores the old install and exits 1. A source inside or equal to the install folder, or an install folder inside the source, is refused before anything changes. Leftovers of earlier runs are removed. The window shows every message and waits for Enter unless the run is non-interactive. The `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, refusals)" checks this on `windows-latest` under Windows PowerShell 5.1, including an upgrade with a file held open. Left: its first green CI run | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | The `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, refusals)" passes, with `build.ps1` and `verify-win-package.ps1`, in a CI run at or after `dc032fe`. Matrix §7.10 SW-N4 is GREEN. NC-04 step 6 then runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
 | Legacy tag on the public repository | The README ("Upgrading", "Earlier versions") and CHANGELOG name the tag `legacy-last-known-good`, which exists on the private remote only. Push it to the public repository with the first release (`git push origin legacy-last-known-good`), a manual maintainer step like the release push | Before the public `v0.3.0-rc.1` push | maintainer | `git ls-remote --tags origin` lists `legacy-last-known-good` |
 
 ---
@@ -222,7 +222,7 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
 | 11 | **Signing: NC-05 (b), NC-09** | Release pipeline | Getting the certificates is outside the team and can take days to weeks. Then about half a day to a day of release-lane script work (Developer ID signing, hardened runtime, entitlements, notarization, Authenticode), plus about 1 h to verify each | Release gate only. No §3 row depends on it |
 
-The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items (SW-N4 and the legacy tag) need no hardware. They can run in parallel with any step. SW-N4 has landed (`58b813a`): run the Windows hardware block from a CI zip built at or after that commit, so that NC-04 step 6 tests the fixed `Install.ps1`.
+The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items (SW-N4 and the legacy tag) need no hardware. They can run in parallel with any step. SW-N4 has landed (`58b813a`, `dc032fe`): run the Windows hardware block from a CI zip built at or after `dc032fe`, so that NC-04 step 6 tests the fixed `Install.ps1`.
 
 ---
 
