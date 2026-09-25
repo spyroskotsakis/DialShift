@@ -15,19 +15,25 @@ namespace DialShift.Tests.Catalog;
 /// D80), the loader checks of CAT-10: which URLs are requested, the User-Agent, failures cached, the size cap, the
 /// timeout, the concurrency cap, one download per URL, caller cancellation and abandonment, the LRU cache, Dispose, and
 /// decoding (on Avalonia's headless platform, where Skia is initialized). No network: every response is the handler's.
+/// The D81 and D82 checks (pixel bounds, longest side, refused hosts, redirects, the join-after-abandon race, the decode
+/// gate) are in <c>CatalogLogoLoaderTests.Hardening.cs</c>.
 /// </summary>
 /// <remarks>
-/// <see cref="CatalogLogoLoader.Timeout"/> is a static 5 s with no seam, so the one timeout scenario takes 5 s of real
-/// time; it starts first and runs while the other checks do. Every wait is bounded by <see cref="Bound"/>.
+/// <see cref="CatalogLogoLoader.Timeout"/> is a static 5 s with no seam, so the two scenarios that must outlast it take
+/// 5 s of real time each: the timeout scenario starts first, and the decode-gate scenario, which holds the gate past
+/// <see cref="CatalogLogoLoader.Timeout"/>, runs beside it (the timeout scenario never decodes). Every wait is bounded by
+/// <see cref="Bound"/>.
 /// </remarks>
-internal static class CatalogLogoLoaderTests
+internal static partial class CatalogLogoLoaderTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
 
     public static async Task RunAsync()
     {
         var timeouts = TimeoutsAsync();
+        await Headless.RunAsync(DecodeGateAsync);
         InvalidUrls();
+        await RefusedHostsAsync();
         await HttpFailuresAsync();
         await OversizeAsync();
         await OffCallerThreadAsync();
@@ -37,6 +43,9 @@ internal static class CatalogLogoLoaderTests
         await CacheCapacityAsync();
         await DisposeAsync();
         await Headless.RunAsync(DecodingAsync);
+        await Headless.RunAsync(BoundsAsync);
+        await Headless.RunAsync(RedirectsAsync);
+        await Headless.RunAsync(JoinAfterAbandonAsync);
         CheckTimeouts(await timeouts.WaitAsync(Bound));
     }
 
@@ -411,13 +420,7 @@ internal static class CatalogLogoLoaderTests
     private static byte[] Png(int width, int height, int totalBytes = 0)
     {
         using var png = new MemoryStream();
-        png.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-        var header = new byte[13];
-        BinaryPrimitives.WriteInt32BigEndian(header, width);
-        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), height);
-        header[8] = 8; // bit depth
-        header[9] = 2; // truecolour RGB
-        Chunk(png, "IHDR", header);
+        Header(png, width, height, colourType: 2); // truecolour RGB
         var raw = new byte[(width * 3 + 1) * height];
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)
@@ -439,6 +442,19 @@ internal static class CatalogLogoLoaderTests
         }
         Chunk(png, "IEND", []);
         return png.ToArray();
+    }
+
+    /// <summary>The PNG signature and an IHDR chunk: <paramref name="width"/> × <paramref name="height"/>, bit depth 8,
+    /// the given colour type (0 greyscale, 2 truecolour RGB), no interlace.</summary>
+    private static void Header(Stream png, int width, int height, byte colourType)
+    {
+        png.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        var header = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(header, width);
+        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), height);
+        header[8] = 8; // bit depth
+        header[9] = colourType;
+        Chunk(png, "IHDR", header);
     }
 
     private static void Chunk(Stream png, string type, byte[] data)
