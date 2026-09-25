@@ -126,7 +126,7 @@ internal static class CatalogFixtures
         [null, "", "  ", "radio", "RADIO", "ra", "nova", "münchen", "munchen", "αθηνα", "ΑΘΉΝΑ", "κοσμος", "istanbul", "İZMİR", "izmir",
          "cherie", "strasse", "local", "novara", "101.5", "1015", "101,5 FM", "101", "10", "1593 kHz", "98", "1", "12345", "101.555", "zzz",
          "FM 101.5", "101.50", "101.7", "1017", "AM 1017", "1017 kHz", "101.", "FM 101", "101.0", "101.00", "108", "108.5", "149", "AM 101.7",
-         "UKW 101.5", "fm"];
+         "UKW 101.5", "fm", "1017 \u212Ahz"];
 
     /// <summary>Filter combinations for the same checks: none, each field alone, several ANDed, and a value nothing has.</summary>
     public static readonly CatalogFilters[] FilterSets =
@@ -146,7 +146,9 @@ internal static class CatalogFixtures
     {
         var match = FrequencyQuery.Match((text ?? "").Trim());
         if (text is null || !match.Success) return null;
-        bool Token(int group, params string[] words) => words.Any(w => string.Equals(match.Groups[group].Value, w, StringComparison.OrdinalIgnoreCase));
+        // ToLowerInvariant, not OrdinalIgnoreCase: the case-insensitive pattern equates the Kelvin sign U+212A with k, and
+        // only lower-casing maps it to k (OrdinalIgnoreCase upper-cases, which leaves U+212A as it is).
+        bool Token(int group, params string[] words) => words.Any(w => match.Groups[group].Value.ToLowerInvariant() == w);
         var fm = match.Groups[3].Success || Token(1, "fm") || Token(5, "fm", "mhz");
         var khz = Token(1, "am") || Token(5, "am", "khz");
         if (fm && khz) return null;
