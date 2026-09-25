@@ -35,7 +35,30 @@ public static class Scheduler
     /// </summary>
     public static IAppLog Log { get; set; } = NullAppLog.Instance;
 
-    public static bool TryTime(string text, out TimeOnly time) => TimeOnly.TryParseExact(text, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
+    /// <summary>The canonical stored and displayed slot time: 24-hour <c>HH:mm</c> with a literal colon (D53).</summary>
+    private const string CanonicalTimeFormat = "HH':'mm";
+
+    /// <summary>
+    /// Formats accepted by <see cref="TryTime"/>: the canonical <c>HH:mm</c>, and <c>HH.mm</c>. The second is what a
+    /// culture-dependent <c>ToString("HH:mm")</c> writes on every culture whose time separator is <c>.</c> (27 cultures in
+    /// .NET 10 ICU data, among them da-DK, fi-FI, sv-FI, id-ID and en-DK; no culture produces any other separator), so
+    /// settings saved that way by earlier builds still play (D53).
+    /// </summary>
+    private static readonly string[] AcceptedTimeFormats = [CanonicalTimeFormat, "HH'.'mm"];
+
+    /// <summary>
+    /// Parses a stored or typed slot time: exactly two-digit hours and minutes separated by <c>:</c> or <c>.</c>, parsed
+    /// culture-invariantly, with no surrounding whitespace, seconds or 24:00 (CT-SCH-06). Null or anything else is false,
+    /// and such a slot never fires.
+    /// </summary>
+    public static bool TryTime(string? text, out TimeOnly time) =>
+        TimeOnly.TryParseExact(text, AcceptedTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
+
+    /// <summary>
+    /// The one canonical text for a slot time, <c>HH:mm</c> in the invariant culture whatever the current culture is.
+    /// Code that writes <see cref="ScheduleEntry.Time"/> formats with this, never with its own format string (D53).
+    /// </summary>
+    public static string FormatTime(TimeOnly time) => time.ToString(CanonicalTimeFormat, CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Resolves a stored zone id. Null, empty and whitespace are <see cref="ZoneResolution.Local"/> (<paramref name="zone"/>
@@ -121,6 +144,8 @@ public static class Scheduler
     /// another enabled entry. Editing the same entry (same <see cref="ScheduleEntry.Id"/>) is allowed.
     /// </summary>
     /// <remarks>
+    /// Times are compared as parsed by <see cref="TryTime"/>, so <c>08:30</c> and <c>08.30</c> are the same time (D53). A
+    /// time that does not parse never conflicts, because that slot never fires.
     /// Zones are normalized (whitespace means local, ids are trimmed), resolved, and compared by resolved
     /// <see cref="TimeZoneInfo.Id"/>, with local for no zone or an unknown one (QA-N5). This is a hint, not an exact
     /// "same instant" rule: distinct ids that share an instant (Europe/Athens and Europe/Helsinki, Asia/Kolkata and
@@ -129,9 +154,9 @@ public static class Scheduler
     /// </remarks>
     public static bool Conflicts(IEnumerable<ScheduleEntry> entries, ScheduleEntry candidate)
     {
-        if (!candidate.Enabled) return false;
+        if (!candidate.Enabled || !TryTime(candidate.Time, out var time)) return false;
         var zone = ZoneKey(candidate.TimeZone);
-        return entries.Any(e => e.Id != candidate.Id && e.Enabled && e.Time == candidate.Time && e.Days.Intersect(candidate.Days).Any()
+        return entries.Any(e => e.Id != candidate.Id && e.Enabled && TryTime(e.Time, out var other) && other == time && e.Days.Intersect(candidate.Days).Any()
             && string.Equals(ZoneKey(e.TimeZone), zone, StringComparison.OrdinalIgnoreCase));
     }
 

@@ -25,6 +25,7 @@ public static class SchedulerTests
         TryTimeStrictness();
         ConflictRules();
         IgnoresScheduleEnabled();
+        DottedTimes();
     }
 
     private static void Legacy()
@@ -128,8 +129,9 @@ public static class SchedulerTests
 
     private static void TryTimeStrictness()
     {
-        string[] rejected = ["08:00:00", " 08:00", "08:00 ", "08:60", "", "24:00", "8:00", "08.00"];
-        Check("CT-SCH-06 TryTime rejects seconds, padding, 08:60, empty, 24:00, 8:00, 08.00", rejected.All(t => !Scheduler.TryTime(t, out _)));
+        string[] rejected = ["08:00:00", " 08:00", "08:00 ", "08:60", "", "24:00", "8:00"];
+        Check("CT-SCH-06 TryTime rejects seconds, padding, 08:60, empty, 24:00, 8:00", rejected.All(t => !Scheduler.TryTime(t, out _)));
+        Check("CT-SCH-06 TryTime rejects null", !Scheduler.TryTime(null, out _));
         Check("CT-SCH-06 TryTime accepts 23:59", Scheduler.TryTime("23:59", out var t2359) && t2359 == new TimeOnly(23, 59));
     }
 
@@ -151,5 +153,60 @@ public static class SchedulerTests
         settings.ScheduleEnabled = false;
         var (current, next) = Scheduler.Evaluate(settings, Mon(10));
         Check("CT-SCH-08 Evaluate ignores ScheduleEnabled (gating lives in ScheduleSession)", current?.At == Mon(8) && next?.At == Mon(8).AddDays(7));
+    }
+
+    /// <summary>
+    /// D53: <c>ToString("HH:mm")</c> without a culture writes <c>08.30</c> on the 27 cultures whose time separator is
+    /// <c>.</c>. Such slots must parse, fire and conflict like <c>08:30</c>, and <see cref="Scheduler.FormatTime"/> must
+    /// write <c>08:30</c> whatever the current culture is.
+    /// </summary>
+    private static void DottedTimes()
+    {
+        Check("CT-SCH-09 TryTime accepts the culture/legacy form 08.30 as 08:30", Scheduler.TryTime("08.30", out var dotted) && dotted == new TimeOnly(8, 30));
+        Check("CT-SCH-09 TryTime accepts 00.00 and 23.59", Scheduler.TryTime("00.00", out var zero) && zero == TimeOnly.MinValue
+            && Scheduler.TryTime("23.59", out var late) && late == new TimeOnly(23, 59));
+        string[] rejected = ["8.30", "08.3", "08.60", "24.00", " 08.30", "08.30 ", "08,30", "08.30.00", "08-30", "08:30.00"];
+        Check("CT-SCH-09 TryTime rejects 8.30, 08.3, 08.60, 24.00, padding, other separators and seconds", rejected.All(t => !Scheduler.TryTime(t, out _)));
+
+        // Whatever this host's culture data holds, every culture's "HH:mm" text parses back to the same time.
+        var sample = new TimeOnly(8, 30);
+        var unparsed = CultureInfo.GetCultures(CultureTypes.AllCultures)
+            .Where(c => !Scheduler.TryTime(sample.ToString("HH:mm", c), out var back) || back != sample).Select(c => c.Name).ToList();
+        Check($"CT-SCH-09 every culture's HH:mm text parses back (unparsed: {string.Join(", ", unparsed.DefaultIfEmpty("none"))})", unparsed.Count == 0);
+
+        var settings = Settings.Defaults();
+        var slot = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08.30", Days = [DayOfWeek.Monday] };
+        settings.Schedule.Add(slot);
+        var (current, next) = Scheduler.Evaluate(settings, Mon(8, 30));
+        Check("CT-SCH-09 Evaluate fires a slot stored as 08.30 at 08:30", current?.Entry == slot && current.At == Mon(8, 30) && next?.At == Mon(8, 30).AddDays(7));
+        Check("CT-SCH-09 Evaluate: before 08:30 the 08.30 slot is Next", Scheduler.Evaluate(settings, Mon(8, 29)).Next?.At == Mon(8, 30));
+        Check("CT-SCH-09 NextFor sees a slot stored as 08.30", Scheduler.NextFor(slot, Mon(8))?.At == Mon(8, 30));
+
+        var colon = new ScheduleEntry { Time = "08:30", Days = [DayOfWeek.Monday, DayOfWeek.Tuesday] };
+        Check("CT-SCH-10 Conflicts: an existing 08:30 and a candidate 08.30 on the same day conflict",
+            Scheduler.Conflicts([colon], new ScheduleEntry { Time = "08.30", Days = [DayOfWeek.Tuesday] }));
+        Check("CT-SCH-10 Conflicts: an existing 08.30 and a candidate 08:30 on the same day conflict",
+            Scheduler.Conflicts([new ScheduleEntry { Time = "08.30", Days = [DayOfWeek.Monday] }], new ScheduleEntry { Time = "08:30", Days = [DayOfWeek.Monday] }));
+        Check("CT-SCH-10 Conflicts: 08.30 and 08:31 do not conflict",
+            !Scheduler.Conflicts([new ScheduleEntry { Time = "08.30", Days = [DayOfWeek.Monday] }], new ScheduleEntry { Time = "08:31", Days = [DayOfWeek.Monday] }));
+        Check("CT-SCH-10 Conflicts: a time that does not parse never conflicts (that slot never fires)",
+            !Scheduler.Conflicts([new ScheduleEntry { Time = "bad", Days = [DayOfWeek.Monday] }], new ScheduleEntry { Time = "bad", Days = [DayOfWeek.Monday] }));
+
+        Check("CT-SCH-11 FormatTime writes invariant HH:mm (08:30, 00:00; seconds dropped)", Scheduler.FormatTime(sample) == "08:30"
+            && Scheduler.FormatTime(TimeOnly.MinValue) == "00:00" && Scheduler.FormatTime(new TimeOnly(23, 59, 59)) == "23:59");
+        var synthetic = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        synthetic.DateTimeFormat.TimeSeparator = ".";
+        foreach (var culture in new[] { CultureInfo.GetCultureInfo("da-DK"), CultureInfo.GetCultureInfo("fi-FI"), synthetic })
+        {
+            var saved = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = culture;
+                var name = culture.Name.Length == 0 ? "a synthetic '.'-separator culture" : culture.Name;
+                Check($"CT-SCH-11 FormatTime is 08:30 under {name}, and TryTime reads it back", Scheduler.FormatTime(sample) == "08:30"
+                    && Scheduler.TryTime(Scheduler.FormatTime(sample), out var back) && back == sample);
+            }
+            finally { CultureInfo.CurrentCulture = saved; }
+        }
     }
 }

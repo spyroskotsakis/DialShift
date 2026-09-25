@@ -462,12 +462,14 @@ Per suite (passed / skipped), macOS · Windows, CI `36111775825`: Scheduler 33 �
 
 | IDs | Status | Location |
 |---|---|---|
-| CT-SCH-01..08 | Implemented; CT-SCH-02 flipped to the culture-invariant `Key` (CF-01) | `DialShift.Tests/Core/SchedulerTests.cs` |
+| CT-SCH-01..08 | Implemented; CT-SCH-02 flipped to the culture-invariant `Key` (CF-01); CT-SCH-06 no longer rejects `08.00` (D53) | `DialShift.Tests/Core/SchedulerTests.cs` |
+| CT-SCH-09..11 (D53) | Implemented, green locally (not yet in CI): `HH.mm` parses, fires and conflicts like `HH:mm`; every host culture's `HH:mm` text parses back; `FormatTime` is invariant under da-DK, fi-FI and a synthetic `.` culture | `DialShift.Tests/Core/SchedulerTests.cs` |
 | CT-SES-01..06, CT-SES-08 | Implemented; CT-SES-08 flipped to "fires" (QA-N8, D48) | `DialShift.Tests/Core/ScheduleSessionTests.cs` |
 | CT-SES-07 | Implemented as the legacy DST dedup checks, kept unmodified | `DialShift.Tests/Core/ScheduleSessionTests.cs` |
 | CT-SET-01..10 | Implemented | `DialShift.Tests/Core/SettingsStoreTests.cs` |
 | CF-03, CF-04 (the fixes, D50) | Implemented (`ec09114`): "CF-03 Warning is cleared by a later successful Load" replaces the `[quirk]` pin; CF-04: same-millisecond recoveries (`-2`, a taken `-3` skipped, `-4`), no free backup name (`Load` does not throw, `Save` throws `IOException` and leaves the original untouched, then preserves it first once a name is free), and a read-only folder (Unix only; Windows skips it) | `DialShift.Tests/Core/SettingsStoreTests.cs` |
 | CT-SET-11 | Implemented: `"TimeZone": 123` takes the recovery path, pinned as a documented hazard (QA-N3 note) | `DialShift.Tests/Core/TimezoneTests.cs` |
+| CT-SET-12 (D53) | Implemented, green locally (not yet in CI) | `DialShift.Tests/Core/SettingsStoreTests.cs` |
 | §7.1 harness fakes | Implemented, with self-tests | `DialShift.Tests/Fakes/` |
 | CT-PB-01..40, plus the adversarial checks (ADV-*) and CT-LOG (core) | Implemented (`7ea767d`) | `DialShift.Tests/Core/PlaybackCoordinatorTests.cs`, `CoordinatorRig.cs` |
 | CT-SM-01..22, including the property (seed 42) and race suites | Implemented (`7ea767d`) | `DialShift.Tests/Core/PlaybackStateMachineTests.cs` |
@@ -511,9 +513,12 @@ The existing 26 checks stay as they are.
 | CT-SCH-03 | Given an entry with empty `Days`. Then it never appears as `Current` or `Next`. | Pin |
 | CT-SCH-04 | Given a single weekly Monday 08:00 slot and now Monday 07:59. Then `Current.At` is the previous Monday 08:00 (6 days 23 h 59 min back). | Pin |
 | CT-SCH-05 | Given `now` with `Kind=Local` and then `Kind=Unspecified`. Then the null-path `At.Kind` equals `now.Kind` (QA-N9). | Pin |
-| CT-SCH-06 | `TryTime` rejects `"08:00:00"`, `" 08:00"`, `"08:60"`, `""`, `"24:00"`, and accepts `"23:59"`. | Pin |
+| CT-SCH-06 | `TryTime` rejects `"08:00:00"`, `" 08:00"`, `"08:00 "`, `"08:60"`, `""`, `"24:00"`, `"8:00"` and null, and accepts `"23:59"`. (`"08.00"` was rejected until D53.) | Pin |
 | CT-SCH-07 | `Conflicts`: a disabled candidate never conflicts; a disabled existing entry is ignored; the same day at a different time does not conflict. | Pin |
 | CT-SCH-08 | `Evaluate` ignores `ScheduleEnabled`: it still returns occurrences when the flag is off, because gating is in `ScheduleSession`. | Pin |
+| CT-SCH-09 | *(D53)* `TryTime` accepts `"08.30"` (as 08:30), `"00.00"` and `"23.59"`, and rejects `"8.30"`, `"08.3"`, `"08.60"`, `"24.00"`, padding, `","` and `"-"` separators and seconds. For every culture of the host, `ToString("HH:mm", culture)` parses back. `Evaluate` fires a slot stored as `"08.30"` at 08:30, and `NextFor` sees it. | Pin (the D53 fix) |
+| CT-SCH-10 | *(D53)* `Conflicts` compares parsed times: `"08:30"` and `"08.30"` on the same day conflict in either order; `"08.30"` and `"08:31"` do not; a time that does not parse never conflicts. | Pin (the D53 fix) |
+| CT-SCH-11 | *(D53)* `Scheduler.FormatTime` writes invariant `HH:mm` (`08:30`, `00:00`, seconds dropped), also with `CurrentCulture` set to da-DK, fi-FI or a synthetic culture whose time separator is `.`, and `TryTime` reads it back. | Pin (the D53 fix) |
 
 ### 7.3 ScheduleSession dedup
 
@@ -543,6 +548,7 @@ The existing 26 checks stay as they are.
 | CT-SET-09 | `Save` into a non-existent directory creates it and leaves no `.tmp`. | Pin |
 | CT-SET-10 | The backup file name matches `settings.json.unreadable-\d{17}`. When that name is already taken, the next free `-N` suffix is used (`-2`, `-3`, …, up to 100 names; the CF-04 checks), and an existing backup is never overwritten (`FileMode.CreateNew`). | Pin (the `-N` suffix is the CF-04 fix, D50) |
 | CT-SET-11 | *(Phase 2)* An entry with `"TimeZone": 123` behaves as documented in the QA-N3 hazard note. Phase 2 decides whether it is tolerated; it must be pinned either way. | Pinned in Phase 2: it takes the recovery path (`.unreadable-*` plus defaults), a documented hazard, not fixed |
+| CT-SET-12 | *(D53)* A stored `"08.30"` loads as `"08:30"`; `"21:05"` and an unparseable `"8.30"` load unchanged, with no warning and no backup. `Load` does not rewrite the file; the next `Save` persists `"08:30"`. | Pin (the D53 fix) |
 
 ### 7.5 Playback coordinator: retry, fallback, stall, schedule, wake
 

@@ -54,6 +54,11 @@ public sealed class SettingsStore(string directory, IClock? clock = null)
             // local time at evaluation (Scheduler.TryResolveZone), so a stale id never reaches the recovery path below (QA-N3).
             // A non-string value ("TimeZone": 123) is malformed JSON for the model, like any other mistyped field, and does.
             settings.Volume = Math.Clamp(settings.Volume, 0, 100);
+            // Slot times are canonicalized in memory (D53): a legacy/culture "08.30" becomes "08:30", so conflicts, sorting
+            // and display agree. The file is not rewritten here; the next Save persists it. A time that does not parse is
+            // left as it is and is not corruption: that slot is ignored at evaluation, as before.
+            foreach (var entry in settings.Schedule)
+                if (Scheduler.TryTime(entry.Time, out var time)) entry.Time = Scheduler.FormatTime(time);
             return settings;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
