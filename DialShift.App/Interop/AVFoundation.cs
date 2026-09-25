@@ -4,7 +4,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace DialShift.App.Services.Interop;
+namespace DialShift.App.Interop;
 
 /// <summary>CoreMedia <c>CMTime</c> (24 bytes, natural alignment; identical layout on arm64 and x86_64).</summary>
 [StructLayout(LayoutKind.Sequential)]
@@ -45,8 +45,6 @@ internal static partial class AVFoundation
 
     // Classes (resolved after the frameworks above are loaded; static field initializers run in textual order).
     internal static readonly nint NSURLClass = ObjCRuntime.GetClass("NSURL");
-    internal static readonly nint NSNotificationCenterClass = ObjCRuntime.GetClass("NSNotificationCenter");
-    internal static readonly nint NSObjectClass = ObjCRuntime.GetClass("NSObject");
     internal static readonly nint AVURLAssetClass = ObjCRuntime.GetClass("AVURLAsset");
     internal static readonly nint AVPlayerItemClass = ObjCRuntime.GetClass("AVPlayerItem");
     internal static readonly nint AVPlayerClass = ObjCRuntime.GetClass("AVPlayer");
@@ -84,9 +82,6 @@ internal static partial class AVFoundation
         public static readonly nint LocalizedDescription = ObjCRuntime.Selector("localizedDescription");  // NSString* (+0)
         public static readonly nint UserInfo = ObjCRuntime.Selector("userInfo");                          // NSDictionary* (+0)
         public static readonly nint ObjectForKey = ObjCRuntime.Selector("objectForKey:");                 // id (id), +0
-        public static readonly nint DefaultCenter = ObjCRuntime.Selector("defaultCenter");                // NSNotificationCenter* (+0 singleton)
-        public static readonly nint AddObserver = ObjCRuntime.Selector("addObserver:selector:name:object:"); // void (id, SEL, NSString*, id)
-        public static readonly nint RemoveObserver = ObjCRuntime.Selector("removeObserver:");             // void (id)
         public static readonly nint Name = ObjCRuntime.Selector("name");                                  // NSString* (+0)
         public static readonly nint Object = ObjCRuntime.Selector("object");                              // id (+0)
     }

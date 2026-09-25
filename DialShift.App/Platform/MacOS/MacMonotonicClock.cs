@@ -16,7 +16,7 @@ namespace DialShift.App.Platform.MacOS;
 /// <c>usr/include/_time.h</c>.
 /// </remarks>
 [SupportedOSPlatform("macos")]
-public sealed class MacMonotonicClock : IMonotonicClock
+public sealed partial class MacMonotonicClock : IMonotonicClock
 {
     private const int ClockMonotonic = 6;
 
@@ -29,6 +29,6 @@ public sealed class MacMonotonicClock : IMonotonicClock
     public TimeSpan GetElapsedTime(long startingTimestamp, long endingTimestamp) =>
         TimeSpan.FromTicks((endingTimestamp - startingTimestamp) / TimeSpan.NanosecondsPerTick);
 
-    [DllImport("/usr/lib/libSystem.dylib")]
-    private static extern ulong clock_gettime_nsec_np(int clockId);
+    [LibraryImport("/usr/lib/libSystem.B.dylib", EntryPoint = "clock_gettime_nsec_np")]
+    private static partial ulong clock_gettime_nsec_np(int clockId);
 }

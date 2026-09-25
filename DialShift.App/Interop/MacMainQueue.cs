@@ -6,7 +6,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace DialShift.App.Services.Interop;
+namespace DialShift.App.Interop;
 
 /// <summary>Posts work to the main dispatch queue (<c>dispatch_async_f</c>), FIFO, each item inside an autorelease pool.</summary>
 [SupportedOSPlatform("macos")]
