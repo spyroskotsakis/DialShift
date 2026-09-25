@@ -85,7 +85,6 @@ internal static class CatalogQueryTests
         CheckQueries($"CAT-06 German: grosse / GROSSE / große / GROẞE find Große Freiheit; koln / KÖLN find the city Köln{c}", Text, null,
             ("grosse", ["Große Freiheit"]), ("GROSSE", ["Große Freiheit"]), ("große", ["Große Freiheit"]), ("GROẞE", ["Große Freiheit"]),
             ("koln", ["Kölsch Welle"]), ("KÖLN", ["Kölsch Welle"]));
-        CheckQueries($"CAT-06 German: koeln does not find Köln (ö folds to o, not oe; §3.3){c}", Text, null, ("koeln", []));
         CheckQueries($"CAT-06 Greek with tonos: αθηνα / ΑΘΗΝΑ / Αθήνα find Αθήνα Ράδιο (name and city); ραδιο finds it as a substring{c}", Text, null,
             ("αθηνα", ["Αθήνα Ράδιο"]), ("ΑΘΗΝΑ", ["Αθήνα Ράδιο"]), ("Αθήνα", ["Αθήνα Ράδιο"]), ("ραδιο", ["Αθήνα Ράδιο"]));
         CheckQueries($"CAT-06 Greek final sigma: ΚΟΣΜΟΣ / κοσμος / κόσμοσ / Κόσμος find Κόσμος FM{c}", Text, null,
@@ -144,40 +143,102 @@ internal static class CatalogQueryTests
             ("ab\uDC00", []), ("broken", ["Broken\uD800Name"]), ("😀", ["Radio 😀"]));
     }
 
-    // ─── CAT-07: frequency queries ───
+    // ─── CAT-07: frequency queries (D79) ───
 
-    private static StationCatalogIndex Frequencies => Index(
-        E("Alpha", "DE", frequency: "101.5", votes: 1),
-        E("Bravo", "DE", frequency: "101.7", votes: 2),
-        E("Charlie", "FR", frequency: "1017", votes: 3),
-        E("Delta", "DE", frequency: "", votes: 4),
-        E("Echo", "GR", frequency: "1593", votes: 5),
-        E("Foxtrot", "GR", frequency: "98.4", votes: 6));
+    /// <summary>
+    /// The catalog of the §3.3 example table: names without digits, so every hit is a tier-3 frequency match. Votes fall
+    /// from FM 101.0 to Shortwave, so a row's matches come in the table's order; the list order is not the vote order, so
+    /// a result that followed the catalog position would show.
+    /// </summary>
+    private static StationCatalogIndex Table => Index(
+        E("Shortwave Hotel", "GR", frequency: "Shortwave", votes: 1),
+        E("Echo", "GR", frequency: "89.0", votes: 4),
+        E("Charlie", "DE", frequency: "101.7", votes: 6),
+        E("Golf", "DE", frequency: "", votes: 2),
+        E("Alpha", "DE", frequency: "101.0", votes: 8),
+        E("Foxtrot", "FR", frequency: "1593", votes: 3),
+        E("Delta", "FR", frequency: "1017", votes: 5),
+        E("Bravo", "DE", frequency: "101.5", votes: 7));
+
+    private const string Fm1010 = "Alpha", Fm1015 = "Bravo", Fm1017 = "Charlie", Khz1017 = "Delta", Fm890 = "Echo", Khz1593 = "Foxtrot";
+
+    /// <summary>Each of <paramref name="queries"/> finds exactly <paramref name="expected"/> in <see cref="Table"/>, in that order.</summary>
+    private static void TableRow(string name, string[] queries, string[] expected) =>
+        CheckQueries(name, Table, null, queries.Select(q => ((string?)q, expected)).ToArray());
 
     private static void FrequencyQueries(string c)
     {
-        CheckQueries($"CAT-07 1015, 101.5, 101,5, 101.5 FM (and fm/MHz/spacing variants) match FM 101.5 and not 101.7{c}", Frequencies, null,
-            ("1015", ["Alpha"]), ("101.5", ["Alpha"]), ("101,5", ["Alpha"]), ("101.5 FM", ["Alpha"]), ("101.5fm", ["Alpha"]),
-            ("101.5 MHz", ["Alpha"]), (" 101.5 ", ["Alpha"]), ("101,5 fm", ["Alpha"]), ("101.5\u00A0FM", ["Alpha"]));
-        CheckQueries($"CAT-07 101 and 101. are prefixes: FM 101.5, FM 101.7 and AM 1017, by votes; empty FrequencyFm never matches{c}", Frequencies, null,
-            ("101", ["Charlie", "Bravo", "Alpha"]), ("101.", ["Charlie", "Bravo", "Alpha"]), ("10", ["Charlie", "Bravo", "Alpha"]));
-        CheckQueries($"CAT-07 101.7 matches FM 101.7 and AM 1017 (same digits, §3.3 prefix rule){c}", Frequencies, null,
-            ("101.7", ["Charlie", "Bravo"]), ("1017", ["Charlie", "Bravo"]));
-        CheckQueries($"CAT-07 AM 1593: 1593, 1593 kHz, 159 match; 98.4, 984, 98,4 FM, 98 match FM 98.4{c}", Frequencies, null,
-            ("1593", ["Echo"]), ("1593 kHz", ["Echo"]), ("159", ["Echo"]), ("98.4", ["Foxtrot"]), ("984", ["Foxtrot"]),
-            ("98,4 FM", ["Foxtrot"]), ("98", ["Foxtrot"]));
-        CheckQueries($"CAT-07 a frequency query ANDs with a filter: 101 with Country FR finds only AM 1017{c}", Frequencies, new CatalogFilters(Country: "FR"),
-            ("101", ["Charlie"]));
+        TableRow($"CAT-07 §3.3 table: 1015, 101.5, 101,5, 101.5 FM, 101.5fm, 101.5 MHz, 101,5\\u00A0fm find FM 101.5 only{c}",
+            ["1015", "101.5", "101,5", "101.5 FM", "101.5fm", "101.5 MHz", "101,5 fm"], [Fm1015]);
+        TableRow($"CAT-07 §3.3 table: a leading band token, FM 101.5, fm101.5, FM 101,5 MHz, FM 1015 find FM 101.5 only{c}",
+            ["FM 101.5", "fm101.5", "FM 101,5 MHz", "FM 1015"], [Fm1015]);
+        TableRow($"CAT-07 §3.3 table: the trailing zero is dropped, 101.50 and 101,50 MHz find FM 101.5 only{c}",
+            ["101.50", "101,50 MHz"], [Fm1015]);
+        TableRow($"CAT-07 §3.3 table: 101.0, 101.00, 1010 find FM 101.0 only (101.0 keeps its decimal: not every 101.x){c}",
+            ["101.0", "101.00", "1010"], [Fm1010]);
+        TableRow($"CAT-07 §3.3 table: 89.0, 89.00, 890 find FM 89.0{c}", ["89.0", "89.00", "890"], [Fm890]);
+        TableRow($"CAT-07 §3.3 table: bare 1017 is band Any and finds FM 101.7 and kHz 1017 (by votes){c}", ["1017"], [Fm1017, Khz1017]);
+        TableRow($"CAT-07 §3.3 table: 101.7, FM 1017, 1017 MHz imply FM and find FM 101.7 only, not kHz 1017{c}",
+            ["101.7", "FM 1017", "1017 MHz"], [Fm1017]);
+        TableRow($"CAT-07 §3.3 table: AM 1017, 1017 AM, 1017 kHz, am1017 imply kHz and find kHz 1017 only{c}",
+            ["AM 1017", "1017 AM", "1017 kHz", "am1017"], [Khz1017]);
+        TableRow($"CAT-07 §3.3 table: bare 101 is a band-Any prefix: FM 101.0, FM 101.5, FM 101.7, kHz 1017{c}", ["101"], [Fm1010, Fm1015, Fm1017, Khz1017]);
+        TableRow($"CAT-07 §3.3 table: 101. and FM 101 imply FM: FM 101.0, FM 101.5, FM 101.7, not kHz 1017{c}",
+            ["101.", "FM 101"], [Fm1010, Fm1015, Fm1017]);
+        TableRow($"CAT-07 §3.3 table: 1593, 1593 kHz, AM 1593, 159 find kHz 1593{c}", ["1593", "1593 kHz", "AM 1593", "159"], [Khz1593]);
+        TableRow($"CAT-07 §3.3 table, not frequency queries (conflicting bands): AM 101.7, 101.5 kHz, FM 1593 kHz find nothing{c}",
+            ["AM 101.7", "101.5 kHz", "FM 1593 kHz"], []);
+        TableRow($"CAT-07 §3.3 table, not frequency queries (mhz and khz only trail): MHz 101.5, kHz 1593 find nothing{c}", ["MHz 101.5", "kHz 1593"], []);
+        TableRow($"CAT-07 §3.3 table, not frequency queries (tokens outside the set): UKW 101.5, 101.5 FMX find nothing{c}", ["UKW 101.5", "101.5 FMX"], []);
+        TableRow($"CAT-07 §3.3 table, not frequency queries (shape): 1, 12345, 101.555 find nothing{c}", ["1", "12345", "101.555"], []);
+        TableRow($"CAT-07 §3.3 table, not frequency queries (ASCII digits only): Arabic-Indic ١٠١٫٥ and full-width １０１.５ find nothing{c}",
+            ["١٠١٫٥", "１０１.５"], []);
+        Check($"CAT-07 §3.3 table: the empty and Shortwave entries match no digit query (10, 101, 1017, 1593, 89){c}",
+            new[] { "10", "101", "1017", "1593", "89" }.All(q => !Names(Search(Table, q)).Intersect(["Golf", "Shortwave Hotel"]).Any()));
 
-        var notFrequency = Index(E("Radio 1"), E("Golf", frequency: "101.555"), E("Hotel", frequency: "1234.5"), E("India", frequency: "101.5"));
-        CheckQueries($"CAT-07 1, 12345 and 101.555 are not frequency queries (they only text-match){c}", notFrequency, null,
-            ("1", ["Radio 1"]), ("12345", []), ("101.555", []));
-        CheckQueries($"CAT-07 not frequency queries: FM 101.5 (unit first), 101.5 FMX, 101.50 (3 decimals of digits), Arabic-Indic and full-width digits{c}",
-            notFrequency, null, ("FM 101.5", []), ("101.5 FMX", []), ("101.50", []), ("١٠١٫٥", []), ("１０１.５", []));
+        TableRow($"CAT-07 trailing zero: 101.70 and 101,70 FM find FM 101.7 only, like 101.7{c}", ["101.70", "101,70 FM"], [Fm1017]);
+        TableRow($"CAT-07 trailing zero: only a second decimal 0 is dropped, so 101.05 and 89.05 keep both decimals and find nothing{c}",
+            ["101.05", "89.05"], []);
+        TableRow($"CAT-07 FM tokens are case-insensitive, with any spacing: Fm 101.5, fM101,5, 101.5  mHz, 101.5\\t\\tFM, no-break spaces around FM 101.5{c}",
+            ["Fm 101.5", "fM101,5", "101.5  mHz", "101.5\t\tFM", "  FM 101.5  "], [Fm1015]);
+        TableRow($"CAT-07 kHz tokens are case-insensitive: Am 1017, 1017 KHZ, 1017khz{c}", ["Am 1017", "1017 KHZ", "1017khz"], [Khz1017]);
+
+        var unbanded = Index(E("India", frequency: "108.5", votes: 3), E("Juliet", frequency: "149", votes: 2), E("Kilo", frequency: "87", votes: 1),
+            E("Lima", frequency: "", votes: 4));
+        CheckQueries($"CAT-07 band None entries (108.5, 149) match only band-Any queries; the integer 87 is FM; an empty FrequencyFm never matches{c}",
+            unbanded, null,
+            ("108", ["India"]), ("1085", ["India"]), ("108.5", []), ("FM 1085", []), ("149", ["Juliet"]), ("14", ["Juliet"]), ("149 kHz", []),
+            ("AM 149", []), ("87", ["Kilo"]), ("87 FM", ["Kilo"]), ("87 kHz", []));
+
+        CheckQueries($"CAT-07 a frequency query ANDs with a filter: with Country FR, 101 and 1017 find only kHz 1017, FM 101 nothing{c}", Table,
+            new CatalogFilters(Country: "FR"), ("101", [Khz1017]), ("1017", [Khz1017]), ("FM 101", []));
 
         var ranked = Index(E("Kilo", frequency: "101.5", votes: 1000), E("Hit 101.5", votes: 0), E("101.5 Classics", votes: 0));
         CheckQueries($"CAT-07 tier 3 ranks below name matches: 101.5 lists the names containing it before the 1000-vote frequency match{c}", ranked, null,
             ("101.5", ["101.5 Classics", "Hit 101.5", "Kilo"]));
+        var textToo = Index(E("Kilo", frequency: "101.5", votes: 1000), E("Hit FM 101.5", votes: 0), E("Radio UKW 101.5", votes: 0), E("Radio 1", votes: 0));
+        CheckQueries($"CAT-07 the text tiers still apply: FM 101.5 also finds a name containing fm 101.5; UKW 101.5 and 1 only text-match{c}", textToo, null,
+            ("FM 101.5", ["Hit FM 101.5", "Kilo"]), ("UKW 101.5", ["Radio UKW 101.5"]), ("1", ["Hit FM 101.5", "Radio 1", "Radio UKW 101.5"]));
+
+        CheckQueries($"CAT-07 koeln does not find Köln (German transliteration is a D79 non-goal); köln, Köln and koln do{c}", Text, null,
+            ("koeln", []), ("köln", ["Kölsch Welle"]), ("Köln", ["Kölsch Welle"]), ("koln", ["Kölsch Welle"]));
+
+        BandOfRules(c);
+    }
+
+    private static FrequencyBand Band(string value) => StationCatalogQuery.BandOf(value);
+
+    private static void BandOfRules(string c)
+    {
+        Check($"CAT-07 BandOf is Fm for an invariant decimal from 64 to 108: 101.5, 89.0, 108.0, 108, 64, 64.0, 87{c}",
+            new[] { "101.5", "89.0", "108.0", "108", "64", "64.0", "87" }.All(v => Band(v) == FrequencyBand.Fm));
+        Check($"CAT-07 BandOf is Kilohertz for an integer of at least 150: 1017, 150, 1593, 8500{c}",
+            new[] { "1017", "150", "1593", "8500" }.All(v => Band(v) == FrequencyBand.Kilohertz));
+        Check($"CAT-07 BandOf is None outside both: \"\", Shortwave, 108.5, 108.01, 63.9, 149, 120, 1593.0, 150.0{c}",
+            new[] { "", "Shortwave", "108.5", "108.01", "63.9", "149", "120", "1593.0", "150.0" }.All(v => Band(v) == FrequencyBand.None));
+        Check($"CAT-07 BandOf is None for a sign, white space, a thousands separator or a comma decimal: +101.5, -101.5, ' 101.5', '101.5 ', \\u00A0101.5, 1,017, 1 017, 87,5{c}",
+            new[] { "+101.5", "-101.5", " 101.5", "101.5 ", " 101.5", "1,017", "1 017", "87,5" }.All(v => Band(v) == FrequencyBand.None));
+        Check($"CAT-07 BandOf(null) throws ArgumentNullException{c}", Throws<ArgumentNullException>(() => StationCatalogQuery.BandOf(null!)));
     }
 
     // ─── CAT-08: filters ───

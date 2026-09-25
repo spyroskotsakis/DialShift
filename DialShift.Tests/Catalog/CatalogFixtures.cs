@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using DialShift.Core.Catalog;
 using static DialShift.Tests.TestHarness;
@@ -79,7 +80,8 @@ internal static class CatalogFixtures
     private static readonly string[] Suffixes = ["FM", "Eins", "Plus", "101.5", "Αθήνα", "Classic", "Live", "", "München", "Nova"];
     private static readonly string[] Cities = ["München", "Munchen", "Αθήνα", "Paris", "İzmir", "Köln", "", "Lyon", "Novara"];
     private static readonly (string Code, string Label)[] Countries = [("DE", "Germany"), ("GR", "Greece"), ("FR", "France"), ("TR", ""), ("Internet", "Internet (collections)")];
-    private static readonly string[] Frequencies = ["101.5", "101.7", "98.4", "1593", "", "88.0", "104.3", "1017", "10"];
+    /// <summary>FM, kHz and band-None values (§3.3 step 3), including digit strings shared by FM and kHz (101.7 / 1017).</summary>
+    private static readonly string[] Frequencies = ["101.5", "101.7", "98.4", "1593", "", "88.0", "104.3", "1017", "10", "101.0", "108.5", "149", "Shortwave"];
     private static readonly string[] Types = ["Music", "News", "", "Talk"];
     private static readonly string[] Genres = ["Pop", "Schlager", "Jazz", "", "News"];
     private static readonly string[] Languages = ["German", "Greek", "French", "Turkish", ""];
@@ -119,10 +121,12 @@ internal static class CatalogFixtures
     }
 
     /// <summary>Text queries for the reference and determinism checks: empty, name prefixes and substrings, diacritics,
-    /// Greek, Turkish I, local-name and city hits, frequency queries (valid and not), and a query nothing matches.</summary>
+    /// Greek, Turkish I, local-name and city hits, frequency queries of every band (D79; valid and not), and a query nothing matches.</summary>
     public static readonly string?[] Queries =
         [null, "", "  ", "radio", "RADIO", "ra", "nova", "münchen", "munchen", "αθηνα", "ΑΘΉΝΑ", "κοσμος", "istanbul", "İZMİR", "izmir",
-         "cherie", "strasse", "local", "novara", "101.5", "1015", "101,5 FM", "101", "10", "1593 kHz", "98", "1", "12345", "101.555", "zzz"];
+         "cherie", "strasse", "local", "novara", "101.5", "1015", "101,5 FM", "101", "10", "1593 kHz", "98", "1", "12345", "101.555", "zzz",
+         "FM 101.5", "101.50", "101.7", "1017", "AM 1017", "1017 kHz", "101.", "FM 101", "101.0", "101.00", "108", "108.5", "149", "AM 101.7",
+         "UKW 101.5", "fm"];
 
     /// <summary>Filter combinations for the same checks: none, each field alone, several ANDed, and a value nothing has.</summary>
     public static readonly CatalogFilters[] FilterSets =
@@ -131,9 +135,32 @@ internal static class CatalogFixtures
 
     // ─── Reference implementation of §3.3 (the oracle) ───
 
-    /// <summary>§3.3's frequency-query pattern, written out again from the contract rather than taken from Core.</summary>
-    private static readonly Regex FrequencyQuery = new(@"^([0-9]{2,4})(?:[.,]([0-9]{0,2}))?(?:\s*(?:fm|mhz|khz))?$",
+    /// <summary>§3.3's frequency-query pattern (D79), written out again from the contract rather than taken from Core.
+    /// Groups: 1 the leading band token L, 2 the integer digits I, 3 the separator S, 4 the decimals R, 5 the trailing token T.</summary>
+    private static readonly Regex FrequencyQuery = new(@"^(?:(fm|am)\s*)?([0-9]{2,4})(?:([.,])([0-9]{0,2}))?(?:\s*(fm|mhz|am|khz))?$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>§3.3 step 1 and 2 read literally: the digits D and the query band (None = Any), or null when
+    /// <paramref name="text"/> is not a frequency query (no match, or FM and kHz both implied).</summary>
+    private static (string Digits, FrequencyBand Band)? ReferenceFrequency(string? text)
+    {
+        var match = FrequencyQuery.Match((text ?? "").Trim());
+        if (text is null || !match.Success) return null;
+        bool Token(int group, params string[] words) => words.Any(w => string.Equals(match.Groups[group].Value, w, StringComparison.OrdinalIgnoreCase));
+        var fm = match.Groups[3].Success || Token(1, "fm") || Token(5, "fm", "mhz");
+        var khz = Token(1, "am") || Token(5, "am", "khz");
+        if (fm && khz) return null;
+        var decimals = match.Groups[4].Value;
+        if (decimals.Length == 2 && decimals[1] == '0') decimals = decimals[..1];
+        return (match.Groups[2].Value + decimals, fm ? FrequencyBand.Fm : khz ? FrequencyBand.Kilohertz : FrequencyBand.None);
+    }
+
+    /// <summary>§3.3 step 3's entry band read literally (Core's <c>BandOf</c> is pinned by its own CAT-07 checks).</summary>
+    private static FrequencyBand ReferenceBand(string frequencyFm) =>
+        !decimal.TryParse(frequencyFm, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var v) ? FrequencyBand.None
+        : v >= 64 && v <= 108 ? FrequencyBand.Fm
+        : !frequencyFm.Contains('.') && v >= 150 ? FrequencyBand.Kilohertz
+        : FrequencyBand.None;
 
     /// <summary>
     /// Every match of <paramref name="text"/> and <paramref name="filters"/> in §3.3's total order, computed the slow,
@@ -143,8 +170,7 @@ internal static class CatalogFixtures
     public static List<StationCatalogEntry> Reference(IReadOnlyList<StationCatalogEntry> entries, string? text, CatalogFilters filters)
     {
         var q = StationCatalogQuery.Fold(text ?? "");
-        var match = FrequencyQuery.Match((text ?? "").Trim());
-        var digits = text is not null && match.Success ? match.Groups[1].Value + match.Groups[2].Value : null;
+        var frequency = ReferenceFrequency(text);
 
         int? Tier(StationCatalogEntry e)
         {
@@ -154,7 +180,8 @@ internal static class CatalogFixtures
             if (name.Contains(q, StringComparison.Ordinal)) return 1;
             if (StationCatalogQuery.Fold(e.NameLocal).Contains(q, StringComparison.Ordinal) || StationCatalogQuery.Fold(e.City).Contains(q, StringComparison.Ordinal)) return 2;
             var f = new string(e.FrequencyFm.Where(char.IsAsciiDigit).ToArray());
-            return digits is not null && f.Length > 0 && f.StartsWith(digits, StringComparison.Ordinal) ? 3 : null;
+            return frequency is { } fq && f.Length > 0 && f.StartsWith(fq.Digits, StringComparison.Ordinal)
+                   && (fq.Band == FrequencyBand.None || fq.Band == ReferenceBand(e.FrequencyFm)) ? 3 : null;
         }
 
         static bool Is(string? filter, string value) => filter is null || string.Equals(filter, value, StringComparison.Ordinal);
