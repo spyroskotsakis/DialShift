@@ -89,9 +89,9 @@ public partial class StationEditorDialog : Window
                 editor.MoveHighlight(-1);
                 e.Handled = true;
                 break;
-            case Key.Enter when editor.IsResultsOpen && editor.HighlightedResult != null:
-                editor.SelectEntryCommand.Execute(null);
-                e.Handled = true;
+            case Key.Enter:
+                // Picks the top match of the text as typed (D87 item 6); when not handled, Enter goes on to Save.
+                e.Handled = editor.PickOnEnter();
                 break;
             case Key.PageDown:
                 DetailScroll.PageDown();
@@ -119,7 +119,7 @@ public partial class StationEditorDialog : Window
     /// <summary>A click in the search box brings back the last results the user closed.</summary>
     private void ReopenResults()
     {
-        if (editor != null && (editor.Results.Count > 0 || editor.HasNoMatches)) editor.IsResultsOpen = true;
+        if (editor is { Results.Count: > 0 }) editor.IsResultsOpen = true;
     }
 
     /// <summary>A press anywhere but the overlay, the search box or the filters closes the results.</summary>

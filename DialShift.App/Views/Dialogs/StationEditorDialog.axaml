@@ -13,6 +13,10 @@
     walk the results, and opening or closing it never changes the window's height. Edit mode is the plain form.
   -->
   <Window.Styles>
+    <!-- The no-match message on the status line reads a step brighter than the plain status (D87). -->
+    <Style Selector="TextBlock.hint.noMatch">
+      <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
+    </Style>
     <Style Selector="TextBlock.filterLabel">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
@@ -193,11 +197,12 @@
       </Grid>
       <!-- A text block's automation peer announces its text and ignores AutomationProperties.Name, so the name sits on a
            container exposed to the control view: "Catalog status", with the line as its help text. The text block inside is
-           a polite live region, so the loading → loaded (or unavailable) change is announced. -->
+           a polite live region, so the loading → loaded (or unavailable) change and the no-match message are announced.
+           With no match the results stay closed and the message shows here, above the form it points to (D87). -->
       <Border Margin="0,8,0,0"
-              AutomationProperties.Name="Catalog status" AutomationProperties.HelpText="{Binding CatalogStatusText}"
+              AutomationProperties.Name="Catalog status" AutomationProperties.HelpText="{Binding StatusLineText}"
               AutomationProperties.AccessibilityView="Control" AutomationProperties.ControlTypeOverride="Group">
-        <TextBlock Classes="hint" Text="{Binding CatalogStatusText}" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Classes="hint" Classes.noMatch="{Binding HasNoMatches}" Text="{Binding StatusLineText}" AutomationProperties.LiveSetting="Polite" />
       </Border>
     </StackPanel>
 
@@ -291,12 +296,13 @@
       <Border x:Name="ResultsOverlay" Grid.Column="0" Classes="catalogOverlay" VerticalAlignment="Top" ZIndex="1"
               Height="{Binding #FormColumn.Bounds.Height}" IsVisible="{Binding IsResultsOpen}">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Bottom" Classes="hint" Text="{Binding TotalCountText}" Margin="10,4,10,6" AutomationProperties.LiveSetting="Polite"
-                     IsVisible="{Binding TotalCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock DockPanel.Dock="Top" Classes="muted" Text="{x:Static vm:UiText.CatalogNoMatch}" Margin="12,10" IsVisible="{Binding HasNoMatches}" />
+          <!-- The rule above the footer marks a half-visible last row as scrolled content, not a cut one. -->
+          <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource DsDialRingBrush}" BorderThickness="0,1,0,0" Margin="6,2,6,0" Padding="4,6,4,4"
+                  IsVisible="{Binding TotalCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock Classes="hint" Text="{Binding TotalCountText}" AutomationProperties.LiveSetting="Polite" />
+          </Border>
           <ListBox x:Name="ResultsList" ItemsSource="{Binding Results}" SelectedItem="{Binding HighlightedResult}"
                    ItemTemplate="{StaticResource CatalogResult}" VerticalAlignment="Top" Focusable="False"
-                   IsVisible="{Binding !HasNoMatches}"
                    AutomationProperties.Name="Station catalog results" />
         </DockPanel>
       </Border>

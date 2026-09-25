@@ -234,17 +234,27 @@ internal static class CatalogViewModelTests
             vm.Results.Count == 50 && vm.TotalCount == 60 && vm.TotalCountText == "Top 50 of 60 stations by votes" && !vm.HasNoMatches && !vm.IsResultsOpen
             && sixty.Shown.SequenceEqual(numbered.Take(50)));
         Check("CAT-17 the status line names the station count and the catalog date: \"60 stations · catalog updated 2026-09-25\"",
-            vm.CatalogStatusText == "60 stations · catalog updated 2026-09-25");
+            vm.CatalogStatusText == "60 stations · catalog updated 2026-09-25" && vm.StatusLineText == vm.CatalogStatusText);
         vm.SearchText = "station 0";
         await sixty.Settled();
         Check("CAT-09 a search opens the overlay; 9 of 9 shown: \"9 matches\"", vm.IsResultsOpen && vm.TotalCount == 9 && vm.TotalCountText == "9 matches");
         vm.SearchText = "Station 42";
         await sixty.Settled();
         Check("CAT-09 one match: \"1 match\"", vm.TotalCountText == "1 match" && sixty.Shown.SequenceEqual([numbered[41]]));
+        var noMatchMark = sixty.Changes.Count;
         vm.SearchText = "no such station anywhere";
         await sixty.Settled();
-        Check("CAT-13 no match: HasNoMatches, no rows, empty count text, the overlay stays open for the no-match text",
-            vm.HasNoMatches && vm.Results.Count == 0 && vm.TotalCount == 0 && vm.TotalCountText == "" && vm.IsResultsOpen);
+        Check("CAT-13 D87 no match: HasNoMatches, no rows, empty count text, the overlay closes so the manual form stays in view",
+            vm.HasNoMatches && vm.Results.Count == 0 && vm.TotalCount == 0 && vm.TotalCountText == "" && !vm.IsResultsOpen && vm.HighlightedResult == null);
+        Check("CAT-13 D87 no match: the status line reads \"No stations match — adjust filters or enter the stream manually\" and announces the change",
+            vm.StatusLineText == UiText.CatalogNoMatch && vm.CatalogStatusText == "60 stations · catalog updated 2026-09-25"
+            && sixty.Changes.Skip(noMatchMark).Contains(nameof(StationEditorViewModel.StatusLineText)));
+        vm.IsResultsOpen = true;
+        Check("CAT-13 D87 item 9(a) the overlay is never open without rows: IsResultsOpen = true with no results leaves it false", !vm.IsResultsOpen);
+        vm.SearchText = "Station 42";
+        await sixty.Settled();
+        Check("CAT-13 D87 typing a matching word after no match opens the results again and the status line returns to the catalog status",
+            vm.IsResultsOpen && !vm.HasNoMatches && vm.Results.Count == 1 && vm.StatusLineText == vm.CatalogStatusText);
         vm.SearchText = "";
         await sixty.Settled();
         Check("CAT-13 D85 emptying the search shows all again (\"Top 50 of 60 stations by votes\") and clears HasNoMatches",
@@ -257,8 +267,9 @@ internal static class CatalogViewModelTests
 
         var empty = new EditorRig();
         await empty.Settled();
-        Check("CAT-13 a loaded but empty catalog: \"0 stations\", available, no rows; the first (empty) search applied reports no match, overlay closed",
-            empty.Vm.IsCatalogAvailable && empty.Vm.CatalogStatusText == "0 stations" && empty.Vm.Results.Count == 0 && empty.Vm.HasNoMatches && !empty.Vm.IsResultsOpen);
+        Check("CAT-13 D87 a loaded but empty catalog: \"0 stations\" on the status line (not the no-match message), available, no rows; the first (empty) search applied reports no match, overlay closed",
+            empty.Vm.IsCatalogAvailable && empty.Vm.CatalogStatusText == "0 stations" && empty.Vm.StatusLineText == "0 stations"
+            && empty.Vm.Results.Count == 0 && empty.Vm.HasNoMatches && !empty.Vm.IsResultsOpen);
     }
 
     // ─── CAT-08: options, filters, Clear ───
