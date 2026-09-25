@@ -139,7 +139,7 @@ public sealed class SchedulePageViewModel : PageViewModel
         Slots.Clear();
         // By start time, so a legacy "08.30" sorts with "08:30" (its text as stored breaks ties and orders unparsable ones last).
         foreach (var entry in settings.Schedule.Where(e => e.Days.Contains(selectedDay))
-                     .OrderBy(e => ScheduleEditorViewModel.TryParseTime(e.Time, out var t) ? t.Ticks : long.MaxValue).ThenBy(e => e.Time, StringComparer.Ordinal))
+                     .OrderBy(e => Scheduler.TryTime(e.Time, out var t) ? t.Ticks : long.MaxValue).ThenBy(e => e.Time, StringComparer.Ordinal))
             Slots.Add(new SlotRowViewModel(entry, settings.Stations.FirstOrDefault(s => s.Id == entry.StationId)?.Name, EditAsync, Services.ReportError));
         UpdateNextStarts();
         IsEmpty = Slots.Count == 0;
