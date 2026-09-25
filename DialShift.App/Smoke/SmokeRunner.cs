@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using DialShift.App.Services;
@@ -294,7 +293,7 @@ public sealed class SmokeRunner
         slot = new ScheduleEntry
         {
             StationId = station.Id,
-            Time = minuteAgo.ToString("HH:mm", CultureInfo.InvariantCulture),
+            Time = Scheduler.FormatTime(TimeOnly.FromDateTime(minuteAgo)),
             Days = [minuteAgo.DayOfWeek],
             Label = "Smoke catch-up"
         };
@@ -327,7 +326,7 @@ public sealed class SmokeRunner
         var entry = RequireSlot();
         // As the legacy check: move the slot to this minute, so the next tick sees a new occurrence.
         var now = DateTime.Now;
-        entry.Time = now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        entry.Time = Scheduler.FormatTime(TimeOnly.FromDateTime(now));
         entry.Days = [now.DayOfWeek];
         var (met, elapsed) = await SmokeUi.WaitUntilAsync(() => Snapshot.DesiredStationId == entry.StationId, TimeSpan.FromSeconds(3));
         return new Outcome(met, $"slot moved to {entry.Days[0]} {entry.Time}; {(met ? $"switched after {elapsed.TotalSeconds:0.0} s" : "no switch within 3 s")}; {Describe(Snapshot)}");

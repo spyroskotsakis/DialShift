@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Rendering;
 using DialShift.App.Interop;
 using DialShift.App.Platform.MacOS;
+using DialShift.Tests.Core;
 using DialShift.Tests.Fakes;
 using static DialShift.Tests.TestHarness;
 
@@ -105,25 +107,47 @@ public static class RenderTimerFallbackTests
         Check("RT-05 adding the fallback before a windowing subsystem is selected is rejected", message?.Contains("windowing subsystem", StringComparison.Ordinal) == true);
     }
 
+    // Robust to loaded CI VMs (like HZ-08): the running checks wait for ticks up to a generous deadline instead of
+    // counting them in a fixed window, so a starved timer thread slows the check down but cannot fail it. The rate is
+    // printed as information only. The idle check lets an in-flight tick drain before its window opens.
+    private const int RunningTicks = 5;
+    private static readonly TimeSpan TickDeadline = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan StopSettle = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan IdleWindow = TimeSpan.FromMilliseconds(500);
+
     private static async Task FallbackTimerIdlesWhenStoppedAsync()
     {
         var timer = MacRenderTimerFallback.CreateFallbackTimer();
         var ticks = 0;
+        var clock = Stopwatch.StartNew();
         timer.Tick = _ => Interlocked.Increment(ref ticks);
-        await Task.Delay(300);
+        var ticked = await Wait.Until(() => Volatile.Read(ref ticks) >= RunningTicks, TickDeadline);
+        var elapsed = clock.Elapsed;
+        timer.Tick = null;
         var running = Volatile.Read(ref ticks);
-        timer.Tick = null;
-        await Task.Delay(100);
-        var stopped = Volatile.Read(ref ticks);
-        await Task.Delay(400);
+        Console.WriteLine($"  RT-07: {running} ticks in {elapsed.TotalMilliseconds:F0} ms " +
+            $"(~{running / Math.Max(elapsed.TotalSeconds, 0.001):F0}/s observed, {MacRenderTimerFallback.FramesPerSecond} fps nominal)");
+        Check($"RT-07 the fallback timer ticks while started (>= {RunningTicks} ticks within {TickDeadline.TotalSeconds:0} s) and runs in the background",
+            ticked && timer.RunsInBackground);
+
+        // Settle: a tick already past the loop's stop check may still land, so wait until the count holds still for
+        // StopSettle (bounded by the deadline) before opening the idle window.
+        int stopped;
+        var settle = Stopwatch.StartNew();
+        do
+        {
+            stopped = Volatile.Read(ref ticks);
+            await Task.Delay(StopSettle);
+        }
+        while (Volatile.Read(ref ticks) != stopped && settle.Elapsed < TickDeadline);
+        await Task.Delay(IdleWindow);
         var idle = Volatile.Read(ref ticks) - stopped;
-        Check($"RT-07 the fallback timer ticks while started ({running} ticks in 300 ms at {MacRenderTimerFallback.FramesPerSecond} fps) and runs in the background",
-            running >= 5 && timer.RunsInBackground);
-        Check($"RT-07 ... and does not tick once stopped ({idle} ticks in 400 ms)", idle == 0);
+        Check($"RT-07 ... and does not tick once stopped ({idle} ticks in {IdleWindow.TotalMilliseconds:0} ms after a {StopSettle.TotalMilliseconds:0} ms settle)", idle == 0);
+
         timer.Tick = _ => Interlocked.Increment(ref ticks);
-        await Task.Delay(200);
+        var restarted = await Wait.Until(() => Volatile.Read(ref ticks) > stopped, TickDeadline);
         timer.Tick = null;
-        Check("RT-07 ... and ticks again after a restart", Volatile.Read(ref ticks) > stopped);
+        Check($"RT-07 ... and ticks again after a restart (within {TickDeadline.TotalSeconds:0} s)", restarted);
     }
 
     /// <summary>

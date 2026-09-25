@@ -55,7 +55,9 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
         Stations = settings.Stations.ToList();
         label = original?.Label ?? "";
         selectedStation = Stations.FirstOrDefault(s => s.Id == original?.StationId) ?? Stations.FirstOrDefault();
-        time = original?.Time ?? "08:00";
+        // Typed input may be HH:mm or HH.mm (Scheduler.TryTime); a stored "08.30" opens as "08:30" and Save always writes
+        // Scheduler.FormatTime's HH:mm. Text that doesn't parse is shown as stored.
+        time = original is null ? "08:00" : Scheduler.TryTime(original.Time, out var stored) ? Scheduler.FormatTime(stored) : original.Time;
         enabled = original?.Enabled ?? true;
         TimeZones = TimeZoneChoices.Build(now, original?.TimeZone, out initialTimeZone);
         selectedTimeZone = initialTimeZone;
@@ -142,7 +144,7 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
             Id = Original?.Id ?? Guid.NewGuid(),
             StationId = station.Id,
             Label = Label.Trim(),
-            Time = parsed.ToString("HH:mm"),
+            Time = Scheduler.FormatTime(parsed),
             Days = days,
             Enabled = Enabled,
             // Unchanged picker: keep the stored value exactly, whatever its spelling (no silent rewrite, QA-B4).

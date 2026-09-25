@@ -1,3 +1,4 @@
+using System.Reflection;
 using DialShift.App.Platform;
 
 namespace DialShift.App.ViewModels;
@@ -9,12 +10,31 @@ public sealed record FallbackOption(Guid? Id, string Name)
 }
 
 /// <summary>Version and data folder shown on the Settings page.</summary>
-public sealed record AppInfo(string Version, string DataDirectory);
+public sealed record AppInfo(string Version, string DataDirectory)
+{
+    /// <summary>The full SemVer of <paramref name="assembly"/> for display, such as "0.3.0-rc.1" (see the other overload).</summary>
+    public static string DisplayVersion(Assembly assembly) =>
+        DisplayVersion(assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, assembly.GetName().Version);
+
+    /// <summary>
+    /// The informational version with its build metadata (<c>+&lt;commit&gt;</c>) removed, so a pre-release suffix such as
+    /// <c>-rc.1</c> stays; else the assembly version as <c>major.minor.patch</c>; else "unknown".
+    /// </summary>
+    public static string DisplayVersion(string? informationalVersion, Version? assemblyVersion)
+    {
+        var semVer = informationalVersion?.Split('+', 2)[0].Trim();
+        return !string.IsNullOrEmpty(semVer) ? semVer : assemblyVersion?.ToString(3) ?? "unknown";
+    }
+}
 
 /// <summary>The Settings tab: launch at login, start in tray, fallback, about (BHV-59 to BHV-63).</summary>
 public sealed class SettingsPageViewModel : PageViewModel
 {
     public const string NoFallbackName = "No fallback · keep retrying";
+
+    /// <summary>The launch-at-login checkbox in each platform's own words: Windows says "sign in", macOS "log in".</summary>
+    public const string WindowsLaunchAtLoginLabel = "Launch DialShift in the tray when I sign in";
+    public const string MacLaunchAtLoginLabel = "Launch DialShift in the tray when I log in";
 
     private readonly IStartupRegistration startup;
     private readonly IFileRevealService reveal;
@@ -106,7 +126,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         }
     }
 
-    public string LaunchAtLoginLabel => "Launch DialShift in the tray when I sign in";
+    public string LaunchAtLoginLabel => OperatingSystem.IsWindows() ? WindowsLaunchAtLoginLabel : MacLaunchAtLoginLabel;
     public string StartInTrayLabel => "Start in the tray when opened normally";
     public string StartupHelp => "Closing the window keeps your radio running. Choose Quit DialShift in the tray to exit.";
     public string FallbackHelp => "Retry a failed stream, then use this station as a fallback. Try the original again every 2 minutes.";

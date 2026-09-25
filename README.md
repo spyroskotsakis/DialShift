@@ -6,28 +6,62 @@ One Avalonia app, `DialShift.App`, ships as two self-contained packages:
 
 | Package | Platform | Playback | Status |
 |---|---|---|---|
-| `DialShift-win-x64.zip` | Windows 10/11, x64 | LibVLC (bundled) | Windows build |
-| `DialShift-osx-arm64-native-avplayer.zip` | macOS 14.0+, Apple Silicon only | Apple AVPlayer (part of macOS) | Native `osx-arm64` (AVPlayer); development build: ad-hoc signed, not yet notarized or clean-machine tested |
+| `DialShift-win-x64.zip` | Windows 10/11, x64 | LibVLC (bundled) | Windows build; unsigned |
+| `DialShift-macos-arm64.zip` | macOS 14.0+, Apple Silicon only | Apple AVPlayer (part of macOS) | Native `osx-arm64` (AVPlayer, label `native-avplayer`); development build: ad-hoc signed, not yet notarized or clean-machine tested |
 
 There is no Intel Mac build.
 
-## Open items / release status
+## Download
 
-Both packages build, test and pass the native smoke in CI. Before the phase can be signed off and a release made, some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
+Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/DialShift/releases)**. Every release has three files:
 
-## Run on Windows
+| File | For |
+|---|---|
+| `DialShift-win-x64.zip` | Windows 10/11, x64 |
+| `DialShift-macos-arm64.zip` | macOS 14.0 or later, Apple Silicon |
+| `SHA256SUMS.txt` | SHA-256 checksums of both zips |
+
+**Pre-releases and "latest".** The first release, `v0.3.0-rc.1`, is a pre-release: native checks are still open (see [Open items](#open-items--release-status)). GitHub never treats a pre-release as the latest release, so until the first full release, `v0.3.0`, the "latest" links below return "not found"; take the newest release from the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) instead. From the first full release on, these links always point at the newest full release:
+
+- Latest release: <https://github.com/spyroskotsakis/DialShift/releases/latest>
+- Windows: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-win-x64.zip>
+- macOS: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-macos-arm64.zip>
+- Checksums: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/SHA256SUMS.txt>
+
+A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.3.0-rc.1/DialShift-win-x64.zip`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+
+### Check the download
+
+Put `SHA256SUMS.txt` next to the zip you downloaded. On macOS, in Terminal, in that folder (prints `OK` for each file you have):
+
+```sh
+shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+```
+
+On Windows, in PowerShell, in that folder (prints `True` when the file is intact):
+
+```powershell
+$expected = ((Select-String -Path SHA256SUMS.txt -Pattern 'DialShift-win-x64.zip' -SimpleMatch).Line -split '\s+')[0]
+(Get-FileHash DialShift-win-x64.zip -Algorithm SHA256).Hash -eq $expected
+```
+
+### Install on Windows
 
 Extract `DialShift-win-x64.zip` and open `DialShift.exe` (a local build is at `artifacts/DialShift-win-x64/DialShift.exe`). Keep the whole folder together: it includes .NET and VLC. No separate runtime or VLC installation is needed.
 
 Optional install: right-click `Install.ps1` in the extracted folder and choose **Run with PowerShell**. It copies the app to `%LOCALAPPDATA%\Programs\DialShift` and adds a Start menu shortcut, without administrator rights. It does not turn on launch at sign-in unless you already chose that setting.
 
-Development builds are unsigned, so SmartScreen may warn on first launch.
+The build is not code-signed, so SmartScreen may say "Windows protected your PC" on first launch: choose **More info**, then **Run anyway**.
 
-## Run on macOS
+### Install on macOS
 
-Unzip `DialShift-osx-arm64-native-avplayer.zip` with Finder or any unzip tool (a local build is at `dist/DialShift.app`), move `DialShift.app` to `/Applications` and open it. The build is ad-hoc signed, not notarized, so macOS blocks the first launch: open **System Settings → Privacy & Security** and choose **Open Anyway** (on older macOS, right-click the app and choose **Open**).
+Requires macOS 14.0 or later on Apple Silicon (M1 or newer); there is no Intel build. Unzip `DialShift-macos-arm64.zip` with Finder or any unzip tool (a local build is at `dist/DialShift.app`), move `DialShift.app` to `/Applications` and open it. The build is ad-hoc signed, not notarized, so macOS blocks the first launch: open **System Settings → Privacy & Security** and choose **Open Anyway** (on older macOS, right-click the app and choose **Open**).
 
 DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC and no Rosetta 2. It is a menu-bar app, so there is no Dock icon.
+
+## Open items / release status
+
+Both packages build, test and pass the native smoke in CI. Before the phase can be signed off and a release made, some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
 
 ## Listen
 
@@ -139,14 +173,28 @@ The release scripts wrap that publish and are the single source of the package l
 
 | Package | Script | Output | Verifier |
 |---|---|---|---|
-| Windows | `./scripts/build.ps1 [-SkipTests]` (Windows) | `artifacts/DialShift-win-x64/`, `artifacts/DialShift-win-x64.zip` | `./scripts/verify-win-package.ps1 -Path <folder>` |
-| macOS | `./scripts/build-mac-app.sh` (macOS) | `dist/DialShift.app`, `dist/DialShift-osx-arm64-native-avplayer.zip` | `./scripts/verify-mac-app.sh <DialShift.app>` or `--zip <zip>` |
+| Windows | `./scripts/build.ps1 [-SkipTests] [-Version <semver>]` (Windows) | `artifacts/DialShift-win-x64/`, `artifacts/DialShift-win-x64.zip` | `./scripts/verify-win-package.ps1 -Path <folder>` |
+| macOS | `./scripts/build-mac-app.sh [--version <semver>] [--build-number <n>]` (macOS) | `dist/DialShift.app`, `dist/DialShift-osx-arm64-native-avplayer.zip` (published as `DialShift-macos-arm64.zip`) | `./scripts/verify-mac-app.sh <DialShift.app>` or `--zip <zip>` |
+
+**Versions.** `<Version>` in `DialShift.App/DialShift.App.csproj` is the one source of the version number (`MAJOR.MINOR.PATCH`). `-Version`/`--version` may only add a pre-release suffix, for example `0.3.0-rc.1`; a different `MAJOR.MINOR.PATCH` is refused. The full version becomes the assembly's informational version (DialShift.exe's product version, and the first line of the log). The macOS `Info.plist` takes numbers only: `CFBundleShortVersionString` is `MAJOR.MINOR.PATCH`, and `CFBundleVersion` is the build number (the release workflow's run number; by default `MAJOR.MINOR.PATCH`). Without these options both scripts build the csproj version.
 
 `build.ps1` runs the tests first, then publishes, copies the notices, licenses and `Install.ps1`, verifies and zips. The Windows verifier checks for an x64 GUI executable, only the `win-x64` VLC runtime, the Avalonia/Skia/ANGLE natives, no `.pdb` files, and the notices. `build-mac-app.sh` publishes, assembles the bundle (`Info.plist`, `.icns`, notices), signs it ad-hoc, verifies, zips and verifies the zip. In the bundle, `Contents/MacOS` holds only Mach-O code (the executable, the .NET runtime and the native libraries, plus a `DialShift.dll` link); the managed `.dll` and `.json` files live in `Contents/Resources/app`, joined by symlinks, so the signature is sealed in the files themselves and survives any unzip tool. The zip is written without extended attributes (no `._*` entries). The macOS verifier checks for an arm64-only executable, an arm64 slice in every native library, only Mach-O files in `Contents/MacOS` and no signature kept in extended attributes, no VLC libraries, the `Info.plist` keys (`LSUIElement`, `LSMinimumSystemVersion` 14.0, the ATS media exception), the icon, the notices and the signature; with `--zip` it rejects `._*` entries and verifies the bundle extracted with both `ditto` and `unzip`.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every branch push, on `windows-latest` and `macos-latest` (Apple Silicon): build the solution with warnings as errors, run the tests, run the native UI smoke (with `DIALSHIFT_AUDIO_OUTPUT=dummy` on Windows, so playback does not depend on the runner's audio device), build the package with the script above, extract the zip a user would download and verify it again (on macOS with both `ditto` and `unzip`, then launch the `unzip`-extracted app with `--smoke-test`), then upload the zip (7-day retention) and the smoke results.
+`.github/workflows/build.yml` is the one definition of the build. On `windows-latest` and `macos-latest` (Apple Silicon) it builds the solution with warnings as errors, runs the tests, runs the native UI smoke (with `DIALSHIFT_AUDIO_OUTPUT=dummy` on Windows, so playback does not depend on the runner's audio device), builds the package with the script above, extracts the zip a user would download and verifies it again (on macOS with both `ditto` and `unzip`, then launches the `unzip`-extracted app with `--smoke-test`), then uploads the zip (7-day retention) and the smoke results. `.github/workflows/ci.yml` runs it on every branch push; `.github/workflows/release.yml` runs it for a version tag and publishes the release only if every step passed.
+
+### Releasing (maintainers)
+
+Development and dry-run releases happen on the private repository `spyroskotsakis/dialshift-dev` (git remote `private`); users download from the public repository `spyroskotsakis/DialShift` (remote `origin`). `release.yml` names no repository: it publishes to whichever repository the tag is pushed to.
+
+1. **Version.** Set `<Version>` in `DialShift.App/DialShift.App.csproj` to the new `MAJOR.MINOR.PATCH`. In `CHANGELOG.md`, move the `[Unreleased]` notes into a new `## [X.Y.Z] - YYYY-MM-DD` section (`## [X.Y.Z-rc.N]` for a pre-release) and update the link references at the bottom. Commit.
+2. **Tag** the commit: `git tag -a vX.Y.Z -m "DialShift X.Y.Z"`. A pre-release uses a `-rc.N` suffix: `git tag -a v0.3.0-rc.1 -m "DialShift 0.3.0-rc.1"`.
+3. **Dry run on the private repository:** `git push private vX.Y.Z`. `release.yml` first checks that the tag's `MAJOR.MINOR.PATCH` equals the csproj `<Version>` and that `CHANGELOG.md` has the section, then runs the whole build, test, smoke and verification workflow at the tag, then creates the GitHub Release with `DialShift-win-x64.zip`, `DialShift-macos-arm64.zip` and `SHA256SUMS.txt`, and the changelog section plus install, checksum and signing notes as its text. A tag with a `-` suffix becomes a pre-release; `vX.Y.Z` becomes the latest release. Check the release page, download both zips and check them against `SHA256SUMS.txt`.
+4. **Public release:** push `main` and the tag to the public repository yourself: `git push origin main vX.Y.Z`. The same workflow builds, verifies and publishes the public release. The push-guard hook in `.claude/settings.json` blocks agent pushes to `origin` and `upstream` on purpose, so this push is always a manual maintainer step.
+5. **Never push to `upstream`** (`tsiger/DialShift`).
+
+GitHub Actions must be enabled on the public repository: it is a fork, and forks start with Actions turned off (**Actions** tab → enable workflows). To publish a tag again, delete its release (keep the tag) and run **Release** from the Actions tab (`workflow_dispatch`) with the tag name.
 
 ### Developer runs
 

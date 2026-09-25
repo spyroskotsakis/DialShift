@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using DialShift.Core;
 using DialShift.Core.Playback;
 
@@ -63,11 +62,11 @@ public sealed class SlotRowViewModel : ObservableObject
     public string NextStartText { get => nextStartText; private set => SetProperty(ref nextStartText, value); }
 
     /// <summary>Recomputes <see cref="NextStartText"/> for <paramref name="localNow"/> (computer-local wall time in <paramref name="localZone"/>).</summary>
-    public void UpdateNextStart(DateTime localNow, TimeZoneInfo localZone, CultureInfo culture) =>
+    public void UpdateNextStart(DateTime localNow, TimeZoneInfo localZone) =>
         NextStartText = ZoneResolution switch
         {
             ZoneResolution.Unknown => UnknownZoneNote,
-            ZoneResolution.Resolved when Scheduler.NextFor(Entry, localNow, localZone) is { } next => UiText.NextStart(next.At, Entry.Enabled, culture),
+            ZoneResolution.Resolved when Scheduler.NextFor(Entry, localNow, localZone) is { } next => UiText.NextStart(next.At, Entry.Enabled),
             _ => ""
         };
 }
@@ -138,7 +137,9 @@ public sealed class SchedulePageViewModel : PageViewModel
         var settings = Services.Settings.Settings;
         foreach (var tab in DayTabs) tab.IsSelected = tab.Day == selectedDay;
         Slots.Clear();
-        foreach (var entry in settings.Schedule.Where(e => e.Days.Contains(selectedDay)).OrderBy(e => e.Time, StringComparer.Ordinal))
+        // By start time, so a legacy "08.30" sorts with "08:30" (its text as stored breaks ties and orders unparsable ones last).
+        foreach (var entry in settings.Schedule.Where(e => e.Days.Contains(selectedDay))
+                     .OrderBy(e => Scheduler.TryTime(e.Time, out var t) ? t.Ticks : long.MaxValue).ThenBy(e => e.Time, StringComparer.Ordinal))
             Slots.Add(new SlotRowViewModel(entry, settings.Stations.FirstOrDefault(s => s.Id == entry.StationId)?.Name, EditAsync, Services.ReportError));
         UpdateNextStarts();
         IsEmpty = Slots.Count == 0;
@@ -151,7 +152,7 @@ public sealed class SchedulePageViewModel : PageViewModel
     public void UpdateNextStarts()
     {
         var now = LocalNow();
-        foreach (var row in Slots) row.UpdateNextStart(now, localZone, CultureInfo.CurrentCulture);
+        foreach (var row in Slots) row.UpdateNextStart(now, localZone);
     }
 
     /// <summary>Computer-local wall time (Kind Unspecified), as the coordinator computes it for the schedule.</summary>

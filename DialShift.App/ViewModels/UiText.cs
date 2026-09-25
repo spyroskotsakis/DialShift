@@ -6,7 +6,9 @@ namespace DialShift.App.ViewModels;
 
 /// <summary>
 /// Every user-visible text that is derived from state, in one place so the view models, the tray and the tests agree.
-/// The wording is the legacy Windows and macOS apps' (tag <c>legacy-last-known-good</c>) unless noted.
+/// The wording is the legacy Windows and macOS apps' (tag <c>legacy-last-known-good</c>) unless noted. Dates and times
+/// are formatted with the invariant culture: the UI is English, so day names match the day tabs ("Mon") and times read
+/// 24-hour <c>HH:mm</c> like the slot rows and the editor, whatever the computer's culture.
 /// </summary>
 public static class UiText
 {
@@ -49,14 +51,14 @@ public static class UiText
     /// Footer, left (BHV-29). <c>Next.At</c> is computer-local wall time. A zoned slot adds its own time and zone, with
     /// the zone's day when it differs from the local one (QA-N6): "UP NEXT · Sun 22:30  /  Jazz · Mon 01:00 Asia/Kolkata".
     /// </summary>
-    public static string UpNext(bool scheduleEnabled, PlaybackSnapshot snapshot, CultureInfo culture)
+    public static string UpNext(bool scheduleEnabled, PlaybackSnapshot snapshot)
     {
         if (!scheduleEnabled) return "SCHEDULE OFF · You're in control";
         if (snapshot.Next is not { } next) return "SCHEDULE ON · Add your first time slot";
-        var text = $"UP NEXT · {next.At.ToString("ddd HH:mm", culture)}  /  {snapshot.NextStationName}";
+        var text = $"UP NEXT · {next.At.ToString("ddd HH:mm", CultureInfo.InvariantCulture)}  /  {snapshot.NextStationName}";
         if (ZoneName(next.Entry.TimeZone) is not { } zone) return text;
         if (next.ZoneResolution == ZoneResolution.Unknown) return $"{text} · {TimeZoneChoices.UnknownZone(zone)}";
-        var zoneTime = next.ZoneWall.ToString(next.ZoneWall.DayOfWeek == next.At.DayOfWeek ? "HH:mm" : "ddd HH:mm", culture);
+        var zoneTime = next.ZoneWall.ToString(next.ZoneWall.DayOfWeek == next.At.DayOfWeek ? "HH:mm" : "ddd HH:mm", CultureInfo.InvariantCulture);
         return $"{text} · {zoneTime} {zone}";
     }
 
@@ -67,8 +69,8 @@ public static class UiText
     public static string? ZoneName(string? storedId) => string.IsNullOrWhiteSpace(storedId) ? null : storedId.Trim();
 
     /// <summary>A zoned slot row's next start on this computer (QA-N6): "Next: Sun 08:30 your time".</summary>
-    public static string NextStart(DateTime at, bool enabled, CultureInfo culture) =>
-        $"{(enabled ? "Next" : "When enabled")}: {at.ToString("ddd HH:mm", culture)} your time";
+    public static string NextStart(DateTime at, bool enabled) =>
+        $"{(enabled ? "Next" : "When enabled")}: {at.ToString("ddd HH:mm", CultureInfo.InvariantCulture)} your time";
 
     /// <summary>Footer, right (BHV-29): the standard name, even during DST, as today.</summary>
     public static string LocalTime(TimeZoneInfo localZone) => "LOCAL TIME · " + localZone.StandardName;
@@ -90,6 +92,4 @@ public static class UiText
         var set = days.ToHashSet();
         return string.Join(", ", Week.Where(set.Contains).Select(ShortDay));
     }
-
-    public static string Version(Version? version) => version?.ToString(3) ?? "0.0.0";
 }
