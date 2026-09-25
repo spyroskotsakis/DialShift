@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -12,8 +14,8 @@ namespace DialShift.Tests.Catalog;
 /// <summary>
 /// <see cref="CatalogProvider"/> against fixture files (docs/catalog-contracts.md §2.1, §4.2; D60, D74): the fixture half
 /// of CAT-01 (every §2.1 field as the app maps it, unknown keys, a BOM), CAT-04 (every degraded input ends Unavailable
-/// with the provider's exact reason and one <c>catalog.unavailable</c> line, never an exception; load once; a cancelled
-/// caller), and CAT-05 (<see cref="CatalogProvider.ResolveLocation"/>). Fixtures are written to one
+/// with the provider's exact reason and one <c>catalog.unavailable</c> line, never an exception; a FIFO or device refused
+/// before opening (D81); load once; a cancelled caller; a failing log that never changes the result), and CAT-05 (<see cref="CatalogProvider.ResolveLocation"/>). Fixtures are written to one
 /// <see cref="TempDirectory"/>; nothing reads the process environment or the host's culture.
 /// </summary>
 internal static class CatalogProviderTests
@@ -27,6 +29,7 @@ internal static class CatalogProviderTests
     private const string SchemaMissing = "schema_version is missing (expected 1).";
     private const string MustBeAbsolute = "DIALSHIFT_CATALOG_PATH must be an absolute path.";
     private const string NotValidPath = "DIALSHIFT_CATALOG_PATH is not a valid path.";
+    private const string NotRegular = "the path is not a regular file.";
     private const string DefaultHeader = "\"schema_version\":1,\"generated_utc\":\"2026-09-25T12:00:00Z\"";
 
     public static async Task RunAsync()
@@ -38,6 +41,7 @@ internal static class CatalogProviderTests
         await NoncharactersAsync(dir);
         await DegradedContentAsync(dir);
         await DegradedPathsAsync(dir);
+        await NonRegularFilesAsync(dir);
         await EntryLimitAsync(dir);
         await FileSizeLimitAsync(dir);
         await UnreadableAsync(dir);
@@ -99,7 +103,14 @@ internal static class CatalogProviderTests
     private static async Task CheckUnavailableAsync(string name, CatalogLocation location, string reason, Type? exception = null, bool skipped = false)
     {
         var (result, log, provider) = await LoadAsync(location);
-        var again = await provider.GetCatalogAsync().WaitAsync(Bound);
+        CheckUnavailable(name, location, reason, result, await provider.GetCatalogAsync().WaitAsync(Bound), log, exception, skipped);
+    }
+
+    /// <summary><see cref="CheckUnavailableAsync"/> on a load already awaited: <paramref name="result"/> is the first call's
+    /// result and <paramref name="again"/> a second call's.</summary>
+    private static void CheckUnavailable(string name, CatalogLocation location, string reason, CatalogLoadResult result, CatalogLoadResult again,
+        RecordingAppLog log, Type? exception = null, bool skipped = false)
+    {
         var warnings = log.Entries.Where(e => e.EventName == "catalog.unavailable").ToList();
         var line = $"Station catalog unavailable: {reason.TrimEnd('.')} ({location.Path ?? CatalogProvider.PathOverrideVariable}).";
         var ok = result.State == CatalogLoadState.Unavailable && result.Message == reason
@@ -373,15 +384,70 @@ internal static class CatalogProviderTests
             new CatalogLocation(null, CatalogLocationSource.Override, MustBeAbsolute), MustBeAbsolute);
         await CheckUnavailableAsync("CAT-04 a location with neither Path nor Problem → Unavailable \"DIALSHIFT_CATALOG_PATH has no path.\"",
             new CatalogLocation(null, CatalogLocationSource.Override, null), "DIALSHIFT_CATALOG_PATH has no path.");
-        if (OperatingSystem.IsWindows())
+    }
+
+    // ─── CAT-04: non-regular files are refused before opening (D81 item 4) ───
+
+    /// <summary>A FIFO load finishes in milliseconds; the provider opening the FIFO would block until a writer appears.</summary>
+    private static readonly TimeSpan FifoBound = TimeSpan.FromSeconds(2);
+
+    private static async Task NonRegularFilesAsync(TempDirectory dir)
+    {
+        const string fifoName = "CAT-04 D81 a FIFO with no writer → Unavailable \"the path is not a regular file.\" within 2 s (refused before opening), " +
+                                "one catalog.unavailable, no exception";
+        string[] devices = ["/dev/null", "/dev/zero"];
+        string DeviceName(string device) =>
+            $"CAT-04 D81 a character device ({device}) → Unavailable \"the path is not a regular file.\", one catalog.unavailable, no exception";
+        // The check before opening reads stat's st_mode on Apple Silicon macOS, the one Unix DialShift ships on (D2). Windows
+        // has neither FIFOs nor /dev; elsewhere the provider has no check before opening, so a FIFO would hang the load.
+        var reason = OperatingSystem.IsWindows() ? "Unix FIFO and device paths (macOS only)"
+            : !OperatingSystem.IsMacOS() || RuntimeInformation.ProcessArchitecture != Architecture.Arm64
+                ? "the check before opening is Apple Silicon macOS only (D2, D81)"
+                : null;
+        if (reason != null)
         {
-            Skip("CAT-04 a character device (/dev/null) → Unavailable, one catalog.unavailable, no exception", "Unix device path (macOS/Linux only)");
+            Skip(fifoName, reason);
+            foreach (var device in devices) Skip(DeviceName(device), reason);
             return;
         }
-        var (result, log, _) = await LoadAsync(At("/dev/null"));
-        if (result.State != CatalogLoadState.Unavailable) Console.WriteLine($"  actual: {Describe(result)}; log: {Describe(log)}");
-        Check("CAT-04 a character device (/dev/null) → Unavailable, one catalog.unavailable, no exception",
-            result.State == CatalogLoadState.Unavailable && log.Entries.Count(e => e.EventName == "catalog.unavailable") == 1);
+
+        foreach (var device in devices) await CheckUnavailableAsync(DeviceName(device), At(device), NotRegular);
+
+        var fifo = dir.Combine("no-writer.fifo");
+        using (var mkfifo = Process.Start(new ProcessStartInfo("mkfifo") { ArgumentList = { fifo }, UseShellExecute = false })!)
+        {
+            await mkfifo.WaitForExitAsync().WaitAsync(Bound);
+            Check("CAT-04 D81 precondition: mkfifo creates a FIFO the file APIs report as an existing file",
+                mkfifo.ExitCode == 0 && File.Exists(fifo) && !Directory.Exists(fifo));
+        }
+        var log = new RecordingAppLog();
+        var provider = new CatalogProvider(At(fifo), log);
+        var clock = Stopwatch.StartNew();
+        var load = provider.GetCatalogAsync();
+        var finished = await Task.WhenAny(load, Task.Delay(FifoBound)) == load;
+        clock.Stop();
+        if (!finished)
+        {
+            Console.WriteLine($"  expected: Unavailable \"{NotRegular}\" within {FifoBound.TotalSeconds} s");
+            Console.WriteLine($"  actual:   no result after {clock.ElapsedMilliseconds} ms (the provider opened the FIFO); log: {Describe(log)}");
+            await OpenWriterAsync(fifo);
+            Check(fifoName, false);
+        }
+        CheckUnavailable(fifoName, At(fifo), NotRegular, await load, await provider.GetCatalogAsync().WaitAsync(Bound), log);
+    }
+
+    /// <summary>Opens and closes a writer on <paramref name="fifo"/>, so a reader blocked in its open returns (end of file)
+    /// and no thread-pool thread is left blocked after a failed check.</summary>
+    private static async Task OpenWriterAsync(string fifo)
+    {
+        try
+        {
+            await Task.Run(() => new FileStream(fifo, FileMode.Open, FileAccess.Write).Dispose()).WaitAsync(Bound);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  could not release the blocked reader: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private static async Task EntryLimitAsync(TempDirectory dir)
@@ -508,38 +574,116 @@ internal static class CatalogProviderTests
             concurrent.All(r => ReferenceEquals(r, concurrent[0])) && concurrent[0].State == CatalogLoadState.Unavailable);
     }
 
-    // ─── CAT-04: a failing log ───
+    // ─── CAT-04: a failing log never changes the result (D80 item 4 as amended) ───
 
-    private sealed class ThrowingAppLog : IAppLog
+    /// <summary>Records every call like <see cref="RecordingAppLog"/>, then throws when the event is <c>throwOn</c> (every event when null).</summary>
+    private sealed class ThrowingAppLog(string? throwOn) : IAppLog
     {
-        public int Calls;
+        public RecordingAppLog Inner { get; } = new();
+        public int Thrown;
 
-        public void Info(string eventName, string message) => Fail();
+        public string[] Events => [.. Inner.Entries.Select(e => e.EventName)];
 
-        public void Warn(string eventName, string message, Exception? ex = null) => Fail();
-
-        public void Error(string eventName, string message, Exception? ex = null) => Fail();
-
-        private void Fail()
+        public void Info(string eventName, string message)
         {
-            Interlocked.Increment(ref Calls);
+            Inner.Info(eventName, message);
+            Fail(eventName);
+        }
+
+        public void Warn(string eventName, string message, Exception? ex = null)
+        {
+            Inner.Warn(eventName, message, ex);
+            Fail(eventName);
+        }
+
+        public void Error(string eventName, string message, Exception? ex = null)
+        {
+            Inner.Error(eventName, message, ex);
+            Fail(eventName);
+        }
+
+        private void Fail(string eventName)
+        {
+            if (throwOn != null && eventName != throwOn) return;
+            Interlocked.Increment(ref Thrown);
             throw new InvalidOperationException("log failure");
         }
     }
 
+    /// <summary>Loads <paramref name="location"/> with <paramref name="log"/> and calls again for the same result. An exception
+    /// out of the provider is returned as Escaped, so it fails the check with a report instead of stopping the suite.</summary>
+    private static async Task<(CatalogLoadResult? Result, bool Same, Exception? Escaped)> LoadWithAsync(CatalogLocation location, IAppLog log)
+    {
+        try
+        {
+            var provider = new CatalogProvider(location, log);
+            var result = await provider.GetCatalogAsync().WaitAsync(Bound);
+            return (result, ReferenceEquals(result, await provider.GetCatalogAsync().WaitAsync(Bound)), null);
+        }
+        catch (Exception ex) when (ex is not TimeoutException)
+        {
+            return (null, false, ex);
+        }
+    }
+
+    private static void Report(string expected, CatalogLoadResult? result, ThrowingAppLog log, Exception? escaped) =>
+        Console.WriteLine($"  expected: {expected}\n  actual:   {(result is null ? "no result" : Describe(result))}; " +
+                          $"log calls [{string.Join(", ", log.Events)}], {log.Thrown} thrown" +
+                          (escaped is null ? "" : $"; escaped {escaped.GetType().Name}: {escaped.Message}"));
+
     private static async Task FailingLogAsync(TempDirectory dir)
     {
-        var missingLog = new ThrowingAppLog();
-        var missing = await new CatalogProvider(At(dir.Combine("missing-with-bad-log.json")), missingLog).GetCatalogAsync().WaitAsync(Bound);
-        Check("CAT-04 a log that throws on catalog.unavailable does not fault the load: Unavailable \"the file does not exist.\"",
-            missing.State == CatalogLoadState.Unavailable && missing.Message == "the file does not exist." && missingLog.Calls == 1);
+        // A log that throws on catalog.loaded: the good file still loads, with exactly the entries a working log sees.
+        var goodPath = Write(dir, Document([Station("Sierra"), Station("Tango", country: "GR")]));
+        var (reference, _, _) = await LoadAsync(At(goodPath));
+        var loadedLog = new ThrowingAppLog("catalog.loaded");
+        var (good, goodSame, goodEscaped) = await LoadWithAsync(At(goodPath), loadedLog);
+        var goodOk = good is { State: CatalogLoadState.Loaded, Message: null } && goodSame && goodEscaped is null
+                     && reference.State == CatalogLoadState.Loaded && reference.Catalog.Entries.Count == 2 && good.GeneratedUtc == reference.GeneratedUtc
+                     && SameEntries(good.Catalog.Entries, reference.Catalog.Entries)
+                     && loadedLog.Events.SequenceEqual(["catalog.loaded"]) && loadedLog.Thrown == 1;
+        if (!goodOk) Report("Loaded, Message null, the reference load's 2 entries; log calls [catalog.loaded], 1 thrown", good, loadedLog, goodEscaped);
+        Check("CAT-04 a log that throws on catalog.loaded does not change the result: Loaded with the same entries and generated_utc as a " +
+              "working log's load, one log call (the throw swallowed), the same result on a second call, no exception", goodOk);
 
-        var goodLog = new ThrowingAppLog();
-        var good = await new CatalogProvider(At(Write(dir, Document([Station("Sierra")]))), goodLog).GetCatalogAsync().WaitAsync(Bound);
-        if (good.State != CatalogLoadState.Unavailable) Console.WriteLine("  actual: " + Describe(good));
-        // §4.2: only the catalog.unavailable call swallows a log exception; one from catalog.loaded is "any other exception".
-        Check("CAT-04 a log that throws on catalog.loaded makes a good file Unavailable \"the catalog could not be loaded.\" (§4.2 \"any other exception\"); never faults",
-            good.State == CatalogLoadState.Unavailable && good.Message == "the catalog could not be loaded." && goodLog.Calls == 2);
+        // A log that throws on catalog.entries_skipped: the usable entry still loads and catalog.loaded is still written.
+        var skippedLog = new ThrowingAppLog("catalog.entries_skipped");
+        var (partial, partialSame, partialEscaped) = await LoadWithAsync(At(Write(dir, Document([Station("Uniform"), Station("")]))), skippedLog);
+        var partialOk = partial is { State: CatalogLoadState.Loaded, Message: null } && partialSame && partialEscaped is null
+                        && partial.Catalog.Entries.Select(e => e.Name).SequenceEqual(["Uniform"])
+                        && skippedLog.Events.SequenceEqual(["catalog.entries_skipped", "catalog.loaded"]) && skippedLog.Thrown == 1;
+        if (!partialOk) Report("Loaded [Uniform]; log calls [catalog.entries_skipped, catalog.loaded], 1 thrown", partial, skippedLog, partialEscaped);
+        Check("CAT-04 a log that throws on catalog.entries_skipped (one entry skipped) does not change the result: Loaded [Uniform], " +
+              "2 log calls (entries_skipped, then loaded), no exception", partialOk);
+
+        // A log that throws on catalog.unavailable: still Unavailable with the provider's reason, never a fault.
+        var missingLog = new ThrowingAppLog("catalog.unavailable");
+        var (missing, missingSame, missingEscaped) = await LoadWithAsync(At(dir.Combine("missing-with-bad-log.json")), missingLog);
+        var missingOk = missing is { State: CatalogLoadState.Unavailable, Message: "the file does not exist." } && missingSame && missingEscaped is null
+                        && ReferenceEquals(missing.Catalog, StationCatalogIndex.Empty)
+                        && missingLog.Events.SequenceEqual(["catalog.unavailable"]) && missingLog.Thrown == 1;
+        if (!missingOk) Report("Unavailable \"the file does not exist.\"; log calls [catalog.unavailable], 1 thrown", missing, missingLog, missingEscaped);
+        Check("CAT-04 a log that throws on catalog.unavailable does not change the result: Unavailable \"the file does not exist.\", one log call, " +
+              "no exception", missingOk);
+
+        var jsonLog = new ThrowingAppLog("catalog.unavailable");
+        var (broken, brokenSame, brokenEscaped) = await LoadWithAsync(At(Write(dir, "this is not a catalog")), jsonLog);
+        var brokenOk = broken is { State: CatalogLoadState.Unavailable, Message: NotJson } && brokenSame && brokenEscaped is null
+                       && jsonLog.Events.SequenceEqual(["catalog.unavailable"]) && jsonLog.Thrown == 1
+                       && jsonLog.Inner.Entries[0].Exception is JsonException;
+        if (!brokenOk) Report($"Unavailable \"{NotJson}\"; log calls [catalog.unavailable] with a JsonException, 1 thrown", broken, jsonLog, brokenEscaped);
+        Check("CAT-04 a log that throws on catalog.unavailable (carrying its JsonException) keeps the JSON reason: Unavailable \"the file is not " +
+              "valid catalog JSON.\", not \"the catalog could not be loaded.\"; one log call, no exception", brokenOk);
+
+        // A log that throws on every call, on a file whose every entry is invalid: both lines attempted, the reason unchanged.
+        var everyLog = new ThrowingAppLog(null);
+        var (none, noneSame, noneEscaped) =
+            await LoadWithAsync(At(Write(dir, Document([Station(""), Station("Victor", url: "ftp://victor.example.org/")]))), everyLog);
+        var noneOk = none is { State: CatalogLoadState.Unavailable, Message: NoUsable } && noneSame && noneEscaped is null
+                     && everyLog.Events.SequenceEqual(["catalog.entries_skipped", "catalog.unavailable"]) && everyLog.Thrown == 2;
+        if (!noneOk) Report($"Unavailable \"{NoUsable}\"; log calls [catalog.entries_skipped, catalog.unavailable], 2 thrown", none, everyLog, noneEscaped);
+        Check("CAT-04 a log that throws on every call, with every entry invalid: Unavailable \"the file has no usable station entry.\", " +
+              "2 log calls (entries_skipped, then unavailable), no exception", noneOk);
     }
 
     // ─── CAT-05: DIALSHIFT_CATALOG_PATH ───
