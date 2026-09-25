@@ -223,17 +223,33 @@ internal static partial class CatalogHeadlessTests
         Check("CAT-10 fixture: Kosmos 93.6 picked at 620 wide; its notes overflow the detail pane (extent taller than the viewport)",
             editor.SelectedEntry == Kosmos && !Overlay(dialog).IsVisible && scroll.Extent.Height > scroll.Viewport.Height + 1 && scroll.Offset.Y == 0);
 
-        // P9: no text is drawn under the scroll bar. At rest (no pointer over it) Fluent draws only the thumb, narrowed at
-        // the bar's right edge; a pointer over the bar expands it to its full width, over the content by design.
+        // P9: no text is drawn under the scroll bar, at rest or expanded. At rest (no pointer over it) Fluent draws only the
+        // thumb, narrowed at the bar's right edge; a pointer over the bar expands it to its full width, over the content.
         var bar = Find<ScrollBar>(scroll).Single(b => b.Orientation == Avalonia.Layout.Orientation.Vertical);
         var thumb = Find<Thumb>(bar).Single();
-        var drawn = new Rect(thumb.Bounds.Size).TransformToAABB(thumb.TransformToVisual(dialog)!.Value);
+        Rect Drawn() => new Rect(thumb.Bounds.Size).TransformToAABB(thumb.TransformToVisual(dialog)!.Value);
+        var rest = Drawn();
         var texts = Find<TextBlock>(scroll).Where(t => t.IsEffectivelyVisible && DisplayText(t).Length > 0 && !bar.IsVisualAncestorOf(t)).ToList();
         var right = texts.Max(t => t.TranslatePoint(new Point(t.Bounds.Width, 0), dialog)!.Value.X);
         var barBox = new Rect(bar.TranslatePoint(default, dialog)!.Value, bar.Bounds.Size);
-        Console.WriteLine($"  detail pane: texts end at x={right:F1}; the thumb at rest is drawn at {Show(drawn)}; the expanded bar would span x={barBox.X:F1}–{barBox.Right:F1}");
-        Check($"CAT-10 D85 P9 every text in the detail content ends left of the scroll bar as drawn (texts end at x={right:F1}, the thumb starts at x={drawn.X:F1})",
-            bar.IsEffectivelyVisible && thumb.IsEffectivelyVisible && drawn.Width > 0 && texts.Count > 0 && right <= drawn.X + 0.5);
+        Check($"CAT-10 D85 P9 every text in the detail content ends left of the scroll bar at rest (texts end at x={right:F1}, the thumb starts at x={rest.X:F1})",
+            !bar.IsExpanded && bar.IsEffectivelyVisible && thumb.IsEffectivelyVisible && rest.Width > 0 && texts.Count > 0 && right <= rest.X + 0.5);
+        dialog.MouseMove(barBox.Center, RawInputModifiers.None);
+        // The thumb widens over a few frames: render until it holds still.
+        var (last, still) = (-1.0, 0);
+        var expanded = await WaitAsync(() =>
+        {
+            Layout(dialog);
+            var width = Drawn().Width;
+            (still, last) = (Math.Abs(width - last) < 0.01 ? still + 1 : 0, width);
+            return bar.IsExpanded && still >= 3;
+        });
+        var wide = Drawn();
+        Console.WriteLine($"  detail pane: texts end at x={right:F1}; the thumb at rest is drawn at {Show(rest)}, expanded at {Show(wide)}; the expanded bar spans x={barBox.X:F1}–{barBox.Right:F1} ({barBox.Width:F1} px)");
+        Check($"CAT-10 D85 P9 under the pointer the scroll bar expands (the thumb {rest.Width:F1} → {wide.Width:F1} px, the bar {barBox.Width:F1} px), and every text still ends left of it " +
+              $"(texts end at x={right:F1}, the expanded bar starts at x={barBox.X:F1}, its thumb at x={wide.X:F1})",
+            expanded && bar.IsPointerOver && wide.Width > rest.Width * 4 && right <= Math.Min(wide.X, barBox.X) + 0.5);
+        Png(dialog, "catalog-d85-detail-scrollbar-hover");
 
         search.Focus();
         var handled = new List<(Key Key, bool Handled)>();

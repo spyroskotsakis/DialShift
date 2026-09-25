@@ -69,10 +69,17 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
       <Setter Property="Margin" Value="0,2,0,0"/>
     </Style>
-    <!-- On the highlight (#30413A) the subtle ink falls under 4.5:1 (3.55:1): line 2 switches to the secondary ink there
-         (4.76:1), and line 1's separator always uses the muted ink (5.02:1; the dot is too small for its antialiased pixels
-         to reach the secondary ink's 4.76:1), D85. -->
-    <Style Selector="ListBox#ResultsList ListBoxItem:selected TextBlock.resultKind">
+    <!-- One highlight, however it is reached: the pointer highlights the row it moves over, so Fluent's lighter
+         selected + pointer-over (#3A4E45) and selected + pressed fills are replaced by the keyboard highlight (#30413A),
+         where every text keeps 4.5:1 (QG-03). A row the pointer rests on after the keyboard moved on keeps Fluent's darker
+         hover (#2A393C). -->
+    <Style Selector="ListBox#ResultsList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SystemControlHighlightListAccentLowBrush}"/>
+    </Style>
+    <!-- On any row fill the subtle ink falls under 4.5:1 (3.55:1 on the highlight, 3.94:1 on the hover): line 2 switches to
+         the secondary ink there (4.76:1, 5.29:1), and line 1's separator always uses the muted ink (5.02:1 on the highlight;
+         the dot is too small for its antialiased pixels to reach the secondary ink's 4.76:1), D85. -->
+    <Style Selector="ListBox#ResultsList ListBoxItem:selected TextBlock.resultKind, ListBox#ResultsList ListBoxItem:pointerover TextBlock.resultKind, ListBox#ResultsList ListBoxItem:pressed TextBlock.resultKind">
       <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
     </Style>
     <!-- The frequency column: never trimmed, so the place after the name gives way first. -->
@@ -252,9 +259,10 @@
         <Panel>
           <TextBlock Classes="hint" Text="{x:Static vm:UiText.CatalogDetailPlaceholder}" VerticalAlignment="Center" TextAlignment="Center"
                      IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNull}}" />
-          <!-- Page Down / Page Up in the search box scroll it; the margin keeps the text clear of the scroll bar. -->
+          <!-- Page Down / Page Up in the search box scroll it. The margin keeps the text clear of the scroll bar even when the
+               pointer expands it to its full width over the content (P9). -->
           <ScrollViewer x:Name="DetailScroll" Focusable="False" IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <StackPanel Margin="0,0,10,0">
+            <StackPanel Margin="0,0,20,0">
               <DockPanel Margin="0,0,0,10">
                 <Border DockPanel.Dock="Left" Classes="tile" Classes.hasLogo="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNotNull}}"
                         ClipToBounds="True" Margin="0,0,12,0" VerticalAlignment="Top">
