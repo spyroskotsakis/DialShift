@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -22,7 +23,8 @@ namespace DialShift.Tests.Ui;
 /// Headless UI suites on the real views, dialogs and tray (Avalonia.Headless 12.1.2 + Skia, D5): HS-01 rendering and PNGs,
 /// HS-02 editor flows through the real dialogs located by accessible name, HS-03 tray-menu identity after every editor
 /// operation, HS-04 tray routing, HS-05 close/minimize/hide, HS-07 dialog ownership, HS-13 rendered player state,
-/// the compact 780×650 layout and accessible names. The App startup/quit sequence (HS-05/06/08, BHV-11) is in
+/// the compact 780×650 layout and accessible names, and the Add dialog's station catalog (CAT rows, in
+/// <see cref="CatalogHeadlessTests"/>). The App startup/quit sequence (HS-05/06/08, BHV-11) is in
 /// <see cref="AppLifecycleTests"/> and the real heartbeat (HS-14) in <see cref="PlaybackLoopTests"/>; this suite runs all three.
 /// </summary>
 public static class HeadlessUiTests
@@ -42,6 +44,7 @@ public static class HeadlessUiTests
         await AppLifecycleTests.RunAsync();
         await PlaybackLoopTests.RunAsync();
         await Headless.RunAsync(LongStationNameInPickers);
+        await CatalogHeadlessTests.RunAsync();
     }
 
     // ─── helpers ───
@@ -68,29 +71,56 @@ public static class HeadlessUiTests
     /// <summary>
     /// Text blocks whose text does not fit: trimmed with an ellipsis, wider than their arranged box (single line), taller
     /// than their box (wrapping), or running past the window's right edge. Measured with an unconstrained copy that carries
-    /// the effective font properties.
+    /// the effective font properties. A text block built from inline runs (a catalog result's first line) is measured
+    /// through copies of its runs, each with its own effective font. <paramref name="ellipsisAllowed"/> names the text blocks
+    /// whose designed overflow is an ellipsis (a catalog result's first line): trimmed, they are not reported; any other
+    /// overflow still is.
     /// </summary>
-    internal static List<string> ClippedTexts(Window window)
+    internal static List<string> ClippedTexts(Window window, Func<TextBlock, bool>? ellipsisAllowed = null)
     {
         var clipped = new List<string>();
-        foreach (var tb in Find<TextBlock>(window).Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text) && t.Bounds.Width > 0))
+        foreach (var tb in Find<TextBlock>(window).Where(t => t.IsEffectivelyVisible && DisplayText(t).Length > 0 && t.Bounds.Width > 0))
         {
             var probe = new TextBlock
             {
-                Text = tb.Text, FontSize = tb.FontSize, FontFamily = tb.FontFamily, FontWeight = tb.FontWeight, FontStyle = tb.FontStyle,
+                FontSize = tb.FontSize, FontFamily = tb.FontFamily, FontWeight = tb.FontWeight, FontStyle = tb.FontStyle,
                 FontStretch = tb.FontStretch, LetterSpacing = tb.LetterSpacing, Padding = tb.Padding, TextWrapping = tb.TextWrapping
             };
+            if (tb.Inlines is { Count: > 0 } inlines) probe.Inlines = CopyInlines(inlines);
+            else probe.Text = tb.Text;
             var wraps = tb.TextWrapping != TextWrapping.NoWrap;
             probe.Measure(wraps ? new Size(tb.Bounds.Width, double.PositiveInfinity) : Size.Infinity);
             var right = tb.TranslatePoint(new Point(tb.Bounds.Width, 0), window)?.X ?? 0;
             string? reason = null;
-            if (tb.TextLayout.TextLines.Any(l => l.HasCollapsed)) reason = "trimmed";
+            if (tb.TextLayout.TextLines.Any(l => l.HasCollapsed)) reason = ellipsisAllowed?.Invoke(tb) == true ? null : "trimmed";
             else if (!wraps && probe.DesiredSize.Width > tb.Bounds.Width + 0.5) reason = $"needs {probe.DesiredSize.Width:F1} px, has {tb.Bounds.Width:F1}";
             else if (wraps && probe.DesiredSize.Height > tb.Bounds.Height + 0.5) reason = $"needs {probe.DesiredSize.Height:F1} px high, has {tb.Bounds.Height:F1}";
             else if (right > window.ClientSize.Width + 0.5) reason = $"ends at x={right:F1}, window is {window.ClientSize.Width:F0} wide";
-            if (reason != null) clipped.Add($"\"{tb.Text}\" ({reason})");
+            if (reason != null) clipped.Add($"\"{DisplayText(tb)}\" ({reason})");
         }
         return clipped;
+    }
+
+    /// <summary>What a text block shows: its <see cref="TextBlock.Text"/>, or the text of its inline runs.</summary>
+    internal static string DisplayText(TextBlock tb) =>
+        tb.Inlines is { Count: > 0 } inlines
+            ? string.Concat(inlines.Select(i => i switch { Run run => run.Text, LineBreak => "\n", _ => throw new NotSupportedException($"ClippedTexts cannot measure a {i.GetType().Name}.") }))
+            : tb.Text ?? "";
+
+    private static InlineCollection CopyInlines(InlineCollection inlines)
+    {
+        var copy = new InlineCollection();
+        foreach (var inline in inlines)
+            copy.Add(inline switch
+            {
+                Run run => new Run(run.Text)
+                {
+                    FontSize = run.FontSize, FontFamily = run.FontFamily, FontWeight = run.FontWeight, FontStyle = run.FontStyle, FontStretch = run.FontStretch
+                },
+                LineBreak => new LineBreak(),
+                _ => throw new NotSupportedException($"ClippedTexts cannot measure a {inline.GetType().Name}.")
+            });
+        return copy;
     }
 
     // ─── HS-01: shell, pages, PNGs ───
