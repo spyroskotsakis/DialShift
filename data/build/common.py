@@ -201,6 +201,37 @@ def language_table(value, source):
         raise ValueError(f'{source}: ' + '; '.join(problems))
     return table
 
+# ---------------------------------------------------------------- frequency band words (data/frequency-bands.yaml)
+# The app shows a frequency_fm that is neither an FM nor a kHz value as it is, in a column that is never
+# truncated, so a band word is a short label, never free text.
+MAX_BAND_WORD_LENGTH = 16
+
+def frequency_band_words(value, source):
+    """data/frequency-bands.yaml checked as the set of band words a canonical frequency_fm may be instead of
+    an FM or kHz value (`band_words`, missing or empty = none). A bad file is a hard ValueError naming source
+    and every problem: each word must be a non-empty NFC string, trimmed with single spaces, with a letter,
+    at most MAX_BAND_WORD_LENGTH characters, and listed once (compared exactly, as the app shows it)."""
+    if not isinstance(value, dict):
+        raise ValueError(f'{source}: must be a mapping with a band_words list')
+    problems = [f'unknown top-level key {k!r} (expected band_words)' for k in value if k != 'band_words']
+    words = value.get('band_words') or []
+    if not isinstance(words, list):
+        problems.append('band_words must be a list of band words')
+        words = []
+    found = set()
+    for w in words:
+        if not (isinstance(w, str) and w == ' '.join(w.split()) and w == unicodedata.normalize('NFC', w)
+                and any(c.isalpha() for c in w) and len(w) <= MAX_BAND_WORD_LENGTH):
+            problems.append(f'band word {w!r} must be a string with a letter, trimmed with single spaces, NFC, '
+                            f'at most {MAX_BAND_WORD_LENGTH} characters (quote it if YAML reads it as another type)')
+        elif w in found:
+            problems.append(f'band word {w!r} is listed twice')
+        else:
+            found.add(w)
+    if problems:
+        raise ValueError(f'{source}: ' + '; '.join(problems))
+    return frozenset(found)
+
 # ---------------------------------------------------------------- row helpers
 # The provenance label of a radio-browser extra's notes: build_stations writes f'{RB_TAGS_LABEL} {tags}'
 # (radio-browser's raw comma-joined tag list) and app_catalog formats that note for the app.
