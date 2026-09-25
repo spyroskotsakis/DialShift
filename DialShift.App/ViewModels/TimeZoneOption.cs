@@ -42,24 +42,25 @@ public sealed class TimeZoneOption
     public override string ToString() => Label;
 
     /// <summary>
-    /// Whether every whitespace-separated word of <paramref name="query"/> occurs (case-insensitive) in the id, the
-    /// system display names, or the offset written as "UTC+03:00" or "UTC+3". Underscores in ids count as spaces,
-    /// so "new york" finds America/New_York.
+    /// Whether every whitespace-separated word of <paramref name="query"/> occurs (case-insensitive) in the zone's search
+    /// text (<see cref="TimeZoneCatalog.SearchText"/>: the id and its segments, the zone's names, the Windows id and
+    /// display name, the country code and name) or in the offset written as "UTC+03:00" or "UTC+3". Underscores count as
+    /// spaces, so "new york" finds America/New_York, and "pacific us" finds America/Los_Angeles on every OS.
     /// </summary>
     public bool Matches(string query) =>
         query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .All(word => search.Contains(Normalize(word), StringComparison.Ordinal));
+            .All(word => search.Contains(TimeZoneCatalog.Normalize(word), StringComparison.Ordinal));
 
     internal static TimeZoneOption Local() =>
         new(null, TimeZoneChoices.LocalLabel, "this computer's zone", ZoneResolution.Local, TimeZoneChoices.LocalLabel, "local time computer");
 
-    /// <summary>A zone from the system list, under its IANA id.</summary>
-    internal static TimeZoneOption System(string ianaId, TimeZoneInfo zone, DateTime utcNow)
+    /// <summary>A zone from the picker's catalog, under its IANA id.</summary>
+    internal static TimeZoneOption System(CatalogZone entry, DateTime utcNow)
     {
-        var offset = zone.GetUtcOffset(utcNow);
+        var offset = entry.Zone.GetUtcOffset(utcNow);
         var text = TimeZoneChoices.Offset(offset);
-        return new(ianaId, ianaId, text, ZoneResolution.Resolved, $"{ianaId} ({text})",
-            SearchText(ianaId, zone.DisplayName, zone.StandardName, zone.DaylightName, text, ShortOffset(offset)), offset);
+        return new(entry.Id, entry.Id, text, ZoneResolution.Resolved, $"{entry.Id} ({text})",
+            SearchText(entry.SearchText, text, ShortOffset(offset)), offset);
     }
 
     /// <summary>
@@ -72,7 +73,7 @@ public sealed class TimeZoneOption
         if (Scheduler.TryResolveZone(name, out var zone) != ZoneResolution.Resolved || zone is null)
             return new(storedId, name, TimeZoneChoices.UnknownZoneText, ZoneResolution.Unknown, TimeZoneChoices.UnknownZone(name),
                 SearchText(name, TimeZoneChoices.UnknownZoneText));
-        var system = System(name, zone, utcNow);
+        var system = System(new CatalogZone(name, zone, TimeZoneCatalog.SearchText(name, zone)), utcNow);
         return new(storedId, name, system.Detail, ZoneResolution.Resolved, system.Label, system.search, system.UtcOffset);
     }
 
@@ -85,15 +86,13 @@ public sealed class TimeZoneOption
             : string.Create(CultureInfo.InvariantCulture, $"UTC{sign}{abs.Hours}:{abs.Minutes:00}");
     }
 
-    private static string SearchText(params string[] parts) => Normalize(string.Join(' ', parts));
-
-    private static string Normalize(string text) => text.Replace('_', ' ').ToLowerInvariant();
+    private static string SearchText(params string[] parts) => TimeZoneCatalog.Normalize(string.Join(' ', parts));
 }
 
 /// <summary>
-/// Builds the slot editor's time-zone list (brief 2 §4.5, §6, QA-B4). Only IANA ids are offered: each system zone is
-/// mapped through <see cref="TimeZoneInfo.TryConvertWindowsIdToIanaId(string, out string?)"/>, which is the identity on
-/// macOS and turns Windows registry ids into IANA ids on Windows. Nothing here compares with <c>TimeZoneInfo.Local.Id</c>.
+/// Builds the slot editor's time-zone list (brief 2 §4.5, §6, QA-B4). Only IANA ids are offered (<see cref="TimeZoneCatalog"/>):
+/// on macOS the system zones as they are; on Windows every IANA id mapped to each Windows zone, so Europe/Athens and
+/// Europe/Bucharest are both there. Nothing here compares with <c>TimeZoneInfo.Local.Id</c>.
 /// </summary>
 public static class TimeZoneChoices
 {
@@ -107,31 +106,30 @@ public static class TimeZoneChoices
     public static string Offset(TimeSpan offset) =>
         (offset < TimeSpan.Zero ? "UTC-" : "UTC+") + offset.Duration().ToString(@"hh\:mm", CultureInfo.InvariantCulture);
 
-    /// <summary>The IANA id offered for a system zone.</summary>
-    public static string IanaId(TimeZoneInfo zone) => TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana) ? iana : zone.Id;
-
-    /// <summary>The picker list for this computer's zones. See <see cref="Build(IEnumerable{TimeZoneInfo}, DateTimeOffset, string?, out TimeZoneOption)"/>.</summary>
+    /// <summary>
+    /// The picker list for this computer's zones (the catalog is built once per process). See
+    /// <see cref="Build(IEnumerable{TimeZoneInfo}, DateTimeOffset, string?, out TimeZoneOption)"/>.
+    /// </summary>
     public static IReadOnlyList<TimeZoneOption> Build(DateTimeOffset now, string? storedId, out TimeZoneOption selected) =>
-        Build(TimeZoneInfo.GetSystemTimeZones(), now, storedId, out selected);
+        Build(TimeZoneCatalog.System, now, storedId, out selected);
 
     /// <summary>
     /// "Local time" first, then the stored id when it is not in the list (see <see cref="TimeZoneOption.Stored"/>), then
-    /// the system zones under their IANA ids, one entry per id, ordered by current UTC offset and then id.
+    /// the zones under their IANA ids (<see cref="TimeZoneCatalog.Load"/>), one entry per id, ordered by current UTC offset
+    /// and then id.
     /// </summary>
     /// <param name="systemZones">The zones to offer; a seam for tests (for example zones with Windows ids).</param>
     /// <param name="now">Offsets are the ones in force at this instant, so a zone in daylight time shows its summer offset.</param>
     /// <param name="storedId">The slot's current <see cref="ScheduleEntry.TimeZone"/>; null, empty or whitespace is local time.</param>
     /// <param name="selected">The entry for <paramref name="storedId"/>: "Local time", a list entry with the same (trimmed) id, or the added stored entry.</param>
-    public static IReadOnlyList<TimeZoneOption> Build(IEnumerable<TimeZoneInfo> systemZones, DateTimeOffset now, string? storedId, out TimeZoneOption selected)
+    public static IReadOnlyList<TimeZoneOption> Build(IEnumerable<TimeZoneInfo> systemZones, DateTimeOffset now, string? storedId, out TimeZoneOption selected) =>
+        Build(TimeZoneCatalog.Load(systemZones), now, storedId, out selected);
+
+    private static IReadOnlyList<TimeZoneOption> Build(IReadOnlyList<CatalogZone> catalog, DateTimeOffset now, string? storedId, out TimeZoneOption selected)
     {
         var utcNow = now.UtcDateTime;
         var local = TimeZoneOption.Local();
-        var zones = new Dictionary<string, TimeZoneOption>(StringComparer.Ordinal);
-        foreach (var zone in systemZones)
-        {
-            var id = IanaId(zone);
-            zones.TryAdd(id, TimeZoneOption.System(id, zone, utcNow));
-        }
+        var zones = catalog.ToDictionary(z => z.Id, z => TimeZoneOption.System(z, utcNow), StringComparer.Ordinal);
         var sorted = zones.Values
             .OrderBy(o => o.UtcOffset)
             .ThenBy(o => o.Name, StringComparer.OrdinalIgnoreCase)

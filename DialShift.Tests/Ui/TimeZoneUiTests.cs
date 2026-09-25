@@ -26,14 +26,11 @@ namespace DialShift.Tests.Ui;
 /// <remarks>
 /// Machine-independent (QA-B2): every scenario injects <see cref="UiRig.DefaultNow"/> (Monday 2026-09-14 10:00 UTC) and the
 /// computer's zone; nothing reads <see cref="TimeZoneInfo.Local"/>. IANA ids resolve on macOS and, through ICU, on Windows.
-/// The picker lists the system zones under IANA ids, which differ by OS (Windows offers one id per Windows zone, so "athens"
-/// finds Europe/Bucharest there), so ids the picker yields are taken from the picker's own list and only pinned on macOS.
+/// The picker offers IANA ids on both OSes (on Windows every id CLDR maps to each Windows zone), so "athens" picks
+/// Europe/Athens everywhere; the full lists still differ (Windows reaches fewer ids), and the checks print their size.
 /// </remarks>
 public static class TimeZoneUiTests
 {
-    /// <summary>Opt-in switch for repros of open UI defects (they fail until fixed, so they stay out of the default run).</summary>
-    private const string DefectReprosVariable = "DIALSHIFT_UI_DEFECT_REPROS";
-
     private static readonly DateTimeOffset Now = UiRig.DefaultNow;
 
     public static async Task RunAsync()
@@ -41,6 +38,7 @@ public static class TimeZoneUiTests
         await LocalTimeSentinel();
         PickerListAndSearch();
         WindowsIdsBecomeIana();
+        WindowsZoneCoverage();
         await UpNextShowsTheZone();
         await SchedulerLogWiring();
         await Headless.RunAsync(RoundTripThroughThePicker);
@@ -51,9 +49,6 @@ public static class TimeZoneUiTests
         await Headless.RunAsync(ZoneAwareConflicts);
         await Headless.RunAsync(CompactZonedLayout);
         await Headless.RunAsync(AppTrayAfterZoneEdits);
-        if (Environment.GetEnvironmentVariable(DefectReprosVariable) == "1") PacificUsSearch();
-        else Skip("UI-D3 picker search \"pacific us\" finds America/Los_Angeles on every OS",
-            $"known open UI defect (macOS), repro kept out of the default run; set {DefectReprosVariable}=1 to run it");
     }
 
     // ─── helpers ───
@@ -65,7 +60,7 @@ public static class TimeZoneUiTests
     /// <summary>The system list the picker offers now (the editor builds the same one).</summary>
     private static IReadOnlyList<TimeZoneOption> SystemList() => TimeZoneChoices.Build(Now, null, out _);
 
-    /// <summary>The single picker entry "athens" finds: Europe/Athens on macOS, Europe/Bucharest ("Athens, Bucharest") on Windows.</summary>
+    /// <summary>The single picker entry "athens" finds: Europe/Athens on every OS (checked in <see cref="PickerListAndSearch"/>).</summary>
     private static TimeZoneOption AthensPick() => SystemList().Single(o => o.Matches("athens"));
 
     private static ScheduleEditorViewModel Editor(Settings settings, ScheduleEntry? original = null) =>
@@ -157,18 +152,29 @@ public static class TimeZoneUiTests
 
         List<TimeZoneOption> Search(string query) => zones.Where(z => editor.MatchesTimeZone(query, z)).ToList();
         var athens = Search("athens");
-        Check($"§4.5 search \"athens\" finds exactly one zone ({string.Join(", ", athens.Select(z => z.Id))}){(OperatingSystem.IsMacOS() ? ": Europe/Athens" : "")}",
-            athens.Count == 1 && (!OperatingSystem.IsMacOS() || athens[0].Id == "Europe/Athens") && Search("ATHENS").SequenceEqual(athens));
+        Check($"§4.5 search \"athens\" finds exactly Europe/Athens on every OS (found {athens.Count}: {string.Join(", ", athens.Select(z => z.Id))}; list has {zones.Count - 1} zones)",
+            athens.Select(z => z.Id).SequenceEqual(["Europe/Athens"]) && Search("ATHENS").SequenceEqual(athens));
+        Check("UI-D3 §4.5 search \"bucharest\" finds only Europe/Bucharest (a Windows name \"Athens, Bucharest\" names each city on its own entry)",
+            Search("bucharest").Select(z => z.Id).SequenceEqual(["Europe/Bucharest"]));
         Check("§4.5 search \"new york\" (a space for the underscore) finds America/New_York",
             Search("new york").Any(z => z.Id == "America/New_York") && Search("new_york").Any(z => z.Id == "America/New_York"));
         var plus2 = Search("UTC+2");
         Check($"§4.5 search \"UTC+2\" finds the zones at UTC+02:00 now, and only those ({plus2.Count})",
             plus2.Count > 0 && plus2.All(z => z.Detail == "UTC+02:00") && Search("UTC+02:00").Any(z => z.Detail == "UTC+02:00"));
         Check("§4.5 search \"UTC+5:30\" finds Asia/Kolkata (a non-whole-hour offset)", Search("UTC+5:30").Any(z => z.Id == "Asia/Kolkata"));
-        var la = Search("pacific us");
-        // Elsewhere this is the open defect UI-D3, reported (skipped) at the end of the suite.
+        var la = Search("pacific us").Select(z => z.Id).ToList();
+        Check($"UI-D3 §4.5 search \"pacific us\" finds America/Los_Angeles on every OS (the country, not only the Windows name; found {la.Count}: {string.Join(", ", la)})",
+            la.Contains("America/Los_Angeles"));
+        Check("UI-D3 §4.5 search by country (region mapping): \"greece\" finds Europe/Athens, \"finland\" finds Europe/Helsinki",
+            Search("greece").Select(z => z.Id).SequenceEqual(["Europe/Athens"]) && Search("finland").Select(z => z.Id).SequenceEqual(["Europe/Helsinki"]));
+        const string countryOfDefaults = "UI-D3 §4.5 search by country (zone.tab): \"united states\" finds America/New_York and America/Los_Angeles, \"romania\" finds Europe/Bucharest";
         if (OperatingSystem.IsWindows())
-            Check("§4.5 search \"pacific us\" finds America/Los_Angeles (Windows: \"Pacific Time (US & Canada)\")", la.Any(z => z.Id == "America/Los_Angeles"));
+            Skip(countryOfDefaults, "Windows has no zone.tab; a Windows zone's default id (America/New_York for Eastern) gets no country from the region mapping, only its Windows name (\"Eastern Time (US & Canada)\")");
+        else
+            Check(countryOfDefaults, Search("united states").Select(z => z.Id).Intersect(["America/New_York", "America/Los_Angeles"]).Count() == 2
+                && Search("romania").Select(z => z.Id).SequenceEqual(["Europe/Bucharest"]));
+        Check("UI-D3 §4.5 search by Windows id: \"gtb standard\" finds Europe/Athens and Europe/Bucharest, \"romance\" finds Europe/Paris",
+            Search("gtb standard").Select(z => z.Id).Intersect(["Europe/Athens", "Europe/Bucharest"]).Count() == 2 && Search("romance").Any(z => z.Id == "Europe/Paris"));
         Check("§4.5 search \"local\" finds the \"Local time\" entry", Search("local").Contains(zones[0]));
         Check("§4.5 an empty search, and the exact label of the current choice, show the whole list",
             Search("").Count == zones.Count && Search("  ").Count == zones.Count && Search(athens[0].Label).Count == zones.Count);
@@ -183,16 +189,7 @@ public static class TimeZoneUiTests
             && editor.Result == EditorResult.Cancelled && editor.TimeZoneHint == "Choose a time zone from the list, or Local time.");
     }
 
-    /// <summary>UI-D3 repro (open, macOS): ICU's names for America/Los_Angeles are "Pacific Time (Los Angeles)", with no "US".</summary>
-    private static void PacificUsSearch()
-    {
-        var editor = Editor(Settings.Defaults());
-        var found = editor.TimeZones.Where(z => editor.MatchesTimeZone("pacific us", z)).Select(z => z.Id).ToList();
-        Console.WriteLine($"  \"pacific us\" finds {found.Count}: {string.Join(", ", found)}");
-        Check("UI-D3 §4.5 search \"pacific us\" finds America/Los_Angeles", found.Contains("America/Los_Angeles"));
-    }
-
-    // ─── QA-B4: Windows ids become IANA ids; a stored id is selected as it is ───
+    // ─── QA-B4: Windows ids become every IANA id mapped to them; a stored id is selected as it is ───
 
     private static void WindowsIdsBecomeIana()
     {
@@ -206,23 +203,91 @@ public static class TimeZoneUiTests
         ];
         var options = TimeZoneChoices.Build(windowsZones, Now, "Europe/Athens", out var selected);
         var ids = options.Select(o => o.Id).ToList();
-        Console.WriteLine("  from Windows ids: " + string.Join(", ", ids.Select(id => id ?? "(local)")));
-        Check("QA-B4 Windows zone ids are listed under their IANA ids (GTB Standard Time → Europe/Bucharest, Pacific → America/Los_Angeles, …)",
-            ids.Contains("Europe/Bucharest") && ids.Contains("America/Los_Angeles") && ids.Contains("America/New_York") && ids.Contains("Europe/Paris"));
+        Console.WriteLine($"  from 4 Windows ids, {ids.Count - 1} IANA ids: " + string.Join(", ", ids.Select(id => id ?? "(local)")));
+        Check("QA-B4 a Windows zone is listed under every IANA id mapped to it (GTB → Europe/Bucharest, Europe/Athens, Asia/Nicosia; Pacific → America/Los_Angeles, America/Vancouver; Romance → Europe/Paris, Europe/Brussels, …)",
+            new[] { "Europe/Bucharest", "Europe/Athens", "Asia/Nicosia", "America/Los_Angeles", "America/Vancouver", "America/New_York", "America/Toronto", "Europe/Paris", "Europe/Brussels", "Europe/Madrid" }
+                .All(ids.Contains)
+            && ids.Distinct().Count() == ids.Count && ids.Skip(1).All(id => TimeZoneInfo.TryFindSystemTimeZoneById(id!, out _)));
         Check("QA-B4 no Windows id is offered, so none can be persisted by choosing an entry",
             ids.All(id => id == null || (!id.Contains("Standard Time", StringComparison.Ordinal) && !TimeZoneInfo.TryConvertWindowsIdToIanaId(id, out _))));
-        Check("QA-B4 a stored Europe/Athens (not in a Windows-derived list) is selected as itself: sel.Id == \"Europe/Athens\", kept as its own entry after \"Local time\"",
-            selected.Id == "Europe/Athens" && ReferenceEquals(options[1], selected) && ids[0] == null && ids.Count(id => id == "Europe/Athens") == 1);
-        Check("QA-B4 the Windows display names stay searchable under the IANA id (\"pacific us\" → America/Los_Angeles, \"athens\" → Europe/Bucharest)",
-            options.Where(o => o.Matches("pacific us")).Select(o => o.Id).SequenceEqual(["America/Los_Angeles"])
-            && options.Where(o => o.Matches("athens")).Select(o => o.Id).Order().SequenceEqual(["Europe/Athens", "Europe/Bucharest"]));
+        Check("QA-B4 a stored Europe/Athens selects its entry in a Windows-derived list (no second entry)",
+            selected.Id == "Europe/Athens" && selected.Resolution == ZoneResolution.Resolved && ids.Count(id => id == "Europe/Athens") == 1);
+        Check("QA-B4 the Windows display names stay searchable under the IANA ids, each city on its own entry (\"pacific us\" → America/Los_Angeles, \"athens\" → Europe/Athens, \"bucharest\" → Europe/Bucharest, \"madrid\" → Europe/Madrid)",
+            options.Where(o => o.Matches("pacific us")).Select(o => o.Id).Contains("America/Los_Angeles")
+            && options.Where(o => o.Matches("athens")).Select(o => o.Id).SequenceEqual(["Europe/Athens"])
+            && options.Where(o => o.Matches("bucharest")).Select(o => o.Id).SequenceEqual(["Europe/Bucharest"])
+            && options.Where(o => o.Matches("madrid")).Select(o => o.Id).SequenceEqual(["Europe/Madrid"]));
 
+        var outside = TimeZoneChoices.Build(windowsZones, Now, "America/Detroit", out var detroit);
+        Check("QA-B4 a stored id outside a Windows-derived list (America/Detroit: CLDR maps Eastern/US to America/New_York only) is kept as its own entry after \"Local time\"",
+            detroit is { Id: "America/Detroit", Resolution: ZoneResolution.Resolved } && ReferenceEquals(outside[1], detroit) && outside.Count(o => o.Id == "America/Detroit") == 1);
         TimeZoneChoices.Build(windowsZones, Now, " Europe/Bucharest ", out var listed);
         Check("QA-B4 a stored id with spaces that names a listed zone selects that entry (no duplicate entry)",
             listed.Id == "Europe/Bucharest" && listed.Resolution == ZoneResolution.Resolved);
         var unknown = TimeZoneChoices.Build(windowsZones, Now, "Europe/Foo", out var foo);
         Check("Row 8 QA-B4 an unresolvable stored id is kept as its own \"(unknown zone)\" entry",
             foo is { Id: "Europe/Foo", Name: "Europe/Foo", IsUnknown: true, Detail: TimeZoneChoices.UnknownZoneText, Label: "Europe/Foo (unknown zone)" } && unknown[1] == foo);
+    }
+
+    // ─── QA-B4 Windows coverage: every IANA id of every Windows zone, the same list on macOS ───
+
+    private static void WindowsZoneCoverage()
+    {
+        var system = TimeZoneInfo.GetSystemTimeZones();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var catalog = TimeZoneCatalog.Load(system);
+        var buildMs = watch.Elapsed.TotalMilliseconds;
+        var list = SystemList();
+        var athens = list.Where(o => o.Matches("athens")).Select(o => o.Id).ToList();
+        Check($"QA-B4 this OS ({(OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : "other")}): {system.Count} system zones give {list.Count - 1} picker zones; \"athens\" → {string.Join(", ", athens)}; catalog built in {buildMs:0} ms",
+            athens.SequenceEqual(["Europe/Athens"]) && catalog.Count == list.Count - 1 && buildMs < 1000);
+
+        Check("QA-B4 the region-aware mapping reaches the cities the default mapping hides (GTB+GR → Europe/Athens, FLE+FI → Europe/Helsinki, GTB → Europe/Bucharest)",
+            TimeZoneInfo.TryConvertWindowsIdToIanaId("GTB Standard Time", "GR", out var gr) && gr == "Europe/Athens"
+            && TimeZoneInfo.TryConvertWindowsIdToIanaId("FLE Standard Time", "FI", out var fi) && fi == "Europe/Helsinki"
+            && TimeZoneInfo.TryConvertWindowsIdToIanaId("GTB Standard Time", out var gtb) && gtb == "Europe/Bucharest"
+            && TimeZoneCatalog.Regions.Count > 100);
+
+        // The Windows zone list, as Windows would give it: one zone per Windows id of this computer's zones.
+        var windowsIds = system
+            .Select(z => TimeZoneInfo.TryConvertWindowsIdToIanaId(z.Id, out _) ? z.Id : TimeZoneInfo.TryConvertIanaIdToWindowsId(z.Id, out var w) ? w : null)
+            .OfType<string>().Distinct().ToList();
+        var windowsZones = windowsIds
+            .Select(w => TimeZoneInfo.FindSystemTimeZoneById(w))
+            .Select(z => TimeZoneInfo.CreateCustomTimeZone(z.Id, z.BaseUtcOffset, z.DisplayName, z.StandardName)).ToList();
+        watch.Restart();
+        var simulated = TimeZoneChoices.Build(windowsZones, Now, null, out _);
+        var simulatedMs = watch.Elapsed.TotalMilliseconds;
+        var simulatedIds = simulated.Skip(1).Select(o => o.Id!).ToList();
+        List<string?> Find(string query) => simulated.Where(o => o.Matches(query)).Select(o => o.Id).ToList();
+        Check($"QA-B4 a Windows zone list ({windowsIds.Count} Windows ids) gives {simulatedIds.Count} IANA picker zones in {simulatedMs:0} ms: all distinct, resolvable, none a Windows id",
+            simulatedIds.Count > 2 * windowsIds.Count && simulatedIds.Distinct().Count() == simulatedIds.Count
+            && simulatedIds.All(id => TimeZoneInfo.TryFindSystemTimeZoneById(id, out _) && !TimeZoneInfo.TryConvertWindowsIdToIanaId(id, out _)));
+        Check("QA-B4 from Windows ids the picker offers Europe/Athens, Europe/Helsinki and Europe/Bucharest, and \"athens\"/\"helsinki\" pick them",
+            new[] { "Europe/Athens", "Europe/Helsinki", "Europe/Bucharest" }.All(simulatedIds.Contains)
+            && Find("athens").SequenceEqual(["Europe/Athens"]) && Find("helsinki").SequenceEqual(["Europe/Helsinki"]));
+        Check("QA-B4 ids CLDR still spells the old way are offered under current tzdata names (Asia/Kolkata, Europe/Kyiv, not Asia/Calcutta, Europe/Kiev)",
+            simulatedIds.Contains("Asia/Kolkata") && simulatedIds.Contains("Europe/Kyiv") && !simulatedIds.Contains("Asia/Calcutta") && !simulatedIds.Contains("Europe/Kiev")
+            && simulatedIds.All(id => !TimeZoneCatalog.Renamed.ContainsKey(id)));
+
+        if (!OperatingSystem.IsMacOS())
+        {
+            Skip("QA-B4 macOS: the picker is the system list as it is (nothing added or dropped)", "macOS only");
+            Skip("QA-B4 macOS: the renamed-id table matches CLDR and tzdata", "macOS only (needs tzdata's zone list)");
+            return;
+        }
+        var systemIds = system.Select(z => TimeZoneInfo.TryConvertWindowsIdToIanaId(z.Id, out var iana) ? iana : z.Id).ToHashSet(StringComparer.Ordinal);
+        var raw = windowsIds
+            .SelectMany(w => TimeZoneCatalog.Regions.Select(r => TimeZoneInfo.TryConvertWindowsIdToIanaId(w, r, out var iana) ? iana : null)
+                .Append(TimeZoneInfo.TryConvertWindowsIdToIanaId(w, out var fallback) ? fallback : null))
+            .OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var notListed = raw.Where(id => !systemIds.Contains(id)).Order(StringComparer.Ordinal).ToList();
+        Check($"QA-B4 macOS: the picker is the system list as it is ({systemIds.Count} ids, nothing added or dropped; a plain union with the region mapping would add {notListed.Count} aliases such as Asia/Calcutta)",
+            catalog.Select(z => z.Id).ToHashSet(StringComparer.Ordinal).SetEquals(systemIds) && catalog.Count == systemIds.Count);
+        var unexplained = notListed.Where(id => !id.StartsWith("Etc/", StringComparison.Ordinal) && !TimeZoneCatalog.Renamed.ContainsKey(id)).ToList();
+        Check($"QA-B4 macOS: the renamed-id table matches CLDR and tzdata (every mapped id outside the system list is Etc/… or renamed; each new name is listed with the same Windows id){(unexplained.Count > 0 ? ": missing " + string.Join(", ", unexplained) : "")}",
+            unexplained.Count == 0 && TimeZoneCatalog.Renamed.All(p => systemIds.Contains(p.Value)
+                && TimeZoneInfo.TryConvertIanaIdToWindowsId(p.Key, out var oldWindows) && TimeZoneInfo.TryConvertIanaIdToWindowsId(p.Value, out var newWindows) && oldWindows == newWindows));
     }
 
     // ─── QA-N6: UP NEXT names the zone, and the zone's day when it differs ───
@@ -317,9 +382,8 @@ public static class TimeZoneUiTests
         Check("Row 13 Save closes the editor", await WaitAsync(() => !editor.IsVisible));
 
         var fresh = new SettingsStore(rig.Paths.DataDirectory).Load();
-        Check($"Row 13 {(OperatingSystem.IsMacOS() ? "a fresh SettingsStore load returns TimeZone == \"Europe/Athens\"" : $"a fresh SettingsStore load returns the chosen IANA id ({athens.Id})")}",
-            fresh.Schedule.Single().TimeZone == athens.Id && (!OperatingSystem.IsMacOS() || athens.Id == "Europe/Athens")
-            && !TimeZoneInfo.TryConvertWindowsIdToIanaId(athens.Id!, out _));
+        Check("Row 13 a fresh SettingsStore load returns TimeZone == \"Europe/Athens\" (on every OS)",
+            fresh.Schedule.Single().TimeZone == "Europe/Athens" && athens.Id == "Europe/Athens");
         var entry = rig.Settings.Schedule.Single();
         await PumpAsync();
         Layout(window);
