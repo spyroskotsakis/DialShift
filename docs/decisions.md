@@ -81,6 +81,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D75 | 2026-09-25 | While the private repository's Actions are refused, the per-phase gate is the local macOS build plus tests; a CAT row missing only Windows evidence is `WINDOWS-PENDING` | brief 3 §10, §12; D58 |
 | D76 | 2026-09-25 | The app packages now carry third-party catalog data (radio-browser.info, Wikipedia): `THIRD-PARTY-NOTICES.md` gains a station-catalog section in the same change as the bundling | brief 3 §5, §10 (CAT-18) |
 | D77 | 2026-09-25 | Fold never throws: unpaired surrogates become U+FFFD before FormKD, so `Search` and the index never throw on text content (amends D70's fold) | brief 3 §7.2; D70 |
+| D78 | 2026-09-25 | The workbook's collection tab shows the app tag: its "Description / Genre" column is `common.app_tag`, what the in-app pick fills, an intended exception to brief §5.1's "XLSX unchanged except the README tab" | brief 3 §5.1; D71, D73 |
 
 ---
 
@@ -742,6 +743,9 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   - Details: `docs/catalog-contracts.md` §2.
 - **Rationale:** A dedupe key without the country merges one station that exists in three country lists (`Abdulbasit Abdulsamad`, city `—`), which would break the brief's own count rule. Seven Working URLs are longer than the app accepts, so they could never be saved. The placeholders would otherwise become a "—" city filter. One station per line keeps a 3.5 MB file diffable.
 - **Consequence:** Expected counts on today's data: `working=8281 url_excluded=7 duplicates_removed=0 exported=8274`. CAT-01.
+- **Update (data-lane review, 2026-09-25):**
+  - **Shared helpers moved to `common.py`.** `app_tag` (was in `build_all.py`) and `_row_score` (was in `build_stations.py`) now live in `data/build/common.py` as `common.app_tag` and `common.row_score`, imported by `app_catalog.py`, `build_all.py` and `build_stations.py`. Reason: `build_all.py` needs openpyxl, so importing from it would break the stdlib-only `app_catalog.py --self-test` (`docs/catalog-contracts.md` §2.4), and one definition cannot drift between the JSON, the workbook and the dedupe. Contract §2.1 (`tag`) and §2.2 (dedupe) name the new locations.
+  - **Robustness follow-ups (data lane, same review):** `app_tag` drops an empty `type` instead of emitting a leading ` · ` (today's data has no empty type, so no output changes); the country name for a radio-browser `bycountry` query comes from each country YAML's `name` (the hard-coded `common.COUNTRY_NAMES` table is removed, so a new country needs only its YAML); `data/output/.*.tmp`, the writer's temporary file, is git-ignored so an interrupted run leaves nothing to commit.
 - **Brief ref:** brief 3 §5.1.
 
 ## D72 — Brief 3: dialog behavior details
@@ -792,3 +796,12 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Rationale:** U+FFFD is the standard replacement for an ill-formed code unit (it is what the UTF-8 encoder writes for one), so a lone surrogate becomes an ordinary character that matches itself instead of an error. The input is user text (the search box) and catalog text (the index), and neither is a programming error that deserves an exception.
 - **Consequence:** `Search` and `StationCatalogIndex` never throw on text content; their only exceptions stay `ArgumentNullException` and `ArgumentOutOfRangeException`. CAT-06 gains a lone-surrogate check: `Fold("\uD800") == "\uFFFD"`, `Fold("a\uDC00b") == "a\uFFFDb"`, a valid pair passes unchanged, `Search` with `"\uD800"` returns a result instead of throwing, and an index over a `Name` with a lone surrogate builds and matches.
 - **Brief ref:** brief 3 §7.2; D70.
+
+## D78 — Brief 3: the workbook's collection tab shows the app tag
+
+- **Status:** Adopted (spec lane, 2026-09-25, after the data-lane review); an intended exception to brief 3 §5.1.
+- **Decision:** In every tab of `data/output/dialshift-radio-catalog.xlsx`, the "Description / Genre" column is `common.app_tag(row)`, exactly the text the in-app pick fills (the JSON's `tag`, D73). The Import Ready and country tabs already did this; the collection tab (`Ambient & Chill`, `data/build/build_all.py`, the collection-tab loop) changes from `r['genre']` to `app_tag(r)`. Contract: `docs/catalog-contracts.md` §2.5.
+- **Context:** The data-lane review found that the collection tab wrote `genre` while `app-catalog.json`'s `tag` uses `app_tag`, so all 24 collection rows differed between the two hand-offs, for example `1.FM · Chillout lounge` in the workbook against `Music · 1.FM · Chillout lounge` from the picker.
+- **Rationale:** The workbook is the documented manual-copy fallback (brief §5.1). A user who copies a station by hand should get the same Description / genre as one who picks it in the app, and every other tab already follows that rule; the collection tab was the one inconsistency.
+- **Consequence:** An intended exception to brief §5.1's "the XLSX is unchanged except the README tab", recorded next to the already-allowed drift of votes and collection rows with the live radio-browser lookup (`docs/catalog-contracts.md` §7). The workbook is regenerated in the data lane's follow-up commit; the 24 collection rows' "Description / Genre" cells change and nothing else in the workbook does beyond that drift. CAT-01's review checks the collection tab's column against `common.app_tag`.
+- **Brief ref:** brief 3 §5.1; D71, D73.
