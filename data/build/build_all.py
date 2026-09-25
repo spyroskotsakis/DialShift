@@ -11,8 +11,9 @@ Outputs:
     output/app-catalog.json            (the Add-station picker's catalog; validated, see app_catalog.py)
     output/dialshift-radio-catalog.xlsx
 
-A bad languages.yaml (the app catalog's language table) exits non-zero before anything is written; a
-failed app-catalog validation exits non-zero before the JSON and the XLSX are written.
+A bad languages.yaml (the app catalog's language table) or frequency-bands.yaml (its frequency band words)
+exits non-zero before anything is written; a failed app-catalog validation exits non-zero before the JSON
+and the XLSX are written.
 
 The XLSX is deliberately plain (openpyxl basics only: freeze panes, auto-filter,
 column widths) so it opens cleanly in macOS Numbers.
@@ -34,12 +35,13 @@ from openpyxl.utils import get_column_letter
 
 from app_catalog import build_app_catalog, unknown_language_name, validate_app_catalog, write_app_catalog
 from build_stations import all_collections, all_countries, build_collection, build_country
-from common import app_tag, language_table
+from common import app_tag, frequency_band_words, language_table
 
 DATA_DIR = Path(__file__).resolve().parent.parent
 CANONICAL = DATA_DIR / 'canonical'
 OUTPUT = DATA_DIR / 'output'
 LANGUAGES = DATA_DIR / 'languages.yaml'         # the app catalog's language table (D84)
+BAND_WORDS = DATA_DIR / 'frequency-bands.yaml'  # the app catalog's frequency band words (contracts §2.3)
 FAVICON_DIR = DATA_DIR / 'raw' / 'favicons'     # gitignored cache
 
 CANON_COLS = ['country', 'name', 'name_local', 'city', 'region', 'frequency_fm', 'type', 'genre',
@@ -139,20 +141,21 @@ def embed_logos(ws, logo_col, logo_paths):
             continue
 
 
-def load_languages():
-    """data/languages.yaml checked by common.language_table; a bad table stops the run before anything is
-    built or written."""
+def load_table(path, check, label):
+    """A data table (path) checked by check (common.language_table, common.frequency_band_words); a bad table
+    stops the run before anything is built or written."""
     try:
-        with open(LANGUAGES, encoding='utf-8') as f:
-            return language_table(yaml.safe_load(f), LANGUAGES.name)
+        with open(path, encoding='utf-8') as f:
+            return check(yaml.safe_load(f), path.name)
     except ValueError as e:                        # yaml.YAMLError is not a ValueError: it keeps its traceback
-        print(f'languages: {e}', file=sys.stderr)
+        print(f'{label}: {e}', file=sys.stderr)
         sys.exit(1)
 
 
 def main():
     refresh = '--refresh' in sys.argv
-    languages = load_languages()
+    languages = load_table(LANGUAGES, language_table, 'languages')
+    band_words = load_table(BAND_WORDS, frequency_band_words, 'frequency bands')
     countries = all_countries()
     per_country = {}
     for cfg in countries:
@@ -195,7 +198,7 @@ def main():
     for _, (first, count) in sorted(unknown.items(), key=lambda kv: (-kv[1][1], kv[0])):
         print(f'app-catalog: unknown language "{first}" in {count} entries, exported as '
               f'"{unknown_language_name(first)}"; add it to data/{LANGUAGES.name}')
-    problems = validate_app_catalog(app_doc, [r for _, rows in sources for r in rows], languages)
+    problems = validate_app_catalog(app_doc, [r for _, rows in sources for r in rows], languages, band_words)
     if problems:
         print(f'app-catalog: validation failed with {len(problems)} problem(s); {app_json_rel} is unchanged '
               f'(fix the YAML, not the script):', file=sys.stderr)

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The app catalog: data/output/app-catalog.json, the station list behind the Add-station picker.
 
-Contract: docs/catalog-contracts.md §2 (decisions D59, D69, D71, D84). Pure export, validation and writer;
-build_all.py calls build_app_catalog, validate_app_catalog and write_app_catalog with the same rows it
-writes to data/canonical/, after the CSVs and before the XLSX. Station facts come only from those rows
-(YAML + sources) and language facts only from data/languages.yaml (the table build_all.py passes in);
-nothing here names a station, a URL, a country or a language.
+Contract: docs/catalog-contracts.md §2 (decisions D59, D69, D71, D84, D86). Pure export, validation and
+writer; build_all.py calls build_app_catalog, validate_app_catalog and write_app_catalog with the same rows
+it writes to data/canonical/, after the CSVs and before the XLSX. Station facts come only from those rows
+(YAML + sources), language facts only from data/languages.yaml and frequency band words only from
+data/frequency-bands.yaml (the tables build_all.py passes in); nothing here names a station, a URL, a
+country, a language or a band.
 
 Stdlib only, so the fixture checks run anywhere:
     data/.venv/bin/python data/build/app_catalog.py --self-test
@@ -17,11 +18,12 @@ import string
 import sys
 import tempfile
 import unicodedata
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from common import (RB_TAGS_LABEL, app_tag, city_aliases, language_key, language_table, norm, norm_city,
-                    row_score, url_norm)
+from common import (MAX_BAND_WORD_LENGTH, RB_TAGS_LABEL, app_tag, city_aliases, frequency_band_words,
+                    language_key, language_table, norm, norm_city, row_score, url_norm)
 
 SCHEMA_VERSION = 1
 MAX_ENTRIES = 10_000
@@ -46,6 +48,14 @@ _EMPHASIS = re.compile(r'(?<!\w)_([^_\n]+?)_(?!\w)')        # Wikipedia _emphasi
 _LIST = re.compile('[,;]')                  # radio-browser's list syntax (languages, tags); not - / or .
 TAGS_NOTE_LABEL = 'Tags:'                   # the app's label of a formatted radio-browser tag note
 TAG_SEPARATOR = ', '
+_TAG_PAIRS = {'(': ')', '[': ']', '{': '}', '“': '”', '«': '»'}   # _trim_tag keeps one that pairs inside
+_TAG_QUOTES = '"'
+# Core's StationCatalogQuery.BandOf (contracts §3.3, D79): decimal.TryParse(AllowDecimalPoint, invariant),
+# then FM for 64-108, kHz for an integer (no '.') of at least 150. decimal.MaxValue bounds the parse.
+_FREQUENCY_NUMBER = re.compile(r'[0-9]+(?:\.[0-9]*)?|\.[0-9]+')
+_DECIMAL_MAX = 79_228_162_514_264_337_593_543_950_335
+FM_RANGE = (64, 108)
+KHZ_MIN = 150
 
 
 def _text(value):
@@ -85,17 +95,75 @@ def valid_stream_url(url: str) -> bool:
     return _http_url(url) is not None
 
 
+def _trim_tag(tag):
+    """A tag without the runs of characters that are neither letters nor digits at either end ("### top 40
+    ###" -> "top 40", "#dj" -> "dj"); inner punctuation stays (hip-hop, r&b/urban, 80's, top-40). Three
+    things at an end stay because they belong to the text kept: the combining marks of the last letter (a
+    decomposed "café"), a + run right after it ("dab+"), and the brackets and quotes that pair with one kept
+    inside ("halle (saale)", "(greek) music", '2day "mobile"'; a lone "hendrix)" still loses its bracket).
+    "" when the tag has no letter or digit."""
+    ends = [i for i, c in enumerate(tag) if c.isalnum()]
+    if not ends:
+        return ''
+    start, end = ends[0], ends[-1] + 1
+    while end < len(tag) and (unicodedata.category(tag[end]).startswith('M') or tag[end] == '+'):
+        end += 1
+    kept = tag[start:end]
+    right, left = {}, {}                             # a character still owed at that end -> how many
+    for opener, closer in _TAG_PAIRS.items():
+        owed = kept.count(opener) - kept.count(closer)
+        if owed > 0:
+            right[closer] = owed
+        elif owed < 0:
+            left[opener] = -owed
+    for quote in _TAG_QUOTES:
+        if kept.count(quote) % 2:
+            (right if quote in tag[end:] else left)[quote] = 1
+    for i in range(end, len(tag)):                   # up to the last owed closer of the trailing run
+        if right.get(tag[i]):
+            right[tag[i]] -= 1
+            end = i + 1
+    for i in range(start - 1, -1, -1):               # back to the last owed opener of the leading run
+        if left.get(tag[i]):
+            left[tag[i]] -= 1
+            start = i
+    return tag[start:end]
+
+
 def _tags_note(tags):
     """A radio-browser tag list (the text after RB_TAGS_LABEL) as the app shows it: "Tags: a, b". Split on
-    , and ; (the list syntax, as for languages); each tag's whitespace runs collapsed and trimmed; a tag
-    without a letter or digit (a bare "#") dropped; repeats dropped case-insensitively (NFC, casefold),
-    keeping the first spelling. "" when no tag is left."""
+    , and ; (the list syntax, as for languages); each tag's whitespace runs collapsed and the non-letter,
+    non-digit runs at its ends trimmed (_trim_tag); an empty tag dropped; repeats dropped case-insensitively
+    (NFC, casefold), keeping the first spelling. "" when no tag is left."""
     kept = {}
     for tag in _LIST.split(tags):
-        tag = ' '.join(tag.split())
-        if any(c.isalnum() for c in tag):
+        tag = _trim_tag(' '.join(tag.split()))
+        if tag:
             kept.setdefault(unicodedata.normalize('NFC', tag).casefold(), tag)
     return f'{TAGS_NOTE_LABEL} {TAG_SEPARATOR.join(kept.values())}' if kept else ''
+
+
+def frequency_band(value: str):
+    """'FM', 'kHz' or None for a frequency_fm, exactly as Core's StationCatalogQuery.BandOf classifies it (the
+    band the app labels and searches by): ASCII digits with at most one '.', no sign, space or separator."""
+    if not isinstance(value, str) or not _FREQUENCY_NUMBER.fullmatch(value):
+        return None
+    number = Decimal(value)
+    if number > _DECIMAL_MAX:                               # decimal.TryParse overflows
+        return None
+    if FM_RANGE[0] <= number <= FM_RANGE[1]:
+        return 'FM'
+    return 'kHz' if number >= KHZ_MIN and '.' not in value else None
+
+
+def _frequency_problem(value, band_words):
+    """Rule 9 of §2.3 for one frequency_fm, or None when it holds: "", an FM value written with a '.', a kHz
+    value, or one of the band words of data/frequency-bands.yaml (exactly)."""
+    band = frequency_band(value)
+    if value == '' or value in band_words or band == 'kHz' or (band == 'FM' and '.' in value):
+        return None
+    return ("is not an FM value with a '.' (64-108), a kHz integer (>= 150) or a band word of "
+            'data/frequency-bands.yaml')
 
 
 def _notes(value):
@@ -232,8 +300,8 @@ def _mapped_keys(languages):
     return {k for k, v in languages.items() if not (len(v) == 1 and language_key(v[0]) == k)}
 
 
-def _entry_problems(i, e, mapped):
-    """Rules 2, 3 and 7 of §2.3 for one entry, plus the §2.1 guarantees of its values."""
+def _entry_problems(i, e, mapped, band_words):
+    """Rules 2, 3, 7, 8 and 9 of §2.3 for one entry, plus the §2.1 guarantees of its values."""
     if not isinstance(e, dict):
         return [f'stations[{i}]: not an object']
     where = f"stations[{i}] ({e.get('name')!r}, {e.get('country')!r})"
@@ -271,11 +339,16 @@ def _entry_problems(i, e, mapped):
     language = _language_problem(e['language'], mapped)
     if language:
         out.append(f"{where}: language {e['language']!r}: {language}")
+    frequency = _frequency_problem(e['frequency_fm'], band_words)
+    if frequency:
+        out.append(f"{where}: frequency_fm {e['frequency_fm'][:120]!r} {frequency}")
     return out
 
 
-def validate_app_catalog(doc: dict, source_rows: list[dict], languages: dict[str, tuple[str, ...]]) -> list[str]:
-    """Every problem found (empty list = valid)."""
+def validate_app_catalog(doc: dict, source_rows: list[dict], languages: dict[str, tuple[str, ...]],
+                         band_words: frozenset[str]) -> list[str]:
+    """Every problem found (empty list = valid). languages: the table of common.language_table; band_words: the
+    words of common.frequency_band_words."""
     problems, mapped = [], _mapped_keys(languages)
     version = doc.get('schema_version')
     if isinstance(version, bool) or version != SCHEMA_VERSION:
@@ -290,9 +363,11 @@ def validate_app_catalog(doc: dict, source_rows: list[dict], languages: dict[str
         problems.append(f'{len(stations)} stations, outside 1..{MAX_ENTRIES}')
     triples = []
     for i, e in enumerate(stations):
-        found = _entry_problems(i, e, mapped)
-        problems += found
-        if not found:
+        problems += _entry_problems(i, e, mapped, band_words)
+        # an entry whose values break a rule is still exported: rules 4 and 5 count it, so rule 5 never
+        # reports it as a row a dedupe dropped
+        if isinstance(e, dict) and tuple(e) == KEYS and all(isinstance(e[k], str)
+                                                             for k in ('country', 'name', 'stream_url')):
             triples.append((e['country'], e['name'], e['stream_url']))
     seen = set()
     for t in triples:
@@ -338,9 +413,10 @@ def write_app_catalog(doc: dict, path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------ self-test
-# Inline fixtures only: fictional country codes, names and example.test URLs (no station facts). The
-# language table is an inline stand-in for data/languages.yaml (no YAML read, so the test stays stdlib-only);
-# its names are the contract's examples (docs/catalog-contracts.md §2.6).
+# Inline fixtures only: fictional country codes, names, band words and example.test URLs (no station facts).
+# The language table is an inline stand-in for data/languages.yaml, the band words for
+# data/frequency-bands.yaml (no YAML read, so the test stays stdlib-only); the language names are the
+# contract's examples (docs/catalog-contracts.md §2.6).
 _UTC = '2026-01-02T03:04:05Z'
 _LANGUAGE_FIXTURE = {
     'languages': ['English', 'French', 'German', 'Greek', 'Low German', 'Luxembourgish', 'Serbo-Croatian'],
@@ -350,6 +426,7 @@ _LANGUAGE_FIXTURE = {
                 'français - lëtzebuergesch': ['French', 'Luxembourgish'], 'english/ french': ['English', 'French']},
     'drop': ['instrumental', 'multilingual'],
 }
+_BAND_FIXTURE = {'band_words': ['Fixwave', 'Fix Band']}
 
 
 def _row(**over):
@@ -371,6 +448,7 @@ def self_test() -> int:
             failures.append(label)
 
     langs = language_table(_LANGUAGE_FIXTURE, 'languages-fixture.yaml')
+    bands = frequency_band_words(_BAND_FIXTURE, 'bands-fixture.yaml')
     xa, xb, coll ={'code': 'XA', 'name': 'Fixtureland'}, {'code': 'XB', 'name': 'Otherland'}, \
         {'code': 'FIX', 'name': 'Fixture Collection'}
     long_ok = 'https://a.example.test/' + 'x' * (2_048 - len('https://a.example.test/'))   # the contract's limit
@@ -533,15 +611,37 @@ def self_test() -> int:
                        ('tags: straße,STRASSE', 'Tags: straße'),                         # casefold, not lower
                        (f'tags: café,{nfd_cafe}', 'Tags: café'),                         # NFC before comparing
                        ('tags: ,, jazz ,,', 'Tags: jazz'),                               # empty tags dropped
-                       ('tags: #,#charts,club  dance', 'Tags: #charts, club dance'),     # no letter/digit dropped
+                       ('tags: #,#charts,club  dance', 'Tags: charts, club dance'),      # no letter/digit dropped
                        ('tags: darkwave; ebm; gothic,ebm', 'Tags: darkwave, ebm, gothic'),  # ; is a separator
                        ('tags: hip-hop,r&b/urban,top 40', 'Tags: hip-hop, r&b/urban, top 40'),  # not - or /
                        ('tags: #,-', ''),                                                # nothing readable left
                        ('tags: _Soul_,funk', 'Tags: Soul, funk'),                        # _emphasis_ first
                        ('Tags: music, variety', 'Tags: music, variety'),                 # idempotent
                        ('TAGS: a,b', 'TAGS: a,b'), ('Radio tags: a,b', 'Radio tags: a,b'),  # not the label
-                       ('curated: tags,and,commas', 'curated: tags,and,commas')):
+                       ('curated: tags,and,commas', 'curated: tags,and,commas'),
+                       # the ends of each tag trimmed of non-letter, non-digit runs, inner punctuation kept
+                       ('tags: ### top 40 club ###,#dj,#edm', 'Tags: top 40 club, dj, edm'),
+                       ("tags: ''''' top 100 ''''',top 100,\"\"\"top 100\"\"\"", 'Tags: top 100'),  # then deduped
+                       ("tags: hip-hop!,r&b/urban,80's,top-40,'80s", "Tags: hip-hop, r&b/urban, 80's, top-40, 80s"),
+                       ('tags: #rock,Rock,(rock),rock!!', 'Tags: rock'),                # first trimmed spelling
+                       ('tags: -news-,--,new wave/,relax.', 'Tags: news, new wave, relax'),  # only the ends
+                       ('tags: ¡fiesta!,¿qué?', 'Tags: fiesta, qué'),
+                       (f'tags: {nfd_cafe}!,café', f'Tags: {nfd_cafe}'),                # a final mark stays
+                       ('tags: dab+,c++!,+rock', 'Tags: dab+, c++, rock'),               # a + suffix stays
+                       # a bracket or quote pairing with one kept inside stays; a lone one goes
+                       ('tags: metal (e.g. iron maiden),halle (saale).',
+                        'Tags: metal (e.g. iron maiden), halle (saale)'),
+                       ('tags: blues (60s (eg. fixture band)),(greek) music', 'Tags: blues (60s (eg. fixture band)), '
+                                                                             '(greek) music'),
+                       ('tags: soft rock (e.g. fixture.),[x] y', 'Tags: soft rock (e.g. fixture.), [x] y'),
+                       ('tags: 2day "mobile",x" y!,"bob",«a»,“b”', 'Tags: 2day "mobile", x" y, bob, a, b'),
+                       ('tags: fixture band),(a,fixture « b', 'Tags: fixture band, a, fixture « b'),
+                       ('tags: #,-,!!,...', ''),                                         # nothing readable left
+                       ('tags: _x_', 'Tags: x')):
         check(f'notes: tag note {note!r} -> {want!r}', _notes(note) == want)
+    check('_trim_tag: the ends only, marks of the last letter kept', _trim_tag('## a-b ##') == 'a-b'
+          and _trim_tag('#') == '' and _trim_tag('') == '' and _trim_tag(f'#{nfd_cafe}#') == nfd_cafe
+          and _trim_tag('\u0301x') == 'x' and _trim_tag('2²') == '2²' and _trim_tag('a+b+.') == 'a+b+')
     check('logo: "null" and ftp -> "", https kept', pad['logo'] == '' and num['logo'] == ''
           and strs['logo'] == 'https://a.example.test/l.png')
     check('tag of Other/Other is "Other"', pad['tag'] == 'Other')
@@ -562,18 +662,18 @@ def self_test() -> int:
     check('countries in code-point order', [e['country'] for e in st] == sorted(e['country'] for e in st))
 
     # validation: the duplicate above had a different name spelling, so rule 5 reports the dropped row
-    problems = validate_app_catalog(doc, source_rows, langs)
+    problems = validate_app_catalog(doc, source_rows, langs, bands)
     check('rule 5 reports the deduped row', any('missing' in p and "'Fixture Two'" in p for p in problems)
           and any('stations exported' in p for p in problems))
     clean_rows = [r for r in source_rows if r['name'] != 'fixture  two']
     clean, _ = build_app_catalog([(xa, [r for r in xa_rows if r in clean_rows]), (xb, xb_rows), (coll, coll_rows)],
                                  _UTC, langs)
-    check('a clean document validates', validate_app_catalog(clean, clean_rows, langs) == [])
+    check('a clean document validates', validate_app_catalog(clean, clean_rows, langs, bands) == [])
 
     def broken(mutate):
         d = json.loads(json.dumps(clean))
         mutate(d)
-        return validate_app_catalog(d, clean_rows, langs)
+        return validate_app_catalog(d, clean_rows, langs, bands)
 
     check('rule 1: schema_version 2', broken(lambda d: d.update(schema_version=2)) != [])
     check('rule 1: schema_version true', broken(lambda d: d.update(schema_version=True)) != [])
@@ -587,9 +687,9 @@ def self_test() -> int:
     check('rule 2: internet_only as a string', broken(lambda d: d['stations'][0].update(internet_only='No')) != [])
     check('rule 2: city placeholder', broken(lambda d: d['stations'][0].update(city='—')) != [])
     check('rule 2: empty tag', broken(lambda d: d['stations'][0].update(tag='')) != [])
-    check('rule 2: a raw radio-browser tag note', any('raw radio-browser tag list' in p for p in broken(
+    check('rule 8: a raw radio-browser tag note fails', any('raw radio-browser tag list' in p for p in broken(
         lambda d: d['stations'][0].update(notes='tags: jazz,soul'))))
-    check('rule 2: a formatted tag note passes', broken(lambda d: d['stations'][0].update(notes='Tags: jazz')) == [])
+    check('rule 8: a formatted tag note passes', broken(lambda d: d['stations'][0].update(notes='Tags: jazz')) == [])
     check('rule 3: empty name', broken(lambda d: d['stations'][0].update(name='')) != [])
     check('rule 3: empty country', broken(lambda d: d['stations'][0].update(country='')) != [])
     check('rule 3: invalid URL', broken(lambda d: d['stations'][0].update(stream_url='ftp://x')) != [])
@@ -597,10 +697,10 @@ def self_test() -> int:
           any('duplicate' in p for p in broken(lambda d: d['stations'].append(d['stations'][0]))))
     check('rule 5: a missing row', any('missing' in p for p in broken(lambda d: d['stations'].pop())))
     check('rule 6: empty', any('outside' in p for p in validate_app_catalog(
-        {'schema_version': 1, 'generated_utc': _UTC, 'stations': []}, [], langs)))
+        {'schema_version': 1, 'generated_utc': _UTC, 'stations': []}, [], langs, bands)))
     many = [_row(name=f'Fixture {i}', stream_url=f'https://a.example.test/{i}') for i in range(MAX_ENTRIES + 1)]
     big, _ = build_app_catalog([(xa, many)], _UTC, langs)
-    check('rule 6: more than 10,000', any('outside' in p for p in validate_app_catalog(big, many, langs)))
+    check('rule 6: more than 10,000', any('outside' in p for p in validate_app_catalog(big, many, langs, bands)))
     for value in ('German,French', 'German, German', 'German, ', ' German', 'Deutsch', 'Instrumental',
                   'German,  French', 'German;French', ', German', 'Low  German'):
         check(f'rule 7: language {value!r} fails',
@@ -609,6 +709,68 @@ def self_test() -> int:
     for value in ('', 'German', 'German, French', 'English, German, Low German', 'Klingon', 'Serbo-Croatian'):
         check(f'rule 7: language {value!r} passes',
               broken(lambda d: d['stations'][0].update(language=value)) == [])
+
+    # ---------------------------------------------------------------- frequency_fm (contracts §2.3 rule 9)
+    for value, want in (('', None), ('101.5', 'FM'), ('100', 'FM'), ('64', 'FM'), ('108.0', 'FM'), ('101.', 'FM'),
+                        ('1593', 'kHz'), ('150', 'kHz'), ('8500', 'kHz'), ('0101.5', 'FM'),
+                        ('79228162514264337593543950335', 'kHz'),               # decimal.MaxValue parses
+                        ('79228162514264337593543950336', None),                # one more overflows
+                        ('Fixwave', None), ('108.5', None), ('63.9', None), ('149', None), ('1593.0', None),
+                        ('.5', None), ('.', None), ('-101.5', None), ('+101.5', None), ('101,5', None),
+                        (' 101.5', None), ('1 593', None), ('1,593', None), ('101.5 FM', None),
+                        ('١٠١.٥', None), ('１０１.５', None), ('1e2', None), (None, None)):
+        check(f'frequency_band({value!r}) -> {want!r} (Core BandOf)', frequency_band(value) == want)
+    for value in ('', '101.5', '87.5', '64.0', '108.0', '89.0', '101.', '1593', '150', '8500', 'Fixwave', 'Fix Band'):
+        check(f'rule 9: frequency_fm {value!r} passes',
+              broken(lambda d: d['stations'][0].update(frequency_fm=value)) == [])
+    free_text = 'Shortwave and satellite for the diaspora, see the website'
+    for value in ('fixwave', 'FIXWAVE', 'Fix  Band', '100', '64', '149', '108.5', '63.9', '1593.0', '.5',
+                  '-101.5', '101,5', '1 593', '101.5 FM', '1593 kHz', '١٠١.٥', 'n/a', '?', free_text,
+                  '79228162514264337593543950336'):
+        check(f'rule 9: frequency_fm {value!r} fails', _frequency_problem(value, bands) is not None
+              and any('frequency_fm' in p for p in broken(lambda d: d['stations'][0].update(frequency_fm=value))))
+    check('rule 9: without band words a band word fails', _frequency_problem('Fixwave', frozenset()) is not None)
+    band_rows = [_row(country='XF', name='Band One', frequency_fm='Fixwave', stream_url='https://f.example.test/1'),
+                 _row(country='XF', name='Band Two', frequency_fm=free_text, stream_url='https://f.example.test/2')]
+    fdoc, _ = build_app_catalog([({'code': 'XF', 'name': 'Bandland'}, band_rows)], _UTC, langs)
+    fproblems = validate_app_catalog(fdoc, band_rows, langs, bands)
+    check('rule 9: a canonical free-text frequency fails the run, naming the station; a band word does not',
+          len(fproblems) == 1 and "'Band Two'" in fproblems[0] and 'frequency_fm' in fproblems[0])
+
+    check('frequency_band_words: the words, missing or empty = none',
+          bands == frozenset({'Fixwave', 'Fix Band'}) and frequency_band_words({}, 'f.yaml') == frozenset()
+          and frequency_band_words({'band_words': None}, 'f.yaml') == frozenset()
+          and frequency_band_words({'band_words': []}, 'f.yaml') == frozenset())
+
+    def bands_error(doc):
+        try:
+            frequency_band_words(doc, 'bands-fixture.yaml')
+        except ValueError as e:
+            return str(e) if 'bands-fixture.yaml' in str(e) else ''
+        return ''
+
+    for label, doc, want in (
+            ('not a mapping', ['Fixwave'], 'mapping'),
+            ('an unknown top-level key (a typo)', {'band_word': ['Fixwave']}, "'band_word'"),
+            ('band_words not a list', {'band_words': 'Fixwave'}, 'must be a list'),
+            ('a word not a string', {'band_words': [101.5]}, '101.5'),
+            ('a boolean word (unquoted no)', {'band_words': [False]}, 'False'),
+            ('an empty word', {'band_words': ['']}, "''"),
+            ('an untrimmed word', {'band_words': [' Fixwave']}, "' Fixwave'"),
+            ('doubled spaces', {'band_words': ['Fix  Band']}, "'Fix  Band'"),
+            ('a word without a letter', {'band_words': ['123']}, "'123'"),
+            ('a word not in NFC', {'band_words': [unicodedata.normalize('NFD', 'Fixwavé')]}, 'NFC'),
+            ('a word over the length limit', {'band_words': ['F' * (MAX_BAND_WORD_LENGTH + 1)]},
+             f'at most {MAX_BAND_WORD_LENGTH}'),
+            ('a word listed twice', {'band_words': ['Fixwave', 'Fixwave']}, 'listed twice')):
+        check(f'frequency_band_words: {label} is a hard error naming the file and the problem',
+              want in bands_error(doc))
+    check('frequency_band_words: a word of exactly the length limit passes',
+          frequency_band_words({'band_words': ['F' * MAX_BAND_WORD_LENGTH]}, 'f.yaml')
+          == {'F' * MAX_BAND_WORD_LENGTH})
+    every = bands_error({'band_words': ['', '123'], 'extra': 1})
+    check('frequency_band_words: every problem is reported at once', "''" in every and "'123'" in every
+          and "'extra'" in every)
 
     # ---------------------------------------------------------------- languages (D84, contracts §2.6)
     def lang(raw):
@@ -657,7 +819,7 @@ def self_test() -> int:
           lstats['unknown_languages'] == {'klingon': ('Klingon', 3), 'vulcan': ('Vulcan', 1)})
     lang_expected = [r for r in lang_rows if r['language'] != 'French']
     check('languages: unknown tokens are not a validation failure', validate_app_catalog(ldoc, lang_expected,
-                                                                                        langs) == [])
+                                                                                        langs, bands) == [])
     check('languages: a table-free build still exports every row', build_app_catalog(
         [(xl, lang_rows)], _UTC, {})[1]['exported'] == 8)
 

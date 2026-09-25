@@ -14,6 +14,7 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 | **Country data files** | `countries/<name>.yaml` | THE source of truth for curated station facts |
 | **Collection data files** | `collections/<name>.yaml` | curated genre folders of internet radio (Ambient & Chill) |
 | **Language table** | `languages.yaml` | the app catalog's language names, aliases and dropped non-languages (the only place for language facts) |
+| **Frequency band words** | `frequency-bands.yaml` | the words a station's frequency may be instead of an FM or kHz value (`Shortwave`) |
 | **Build scripts** | `build/` | one generic pipeline + the XLSX writer |
 | **Raw caches** | `raw/<CC>/` | downloaded sources; disposable, auto-regenerated, **not in git** |
 
@@ -82,9 +83,12 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   note that is only a source label (`tags:`, `curated:`, …) followed by nothing or punctuation, or
   that has no letter or digit at all, becomes `""`; a radio-browser tag note (`tags: music,variety`)
   is shown readably as `Tags: music, variety` (split on `,` and `;`, each tag trimmed with single
-  spaces, a tag without a letter or digit such as a bare `#` dropped, repeats dropped ignoring case,
-  first spelling kept); every other note is kept as it is. The CSVs and the XLSX keep the pipeline's
-  raw note; logos that are not http(s) become `""`.
+  spaces and cut of the characters that are neither letters nor digits at both ends, so `### top 40
+  ###` and `#dj` become `top 40` and `dj` while `hip-hop`, `r&b/urban`, `80's` keep their inner
+  punctuation; a `+` right after the last letter (`dab+`) and a bracket or quote that pairs with one
+  inside (`halle (saale)`) stay; a tag with no letter or digit left is dropped, repeats are dropped
+  ignoring case, first spelling kept); every other note is kept as it is. The CSVs and the XLSX
+  keep the pipeline's raw note; logos that are not http(s) become `""`.
 - **Language (D84):** a list of single language names joined with `", "` (`English, German, Low
   German`), or `""`. The raw value is split on `,` and `;` only (never on `-`, `/` or `.`), and each
   token is looked up in `languages.yaml` (below) in any case: a canonical name stays itself, an alias
@@ -93,8 +97,10 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
 - **Validation (hard failure, same run):** schema version, the 18 keys and their types, non-empty
   name and country, valid stream URL, no duplicate `(name, country, stream_url)`, the count equals
   the Working rows that pass the URL rule, 1–10,000 entries, every `language` a clean list
-  (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key), and no note
-  still in the raw `tags:` form. On any problem
+  (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key), no note
+  still in the raw `tags:` form, and every `frequency_fm` empty, an FM value with a `.` (64–108),
+  a kHz integer (at least 150; the app's own FM/kHz rule) or one of the band words of
+  `frequency-bands.yaml`, so free text never reaches the app's frequency column. On any problem
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
   example
@@ -111,6 +117,11 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   and reported, one line each, as
   `app-catalog: unknown language "<token>" in <n> entries, exported as "<Token>"; add it to data/languages.yaml`.
   Add it under `languages`, `aliases` or `drop` and rebuild, so the run says `unknown=0` again.
+- **Frequency band words (`frequency-bands.yaml`):** `band_words`, the words a frequency may be
+  instead of a number (today only `Shortwave`, the Voice of Greece). Each is a short label (a
+  letter, trimmed, at most 16 characters, listed once), compared exactly; a bad list stops the run
+  before anything is written. A station whose frequency fails the rule above stops the run naming
+  it: shorten the `freq` in its country YAML, or add the word here if it really is a band.
 - **Self-test:** `.venv/bin/python build/app_catalog.py --self-test` (stdlib only, inline fixtures,
   no network).
 - **In the app:** the build copies the file next to the app (the output and publish folders, and
@@ -140,8 +151,9 @@ notes · source`
 1. **`countries/<name>.yaml`** holds the only hand-maintained data: curated station facts
    (name, city, type, genre, political leaning, optional pinned stream URL), national-programme
    consolidation rules (the ERT network), city aliases, the language defaults, and an optional
-   Wikipedia list URL. **`languages.yaml`** holds the app catalog's language table. Station and
-   language data never live in Python code.
+   Wikipedia list URL. **`languages.yaml`** holds the app catalog's language table and
+   **`frequency-bands.yaml`** its frequency band words. Station, language and band data never live
+   in Python code.
 2. **`build/build_stations.py`** is THE pipeline for every country (same logic, zero per-country code):
    fetch → Wikipedia FM list (optional) → radio-browser stream pool → national consolidation →
    curated overlay → unmatched extras → dedupe → canonical rows.

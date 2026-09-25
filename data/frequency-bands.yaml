@@ -1,0 +1,13 @@
+# The frequency band words of the app catalog (docs/catalog-contracts.md §2.3).
+#
+# The ONLY place for them. A station's frequency (a curated entry's `freq` or the Wikipedia list's
+# value; the canonical `frequency_fm`) is normally an FM value in MHz with a decimal point (`101.5`,
+# 64-108) or a medium-wave value in kHz (`1593`, an integer of at least 150); the app labels those
+# `101.5 FM` and `1593 kHz`. Anything else is shown exactly as written, in a result column that is
+# never truncated, so the app-catalog validation accepts only an empty value, an FM or kHz value, or
+# one of the words below (compared exactly, case included). A value that is none of these stops the
+# run: shorten it in the country YAML, or, if it really is a band, add the word here.
+#
+# Each word: a short label (at most 16 characters, with a letter, trimmed, listed once).
+band_words:
+  - Shortwave
