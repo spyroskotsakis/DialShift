@@ -4,9 +4,9 @@ Native menu-bar/tray internet-radio app with a weekly listening schedule. Window
 
 ## Architecture
 
-- `DialShift.Core/` — models, scheduler, settings persistence. UI-free domain. Purity rules below are absolute.
-- `DialShift.Mac/` — Avalonia macOS front-end (the current shipping Mac app; becomes `DialShift.App` per the refactor brief).
-- `DialShift/` — WPF/WinForms Windows front-end (scheduled for retirement per the refactor brief).
+- `DialShift.Core/` — models, scheduler (per-slot IANA time zones), settings persistence, and the `PlaybackCoordinator` (retry, fallback, schedule, wake). UI-free domain. Purity rules below are absolute.
+- `DialShift.App/` — the single Avalonia 12.1.2 app for Windows (`win-x64`, LibVLC) and macOS (`osx-arm64`, AVPlayer): composition root (`Program.cs`, `AppComposition.cs`, `App.axaml.cs`), `Views/`, `ViewModels/`, `Tray/`, `Services/` (engines, dialogs, `FileAppLog`), `Platform/`, `SingleInstance/`, `Interop/` (the only Objective-C declarations) and the `--smoke-test` harness (`Smoke/`).
+- The WPF `DialShift/` and Avalonia `DialShift.Mac/` front-ends are retired (decision D8). Their last build, including the last Intel Mac build, is kept at tag `legacy-last-known-good` (commit `82281e5`).
 - `DialShift.Tests/` — deterministic console checks, no test framework: `Check(name, condition)` throws on FAIL, prints `PASS:` lines.
 - `data/` — radio station catalog (YAML is the ONLY source of truth; see `.claude/rules/data-catalog-only.md`).
 
@@ -25,21 +25,23 @@ Native menu-bar/tray internet-radio app with a weekly listening schedule. Window
 
 ## Commands
 
-- Build: `dotnet build DialShift.slnx` — .NET 10 SDK lives at `~/.dotnet` on this Mac (`export PATH="$HOME/.dotnet:$PATH"`).
-- Tests: `dotnet run --project DialShift.Tests/DialShift.Tests.csproj` (console checks; non-zero exit = FAIL).
-- Mac publish (current): `dotnet publish DialShift.Mac/DialShift.Mac.csproj -c Release -r osx-x64 --self-contained`
-- Mac .app: `scripts/build-mac-app.sh` → `dist/DialShift.app` (menu-bar app, `LSUIElement=true`, no Dock icon).
-- Windows: `scripts/build.ps1` (falls back to a local SDK at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe`); optional per-user install `scripts/Install.ps1` (no admin).
+- Build: `dotnet build DialShift.slnx -warnaserror` — .NET 10 SDK lives at `~/.dotnet` on this Mac (`export PATH="$HOME/.dotnet:$PATH"`).
+- Tests: `dotnet run --project DialShift.Tests/DialShift.Tests.csproj` (22 suites of console checks; non-zero exit = FAIL; `-- --filter <text>` runs matching suites; checks that need the other OS print `SKIP`).
+- Publish: `dotnet publish DialShift.App/DialShift.App.csproj -c Release -r win-x64 --self-contained` or `-r osx-arm64`. These are the only two RIDs; never `osx-x64` (D13).
+- Mac .app + zip: `scripts/build-mac-app.sh` → `dist/DialShift.app` (menu-bar app, `LSUIElement=true`, no Dock icon, ad-hoc signed) and `dist/DialShift-osx-arm64-native-avplayer.zip`. Bundle layout (D51): `Contents/MacOS` holds only Mach-O files (the apphost, the runtime and native dylibs, `createdump`, a `DialShift.dll` symlink); the managed `.dll`/`.json` files live in `Contents/Resources/app`, joined by symlinks. The zip is written with `ditto -c -k --norsrc --noextattr --noacl --keepParent` (no `._*` entries). Verify with `scripts/verify-mac-app.sh dist/DialShift.app` and `scripts/verify-mac-app.sh --zip <zip>` (extracts with both `ditto` and `unzip`).
+- Windows: `scripts/build.ps1 [-SkipTests]` → `artifacts/DialShift-win-x64/` + `artifacts/DialShift-win-x64.zip`, verified by `scripts/verify-win-package.ps1 -Path <folder>` (falls back to a local SDK at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe`); optional per-user install `scripts/Install.ps1` (no admin).
+- Native smoke: `<app> --smoke-test [--recovery-test] [--output <dir>]`, with `<app>` = `dist/DialShift.app/Contents/MacOS/DialShift` (run the bundle: App Transport Security applies only inside it) or `artifacts\DialShift-win-x64\DialShift.exe`. It uses an isolated temp data folder and volume 0, and writes `results.json`, screenshots and the log to `<dir>`. On Windows start it with `(Start-Process <exe> -ArgumentList '--smoke-test','--recovery-test','--output',"$PWD\smoke" -Wait -PassThru).ExitCode` (PowerShell does not wait for a GUI exe), and on a machine without an audio device set `$env:DIALSHIFT_AUDIO_OUTPUT = 'dummy'` first (LibVLC's silent output, D35; ignored on macOS). `DIALSHIFT_DATA_DIR=<absolute path>` isolates settings, log and lock for any dev run.
+- Exit codes (D29): 0 normal quit or second launch activated; 1 startup failed (dialog shown; also an unusable lock file, a bad `DIALSHIFT_DATA_DIR`, or an exception escaping the UI toolkit); 2 second launch couldn't activate; 3 activation channel failed to start; 4 smoke test failed or its watchdog fired.
 - Radio catalog: `data/.venv/bin/python data/build/build_all.py --refresh`
 
 ## Conventions & hard rules
 
 - `net10.0`, NO `-windows` TFM. Prefer runtime OS checks over `#if`.
 - **Core purity:** `DialShift.Core` never references Avalonia / Windows / macOS / LibVLC / registry / filesystem locations / named pipes / processes / UI dispatch. Clocks: `IClock` (wall) for schedules + persisted timestamps, `IMonotonicClock` for elapsed/wake-gap — wake detection uses monotonic time only.
-- **Settings:** JSON in canonical per-user data dirs — `%LOCALAPPDATA%\DialShift\` (Windows), `~/Library/Application Support/DialShift/` (macOS). Never bump `Settings.Version`. Corrupt file → preserve as `settings.json.unreadable-*`, reset defaults.
+- **Settings:** JSON in canonical per-user data dirs — `%LOCALAPPDATA%\DialShift\` (Windows), `~/Library/Application Support/DialShift/` (macOS). Never bump `Settings.Version`. Corrupt file → preserve as `settings.json.unreadable-<timestamp>` (`-2`, `-3`, … when taken; never overwrite a backup), reset to defaults. Never replace the original without a flushed, preserved copy: if the copy fails, run on defaults and refuse to save until it succeeds (D50).
 - **Logs:** structured, redacted — never log credentials or full private stream URLs.
 - **Tray (macOS crash pitfall):** create `TrayIcon` + root `NativeMenu` exactly ONCE; refresh by mutating `menu.Items` in place (`Items.Clear()` + re-add). Never reassign `TrayIcon.Menu` or call `SetIcons` again. Monochrome template image + `MacOSProperties.IsTemplateIcon="True"`.
-- **Honest labeling:** macOS path is "native osx-arm64 (AVPlayer)" or "clearly labeled osx-x64 Rosetta build". Never ship arm64 unlabeled.
+- **Honest labeling:** the only macOS build is "native osx-arm64 (AVPlayer)", artifact label `native-avplayer` (D36). It is ad-hoc signed, not notarized and not clean-machine tested until NC-07/NC-09 pass, and the README says so. No `osx-x64` artifact is produced (D13); the last Intel/Rosetta build is only at tag `legacy-last-known-good`.
 - **Timezone ids:** store IANA only; canonicalize at the boundary via `TryConvertWindowsIdToIanaId`; never compare `entry.TimeZone == TimeZoneInfo.Local.Id`.
 - **Playback policy** (retry/fallback/schedule/wake/cancellation) lives in `PlaybackCoordinator` — never in engine adapters. `IPlaybackEngine` is lowest-common-denominator; no ObjC/AppKit types across it.
 

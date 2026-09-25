@@ -3,7 +3,7 @@
 > **Current status (2026-09-25, final status pass, branch `refactor/single-codebase-timezone` at `39f5c8a`).** Phase 1 and Phase 2 are merged, and WPF is retired. The merged waves are:
 > - **spec**: inventory, this matrix, Core contracts, decisions D1–D51;
 > - **core**: `PlaybackCoordinator`, `RetryPolicy`, the CR-01/CR-03 fixes; Phase 2 per-slot time zones (`30cc8b5`); CF-03 and CF-04 (`ec09114`, D50);
-> - **release**: CI matrix, `osx-arm64` `.app` and `win-x64` zip, packaging verification; the WPF retirement (D8) and the `native-avplayer` label (D36); SR-01 and SR-03, the Mach-O-only bundle and the bundle smoke (`dafb74c`, D51);
+> - **release**: CI matrix, `osx-arm64` `.app` and `win-x64` zip, packaging verification; the WPF retirement (D8) and the `native-avplayer` label (D36); SR-01 and SR-03, the Mach-O-only bundle and the bundle smoke (`dafb74c`, D51); the instruction-file update that closed QG-01 and QG-04 ([Appendix A](#appendix-a-instruction-file-updates-applied));
 > - **platform**: startup registration, power events, file reveal, sleep-inclusive clocks, single instance, `FileAppLog`, one ObjC interop; the review fixes F1–F3 and F5–F10 (`2470fee`, D37–D39, D49) and the accept-failure classification (`26763f4`, D46);
 > - **UI**: MVVM views, tray, dialogs, `PlaybackHost`; UI-D1/UI-D2 and accent contrast (`b37f8ec`, D44, D45); the Phase 2 time-zone picker, rows and UP NEXT (`5ef803b`, `5b2619b`, D43);
 > - **playback**: both engines, `PlaybackEngineFactory`, the `DIALSHIFT_AUDIO_OUTPUT` seam (D35), the Windows LibVLC engine tests (HS-17), one redactor (F4, D40), the AVPlayer observer retry (F9, D41), LV-08 credential reuse accepted (D42);
@@ -12,8 +12,8 @@
 >
 > **Tests:** 22 suites. Locally (macOS arm64) **1640 passed / 4 skipped**. CI run [`36111775825`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36111775825) at `39f5c8a` is green: **windows-latest 1619 / 16 skipped, macos-latest 1640 / 4**, 22/22 suites on both; the native smoke (`--smoke-test --recovery-test`) **34/34 on both OSes**; the **bundle smoke** (`--smoke-test` on the packaged `osx-arm64` app extracted with `unzip`) **32/32**; the `win-x64` zip verified, and the `osx-arm64` zip verified after both `ditto` and `unzip` extraction. The platform harness and the playback-adapter harness results are in `docs/spikes.md`.
 >
-> **Final counts.** §3 (106 rows): **60 GREEN, 44 NATIVE-PENDING, 2 TODO** (was 59 / 44 / 3, with MX-02 now GREEN; at the first review 28 / 19 / 59). Timezone tracker (§6): QA-B1..B4 all GREEN; QA-N1..N9 8 GREEN and 1 NATIVE-PENDING (QA-N1); §9.2 rows 14 GREEN and 1 NATIVE-PENDING (TZ-12: the unit half is green, the native half is NC-02/NC-08). §7.10: every finding GREEN except SR-02 (NATIVE-PENDING on NC-02). §7.11: every hazard mitigated, fixed or accepted.
-> - **The two remaining TODOs, QG-01 and QG-04, are user actions on instruction files.** What is left is stale text in the project instruction files `AGENTS.md`, `.claude/skills/release-packaging/SKILL.md` and `.claude/agents/*.md`. The agents have declined to edit these because they are instruction/config files, so they are listed for the user to apply. The exact replacement text is in [Appendix A: Pending instruction-file updates (user action)](#appendix-a-pending-instruction-file-updates-user-action). QG-01 turns GREEN when it is applied and the QG-01 grep is clean; QG-04 depends only on QG-01 and turns GREEN with it. Code, projects, scripts, CI, README and `docs/` are current.
+> **Final counts.** §3 (106 rows): **62 GREEN, 44 NATIVE-PENDING, 0 TODO** (was 60 / 44 / 2 before the instruction-file update closed QG-01 and QG-04, 59 / 44 / 3 before MX-02; at the first review 28 / 19 / 59). Timezone tracker (§6): QA-B1..B4 all GREEN; QA-N1..N9 8 GREEN and 1 NATIVE-PENDING (QA-N1); §9.2 rows 14 GREEN and 1 NATIVE-PENDING (TZ-12: the unit half is green, the native half is NC-02/NC-08). §7.10: every finding GREEN except SR-02 (NATIVE-PENDING on NC-02). §7.11: every hazard mitigated, fixed or accepted.
+> - **No TODO rows remain.** QG-01 and QG-04 closed when the instruction files `AGENTS.md`, `.claude/skills/release-packaging/SKILL.md` and the release, ui, test, platform and core agent files were brought up to date ([Appendix A](#appendix-a-instruction-file-updates-applied)). Code, projects, scripts, CI, README, `docs/` and the instruction files are current.
 > - **NATIVE-PENDING:** every such row names its §9 check. The native checks in §9 are all open: NC-01..13 and NC-15..17 (NC-05 and NC-09, signing and notarization, are release-only and not performed; NC-14 is N/A).
 
 > **Living document.** This is the behavior inventory required by brief 1 §12 step 1. It is also the acceptance matrix of brief 1 §11 and the timezone QA tracker of brief 2 §9.
@@ -35,7 +35,7 @@
 8. [Contracts](#8-contracts)
 9. [Remaining native checks](#9-remaining-native-checks)
 10. [Open questions](#10-open-questions-recommended-defaults)
-- [Appendix A: Pending instruction-file updates (user action)](#appendix-a-pending-instruction-file-updates-user-action)
+- [Appendix A: Instruction-file updates (applied)](#appendix-a-instruction-file-updates-applied)
 
 ---
 
@@ -291,7 +291,7 @@ Every row started as `TODO`. The status column was last reviewed in the final st
 
 | ID | Item | Owner lane | Verification | Status |
 |---|---|---|---|---|
-| DOD-01 | One Avalonia UI is the only maintained front-end (WPF and `DialShift.Mac` deleted; `DialShift.slnx` lists Core, Tests, App) | release | Repo tree, `DialShift.slnx`, and a grep for `System.Windows`, `WinForms`, `DialShift.Mac` and `UseWPF` returns nothing | GREEN (re-run at `39f5c8a`: `DialShift/` and `DialShift.Mac/` are gone; `DialShift.slnx` lists Core, Tests and App; no source, project, script or workflow matches, and `System.Windows.Input` appears only as the cross-platform `ICommand` in `ViewModels/RelayCommand.cs` and `Smoke/SmokeUi.cs`. Stale mentions in project instruction files are QG-01) |
+| DOD-01 | One Avalonia UI is the only maintained front-end (WPF and `DialShift.Mac` deleted; `DialShift.slnx` lists Core, Tests, App) | release | Repo tree, `DialShift.slnx`, and a grep for `System.Windows`, `WinForms`, `DialShift.Mac` and `UseWPF` returns nothing | GREEN (re-run at `39f5c8a`: `DialShift/` and `DialShift.Mac/` are gone; `DialShift.slnx` lists Core, Tests and App; no source, project, script or workflow matches, and `System.Windows.Input` appears only as the cross-platform `ICommand` in `ViewModels/RelayCommand.cs` and `Smoke/SmokeUi.cs`. Stale mentions in the project instruction files were removed with QG-01) |
 | DOD-02 | No Avalonia/WPF/WinForms/OS/filesystem-location/pipe/process/UI-dispatch reference from `DialShift.Core` | spec | Grep `DialShift.Core/**` for `using Avalonia`, `System.Windows`, `Microsoft.Win32`, `System.IO.Pipes`, `System.Diagnostics.Process`, `Environment.GetFolderPath`, `Dispatcher` returns nothing. `DialShift.Core.csproj` has no `PackageReference`. Re-run at every Core change | GREEN (re-run at `39f5c8a`, after the CF-03/CF-04 change to `SettingsStore` (its new `IClock` parameter is the Core contract): no matches under `DialShift.Core/**`, and no `PackageReference` in `DialShift.Core.csproj`. Its only `ItemGroup` is `InternalsVisibleTo` for the QA-N4 memo check) |
 | DOD-03 | Windows and macOS compile, test and publish in CI | release | GitHub Actions on the private remote, matrix `windows-latest` + `macos-latest` | GREEN (CI `36111775825` at `39f5c8a`: both jobs build with `-warnaserror`, test (windows-latest 1619 passed / 16 skipped, macos-latest 1640 / 4, 22/22 suites), run the native smoke (34/34 on both), package, verify the downloadable zips (the macOS one after `ditto` and after `unzip`), and run the bundle smoke of the packaged macOS app (32/32)) |
 | DOD-04 | Both packages launch, retain settings, show tray, play/stop/retry, obey schedule, exit cleanly | test | SMK on both OSes plus §9 | NATIVE-PENDING (NC-01, NC-07, NC-17: the downloaded zip on a clean machine, audible output, a real quit from the tray. Automated on both OSes: launch, settings, tray, play/stop/retry and schedule by SMK; a clean exit by HS-04 (`app.exit … clean=true`, exit 0, through the real `App.Run`) and by both smoke runs ending through the quit path with exit 0. The packaged macOS app itself, extracted from the release zip with `unzip`, passes `--smoke-test` 32/32 in CI (the bundle smoke, `dafb74c`, CI `36111775825`), so the smoke no longer covers only the build output. The Windows smoke runs the `win-x64` build output, which `build.ps1` publishes into the zip unchanged) |
@@ -312,10 +312,10 @@ Every row started as `TODO`. The status column was last reviewed in the final st
 | PK-05 | Windows artifact = `.zip` of the `win-x64` publish directory (D7) | release | CI artifact | GREEN (CI artifact `DialShift-win-x64`, verified by `verify-win-package.ps1` on the extracted zip in CI `36111775825`) |
 | PK-06 | Avalonia 12.1.2 in the App project (D6) | ui, release | csproj; record the actual version here. **Actual: 12.1.2** for `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` (D19) | GREEN (csproj at `39f5c8a`: `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` 12.1.2; the test-only `Avalonia.Headless` is pinned to the same 12.1.2) |
 | PK-07 | README, THIRD-PARTY-NOTICES (conditional LibVLC wording), `data/README` updated | release | Docs review in the same change | GREEN (spec sweep at `39f5c8a`: README verified against the code (commands, exit codes 0–4, `DIALSHIFT_DATA_DIR`, `DIALSHIFT_AUDIO_OUTPUT`, data and log paths, the `.unreadable-*` backup names and the no-copy rule (D50), engine differences, macOS 14 minimum, per-slot time zones and the restart caveat, the test project's packages, the bundle layout, zip and CI steps (D51), signing tiers, the legacy tag); THIRD-PARTY-NOTICES re-checked against the shipped packages, which are unchanged since `0d0e524` (the test-only `Avalonia.Headless` does not ship; the macOS license texts stay in `Contents/Resources/licenses`); `data/README.md` has no stale front-end references) |
-| QG-01 | No dead code: grep for stale references after each retirement | spec | Grep list in DOD-01/DOD-02 plus obsolete platform branches | TODO (user action). Code, projects, scripts, CI, README and `docs/` are clean at `39f5c8a`. What is left is stale text in the project instruction files, which the agents have declined to edit because they are instruction/config files, so they are listed for the user to apply: `AGENTS.md:7–9` (`DialShift.Mac/` and `DialShift/` as current, no `DialShift.App`), `:28–32` (a Mac publish through `DialShift.Mac.csproj -r osx-x64`; no zip, bundle layout, smoke or verifier commands), `:42` ("clearly labeled osx-x64 Rosetta build" as a current option, superseded by D13); `.claude/skills/release-packaging/SKILL.md` (D2 for the RIDs where D13 is the decision, the `preview` label (D36), the pre-SR-03 zip command and bundle layout (D51), `licenses/WindowsDesktop-LICENSE.txt` (already gone), a WPF build step, no smoke or bundle-smoke phase); `.claude/agents/release-engineer.md` (`osx-x64` "if Intel support is explicitly chosen"; the finished retirement), `ui-engineer.md` (starts "from the `DialShift.Mac` sources", Avalonia 11.3.22), `test-engineer.md` ("Replace `SmokeChecks.cs`", the runner in `Program.cs`), `platform-engineer.md` (plist "load/unload", superseded by OQ-4/D39) and `core-engineer.md` (both phases as future work). The exact replacement text is [Appendix A](#appendix-a-pending-instruction-file-updates-user-action). Pass: after it is applied, the stale-term grep of [Appendix A](#appendix-a-pending-instruction-file-updates-user-action) ("Done when") finds only the lines Appendix A keeps on purpose (retirement history, D13). Intentional hits elsewhere: provenance in `docs/`, the tag references |
+| QG-01 | No dead code: grep for stale references after each retirement | spec | Grep list in DOD-01/DOD-02 plus obsolete platform branches | GREEN (on top of `5e9ca34`: after the text was checked again against the scripts, CI, `LaunchOptions.cs` and README, `AGENTS.md` (Architecture, Commands, Settings, Honest labeling), `.claude/skills/release-packaging/SKILL.md` and the release, ui, test, platform and core agent files were updated for D8, D13, D29, D35, D36, D50 and D51. The grep `DialShift\.Mac\|WPF\|WinForms\|osx-x64\|Rosetta\|VideoLAN\.LibVLC\.Mac\|SmokeChecks\|11\.3\.22` over `AGENTS.md`, `CLAUDE.md` and `.claude/` finds only 7 intentional lines: the retirement history (the `AGENTS.md` Architecture line and the release-engineer retirement bullet), the D13 statements (never `osx-x64`: `AGENTS.md` Commands and Honest labeling, the release-engineer artifacts bullet and the skill introduction), and the `AGENTS.md` quality gate that tells agents to grep for WPF/WinForms. Code, projects, scripts, CI, README and `docs/` were already clean at `39f5c8a`; intentional hits in `docs/` are provenance and the tag references) |
 | QG-02 | Docs updated in the same change as code (this matrix included) | spec | Per-lane review | GREEN (spec doc sweep at `39f5c8a`: this matrix, `docs/decisions.md` (D37–D51, D24/D30 amendments), `docs/schedule-timezone-research.md` (status and §13 implementation notes; §13.3 now records the TZ-12 unit half from `59c6b7c` and the open native half), README and THIRD-PARTY-NOTICES are current. Code-comment drift found in the sweeps is tracked in §7.10: SR-01 fixed (`dafb74c`), SR-02 waits for NC-02) |
 | QG-03 | Best UI/UX: consistent theme, clear status, fast tray, no dead-end dialogs | ui, spec | HS-01 screenshots reviewed; §9 native UX pass | NATIVE-PENDING (NC-01, NC-17 native UX pass. Done: the UI review's defects UI-D1 (trimmed pickers), UI-D2 (D44) and UI-D3 (D43) are fixed and checked, accent contrast is 12.7:1 (D45), the compact 780×650 layout is checked headless on both OSes with a negative control, and the spec review of the 12 SMK screenshots from CI `36108959649` (six views on each OS; no UI code changed since) found no clipped or overlapping text) |
-| QG-04 | Test-and-fix until prod-ready | all | This matrix fully GREEN or NATIVE-PENDING | TODO (user action): the only item that is neither GREEN nor NATIVE-PENDING is QG-01, the instruction-file text in Appendix A that the user applies. Every other row in §3, §6, §7.10 and §7.11 is GREEN, NATIVE-PENDING, mitigated or accepted, and CI `36111775825` is green on both OSes. QG-04 turns GREEN with QG-01 |
+| QG-04 | Test-and-fix until prod-ready | all | This matrix fully GREEN or NATIVE-PENDING | GREEN: every §3 row is GREEN or NATIVE-PENDING (62 / 44 / 0), every row in §6, §7.10 and §7.11 is GREEN, NATIVE-PENDING, mitigated or accepted, and CI `36111775825` is green on both OSes. The NATIVE-PENDING rows close with their §9 native checks |
 ---
 
 ## 4. Legacy SmokeChecks coverage map
@@ -1034,213 +1034,6 @@ Unless the orchestrator overrides one, each lane proceeds on the default. Any ov
 
 ---
 
-## Appendix A: Pending instruction-file updates (user action)
+## Appendix A: Instruction-file updates (applied)
 
-**Why this is here.** QG-01 and QG-04 are the only TODO rows (§3.3). What keeps them open is stale text in the project instruction files: `AGENTS.md`, `.claude/skills/release-packaging/SKILL.md` and `.claude/agents/*.md`. The agents have declined to edit these because they are instruction/config files, so the changes are listed here for the user to apply. The text below was regenerated against the repository at `39f5c8a`. It covers the retired front-ends (D8), the two RIDs (D13), the `native-avplayer` label (D36), the Mach-O-only bundle and xattr-free zip (D51), the smoke-test commands and the bundle smoke, `DIALSHIFT_AUDIO_OUTPUT` (D35), the exit codes (D29) and the settings-backup rule (D50). Each block replaces the lines named in its heading exactly. `.claude/agents/playback-engineer.md` and `.claude/agents/spec-architect.md` are current and need no change.
-
-**Done when:** `git grep -nE 'DialShift\.Mac|osx-x64|WindowsDesktop-LICENSE|SmokeChecks|11\.3\.22|preview' -- AGENTS.md .claude` matches only lines kept on purpose: the retirement history (the A.1 line about the retired front-ends and the release-engineer retirement bullet) and the lines that state D13 ("never `osx-x64`", "No `osx-x64` artifact"). Then QG-01 and QG-04 turn GREEN.
-
-### A.1 `AGENTS.md` lines 7–9 (Architecture)
-
-```markdown
-- `DialShift.Core/` — models, scheduler (per-slot IANA time zones), settings persistence, and the `PlaybackCoordinator` (retry, fallback, schedule, wake). UI-free domain. Purity rules below are absolute.
-- `DialShift.App/` — the single Avalonia 12.1.2 app for Windows (`win-x64`, LibVLC) and macOS (`osx-arm64`, AVPlayer): composition root (`Program.cs`, `AppComposition.cs`, `App.axaml.cs`), `Views/`, `ViewModels/`, `Tray/`, `Services/` (engines, dialogs, `FileAppLog`), `Platform/`, `SingleInstance/`, `Interop/` (the only Objective-C declarations) and the `--smoke-test` harness (`Smoke/`).
-- The WPF `DialShift/` and Avalonia `DialShift.Mac/` front-ends are retired (decision D8). Their last build, including the last Intel Mac build, is kept at tag `legacy-last-known-good` (commit `82281e5`).
-```
-
-### A.2 `AGENTS.md` lines 28–32 (Commands; line 33, the radio catalog, stays)
-
-```markdown
-- Build: `dotnet build DialShift.slnx -warnaserror` — .NET 10 SDK lives at `~/.dotnet` on this Mac (`export PATH="$HOME/.dotnet:$PATH"`).
-- Tests: `dotnet run --project DialShift.Tests/DialShift.Tests.csproj` (22 suites of console checks; non-zero exit = FAIL; `-- --filter <text>` runs matching suites; checks that need the other OS print `SKIP`).
-- Publish: `dotnet publish DialShift.App/DialShift.App.csproj -c Release -r win-x64 --self-contained` or `-r osx-arm64`. These are the only two RIDs; never `osx-x64` (D13).
-- Mac .app + zip: `scripts/build-mac-app.sh` → `dist/DialShift.app` (menu-bar app, `LSUIElement=true`, no Dock icon, ad-hoc signed) and `dist/DialShift-osx-arm64-native-avplayer.zip`. Bundle layout (D51): `Contents/MacOS` holds only Mach-O files (the apphost, the runtime and native dylibs, `createdump`, a `DialShift.dll` symlink); the managed `.dll`/`.json` files live in `Contents/Resources/app`, joined by symlinks. The zip is written with `ditto -c -k --norsrc --noextattr --noacl --keepParent` (no `._*` entries). Verify with `scripts/verify-mac-app.sh dist/DialShift.app` and `scripts/verify-mac-app.sh --zip <zip>` (extracts with both `ditto` and `unzip`).
-- Windows: `scripts/build.ps1 [-SkipTests]` → `artifacts/DialShift-win-x64/` + `artifacts/DialShift-win-x64.zip`, verified by `scripts/verify-win-package.ps1 -Path <folder>` (falls back to a local SDK at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe`); optional per-user install `scripts/Install.ps1` (no admin).
-- Native smoke: `<app> --smoke-test [--recovery-test] [--output <dir>]`, with `<app>` = `dist/DialShift.app/Contents/MacOS/DialShift` (run the bundle: App Transport Security applies only inside it) or `artifacts\DialShift-win-x64\DialShift.exe`. It uses an isolated temp data folder and volume 0, and writes `results.json`, screenshots and the log to `<dir>`. On Windows start it with `(Start-Process <exe> -ArgumentList '--smoke-test','--recovery-test','--output',"$PWD\smoke" -Wait -PassThru).ExitCode` (PowerShell does not wait for a GUI exe), and on a machine without an audio device set `$env:DIALSHIFT_AUDIO_OUTPUT = 'dummy'` first (LibVLC's silent output, D35; ignored on macOS). `DIALSHIFT_DATA_DIR=<absolute path>` isolates settings, log and lock for any dev run.
-- Exit codes (D29): 0 normal quit or second launch activated; 1 startup failed (dialog shown; also an unusable lock file, a bad `DIALSHIFT_DATA_DIR`, or an exception escaping the UI toolkit); 2 second launch couldn't activate; 3 activation channel failed to start; 4 smoke test failed or its watchdog fired.
-```
-
-### A.3 `AGENTS.md` line 42 (Honest labeling)
-
-```markdown
-- **Honest labeling:** the only macOS build is "native osx-arm64 (AVPlayer)", artifact label `native-avplayer` (D36). It is ad-hoc signed, not notarized and not clean-machine tested until NC-07/NC-09 pass, and the README says so. No `osx-x64` artifact is produced (D13); the last Intel/Rosetta build is only at tag `legacy-last-known-good`.
-```
-
-### A.4 `AGENTS.md` line 39 (Settings; recommended, keeps the hard rule in line with D50)
-
-```markdown
-- **Settings:** JSON in canonical per-user data dirs — `%LOCALAPPDATA%\DialShift\` (Windows), `~/Library/Application Support/DialShift/` (macOS). Never bump `Settings.Version`. Corrupt file → preserve as `settings.json.unreadable-<timestamp>` (`-2`, `-3`, … when taken; never overwrite a backup), reset to defaults. Never replace the original without a flushed, preserved copy: if the copy fails, run on defaults and refuse to save until it succeeds (D50).
-```
-
-### A.5 `.claude/skills/release-packaging/SKILL.md` (whole file)
-
-```markdown
----
-name: release-packaging
-description: Use when building or packaging DialShift release artifacts (macOS .app bundle and zip, Windows publish/zip, installer, CI).
----
-
-# Release packaging
-
-One project, `DialShift.App`, two artifacts: `win-x64` and `osx-arm64`, never `osx-x64` (decision D13, which amends D2; the last Intel/Rosetta build is only at tag `legacy-last-known-good`). The scripts are the single source of the artifact layout; CI runs the same scripts.
-
-| Artifact | Script | Output | Verified by |
-|---|---|---|---|
-| Windows `win-x64` | `scripts/build.ps1 [-SkipTests]` | `artifacts/DialShift-win-x64/` + `artifacts/DialShift-win-x64.zip` | `scripts/verify-win-package.ps1 -Path <folder>` |
-| macOS Apple Silicon `osx-arm64` | `scripts/build-mac-app.sh` | `dist/DialShift.app` + `dist/DialShift-osx-arm64-<label>.zip` | `scripts/verify-mac-app.sh <DialShift.app>` and `scripts/verify-mac-app.sh --zip <zip>` |
-
-## macOS (`osx-arm64`, native, no VLC)
-
-- `scripts/build-mac-app.sh`: self-contained `osx-arm64` publish into `publish/osx-arm64`, `.app` assembly (layout below), `.icns` from `DialShift.App/Assets/icon-512.png` (`sips` + `iconutil`), `Info.plist`, notices and the macOS license texts in `Contents/Resources`, ad-hoc signature, bundle verification, then the zip and its verification. It exports `PATH="$HOME/.dotnet:$PATH"`; the .NET 10 SDK is at `~/.dotnet` on this Mac. macOS only.
-- **Bundle layout (SR-03, D51).** `Contents/MacOS` holds **only Mach-O files**: the `DialShift` apphost, the .NET runtime and native dylibs, `createdump`, plus a `DialShift.dll` symlink to `../Resources/app/DialShift.dll`. Everything else the publish produces (managed `.dll` files, `deps.json`, `runtimeconfig.json`) lives in `Contents/Resources/app`, which has symlinks back to the Mach-O files in `Contents/MacOS` (the .NET host uses the symlink target folder as its application folder). With this layout codesign seals the managed files as resources. Never put a non-Mach-O file in `Contents/MacOS`: codesign would keep its signature in extended attributes, which `unzip` and many archivers drop, and the bundle would stop verifying. The script fails if the publish output has subfolders or links.
-- **Zip:** `ditto -c -k --norsrc --noextattr --noacl --keepParent dist/DialShift.app <zip>`: no extended attributes and no AppleDouble `._*` entries; permissions and symlinks are kept.
-- Playback is Apple AVPlayer through system framework linkage. The bundle must contain **no VLC dylibs**. The check is case-sensitive: `LibVLCSharp.dll` (managed, compile-time reference) is allowed; `libvlc*`, `*vlc*.dylib` and a `vlc` folder are not.
-- `Info.plist`: `CFBundleIdentifier=com.tsiger.dialshift`, `CFBundleName`/`CFBundleDisplayName=DialShift`, `CFBundleExecutable=DialShift`, `CFBundlePackageType=APPL`, `CFBundleIconFile=DialShift.icns`, `LSUIElement=true` (menu-bar app, no Dock icon), `NSHighResolutionCapable`, `LSMinimumSystemVersion=14.0` (decision D22: the binaries load on 12.0, but the AVPlayer format corpus is verified on macOS 26.5 only, so older versions are not claimed), version from the csproj `<Version>`.
-- `NSAppTransportSecurity` → `NSAllowsArbitraryLoadsForMedia=true` is **mandatory** (D32): without it AVPlayer inside a bundle rejects every `http://` stream (43 % of the catalog, docs/spikes.md). `dotnet run` and the plain build output do not enforce ATS, so only a bundled run shows the failure. Never use the blanket `NSAllowsArbitraryLoads`.
-- **Honest labeling (D36):** the zip and CI artifact carry `MACOS_LABEL`, which is `native-avplayer` in `.github/workflows/ci.yml` and the script's default (lowercase letters, digits and dashes). The label says what the build is (native arm64, AVPlayer, no LibVLC), not that it is release-ready: the README keeps "ad-hoc signed, not yet notarized or clean-machine tested" until NC-07 and NC-09 pass.
-- `scripts/verify-mac-app.sh <DialShift.app>` asserts: the `Info.plist` keys above (and no blanket `NSAllowsArbitraryLoads`), icon, notices and license texts, the executable is a file with the exec bit, an arm64-only executable, an arm64 slice in every dylib, no VLC natives, only Mach-O files in `Contents/MacOS`, the `Contents/MacOS/DialShift.dll` link, no broken links, no `com.apple.cs.*` signature in extended attributes, no loose `._*` files, `codesign --verify --deep --strict`, and an ad-hoc signature.
-- `scripts/verify-mac-app.sh --zip <zip>` rejects `._*`/`__MACOSX` entries, extracts the zip with `ditto -x -k` and with `unzip`, and runs the bundle checks on each copy.
-- Smoke-test the **bundled** executable, not `dotnet run`: `dist/DialShift.app/Contents/MacOS/DialShift --smoke-test [--recovery-test] [--output <dir>]`. It uses an isolated temp data folder and volume 0, writes `results.json`, screenshots and the log to `<dir>`, and exits 0 when every check passed or 4 when a check failed or the watchdog fired.
-- With `LSUIElement=true` there is no Dock icon: test quit, reopen and second-instance activation under that condition.
-
-## Windows (`win-x64`)
-
-- `scripts/build.ps1 [-SkipTests]`: tests (unless `-SkipTests`), a fresh self-contained `win-x64` publish of `DialShift.App` into `artifacts/DialShift-win-x64`, `.pdb` files removed, README, `THIRD-PARTY-NOTICES.md`, `Install.ps1` and the Windows license texts added, verification, then the zip (D7: zip first, MSIX/installer later). Uses a local SDK at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe` when present, else `dotnet` on `PATH`.
-- `scripts/verify-win-package.ps1 -Path <folder>` asserts: x64 GUI-subsystem `DialShift.exe`, `libvlc\win-x64\libvlc.dll` + plugins, **no other VLC architectures** (`win-x86`, `win-arm64`), Avalonia/Skia/ANGLE natives, no `.pdb` symbol files (`build.ps1` strips the ones native NuGet assets bring), notices and licenses.
-- Smoke-test the published executable: `(Start-Process .\artifacts\DialShift-win-x64\DialShift.exe -ArgumentList '--smoke-test','--recovery-test','--output',"$PWD\smoke" -Wait -PassThru).ExitCode` (PowerShell does not wait for a GUI-subsystem exe started with `&`). On a machine without an audio device, set `$env:DIALSHIFT_AUDIO_OUTPUT = 'dummy'` first: LibVLC then plays through its silent `adummy` output (D35; developer and CI use only; any other value is ignored with a warning, and macOS ignores the variable).
-- Icon: `DialShift.App/Assets/dialshift.ico` is the executable (`<ApplicationIcon>`) and tray icon, derived from `Assets/icon-512.png`, with frames 16, 20, 24, 32, 40, 48, 64, 128 (32-bit DIB) and 256 (PNG). Frames of 40 px and below are redrawn with thicker strokes so they stay legible in the tray; 48 px and up are downscales. Regenerate it whenever the art changes. The opaque dark tile reads on both light and dark taskbars.
-- The csproj references `VideoLAN.LibVLC.Windows` only when `RuntimeIdentifier` is `win-x64` and sets `VlcWindowsX86Enabled`/`VlcWindowsArm64Enabled=false`, so only `libvlc/win-x64` ships.
-- `scripts/Install.ps1`: per-user install to `%LOCALAPPDATA%\Programs\DialShift`, no administrator rights; refuses while that copy is running; replaces the previous install folder, adds a Start menu shortcut, keeps an existing `HKCU\...\Run` `DialShift` entry pointing at the new path with `--tray`. Settings in `%LOCALAPPDATA%\DialShift` are never touched.
-
-## Exit codes (D29)
-
-| Code | Meaning |
-|---|---|
-| 0 | Normal quit, or a second launch whose activation was acknowledged |
-| 1 | Startup failed (dialog shown), including an unusable single-instance lock file, a bad `DIALSHIFT_DATA_DIR`, or an exception escaping the UI toolkit |
-| 2 | A second launch whose activation was rejected or not answered |
-| 3 | The lock was acquired but the activation channel could not start |
-| 4 | `--smoke-test`: at least one check failed, or the smoke watchdog fired |
-
-## Third-party notices
-
-- `THIRD-PARTY-NOTICES.md` is conditional per package: the LibVLC/VLC native runtime is in the Windows package only; macOS uses Apple system frameworks and ships no VLC. Each script copies only the license texts that apply to its package (`licenses/` in the Windows zip, `DialShift.app/Contents/Resources/licenses/` in the macOS bundle); keep the script lists and the notices sections in sync when a dependency changes.
-- Check shipped natives after any package bump: publish both RIDs and list `*.dll` / `*.dylib`.
-
-## Signing tiers (D7)
-
-- **Ad-hoc** (`codesign --force --deep --sign -`): what the macOS script does. Development and CI verification only; not publicly distributable without Gatekeeper warnings (users allow it once with System Settings → Privacy & Security → **Open Anyway**, or right-click → Open on older macOS).
-- **Developer ID + notarization** (macOS public release): sign with a Developer ID Application certificate and the hardened runtime (`--options runtime`, entitlement `com.apple.security.cs.allow-jit` for the .NET JIT), submit with `xcrun notarytool submit --wait`, then `xcrun stapler staple`. Keep the D51 layout so the managed files stay sealed resources. Needs Apple credentials; documented, not performed here (NC-09).
-- **Windows:** development builds are unsigned. Public releases need Authenticode signing (`signtool`, with an RFC 3161 timestamp); check SmartScreen reputation on a clean machine (NC-05).
-
-## CI (`.github/workflows/ci.yml`)
-
-- Runs on every branch push and `workflow_dispatch`, on the **private** remote only. Matrix `windows-latest` + `macos-latest` (Apple Silicon).
-- Phases per job: build (`dotnet build DialShift.slnx -c Release -warnaserror`) → test (`dotnet run --project DialShift.Tests/DialShift.Tests.csproj -c Release`) → native UI smoke (the `dotnet build DialShift.App -r <rid>` output with `--smoke-test --recovery-test`; Windows with `DIALSHIFT_AUDIO_OUTPUT=dummy`; results uploaded as `smoke-<rid>`) → package (the scripts above) → verify the zip a user downloads (Windows: `Expand-Archive` + `verify-win-package.ps1`; macOS: `verify-mac-app.sh --zip`) → macOS bundle smoke (`unzip` the release zip, run `DialShift.app/Contents/MacOS/DialShift --smoke-test`; `bundle-smoke-<rid>` is uploaded on failure) → upload (`DialShift-win-x64`, `DialShift-osx-arm64-<label>`, 7-day retention).
-- Add new checks as steps in the matching phase, not as placeholders.
-- CI does not replace a manual Apple Silicon gate or clean-machine installs (acceptance matrix §9: NC-05, NC-07, NC-09, NC-17).
-
-## Checks before shipping (both)
-
-- A second launch must ACTIVATE the existing instance, not merely exit.
-- Clean-machine test the downloaded artifacts (the macOS zip extracted by Finder and by `unzip`); smoke-test tray, schedule, settings persistence, and one `http://` stream from the **bundled** macOS app.
-```
-
-### A.6 `.claude/agents/release-engineer.md` (whole file)
-
-```markdown
----
-name: release-engineer
-description: DialShift release/CI engineer. Use for GitHub Actions workflows, publish targets, app bundles, icons, docs, and retiring legacy projects.
-tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
----
-
-You own CI, artifacts, release docs and the retirement record. The packaging details are in `.claude/skills/release-packaging/SKILL.md`.
-
-- Artifacts (D7, D13): exactly `win-x64` and `osx-arm64` from `DialShift.App`; never `osx-x64` (the last Intel/Rosetta build is only at tag `legacy-last-known-good`). The scripts are the single source of the package layout, and CI runs the same scripts.
-- macOS `.app` (`scripts/build-mac-app.sh`): `Info.plist` (`CFBundleIdentifier=com.tsiger.dialshift`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement=true`, `LSMinimumSystemVersion=14.0` (D22), ATS `NSAllowsArbitraryLoadsForMedia` only (D32)), exec bit, arm64 only, NO VLC dylibs, ad-hoc signed. Layout (D51): only Mach-O files in `Contents/MacOS`, the managed files in `Contents/Resources/app`, joined by symlinks; the zip carries no extended attributes (`ditto --norsrc --noextattr --noacl`). `scripts/verify-mac-app.sh --zip` must pass after both `ditto` and `unzip` extraction.
-- Windows (`scripts/build.ps1`): a self-contained `win-x64` zip with `libvlc\win-x64` only, verified by `scripts/verify-win-package.ps1`.
-- Icons are release artifacts: `.ico` (Windows executable and tray), one 44×44 monochrome template `tray.png` (macOS menu bar, D34), `.icns` (bundle).
-- CI (`.github/workflows/ci.yml`): build (`-warnaserror`) → tests → native smoke `--smoke-test --recovery-test` (Windows with `DIALSHIFT_AUDIO_OUTPUT=dummy`) → package → verify the downloadable zip → macOS bundle smoke (`--smoke-test` on the `unzip`-extracted app) → upload. Add checks as steps in the matching phase.
-- Honest labeling (D36): the macOS artifact label is `native-avplayer`; the README says ad-hoc signed, not notarized and not clean-machine tested until NC-07/NC-09 pass.
-- README: the single `DialShift.App`, the two RIDs, the package scripts and verifiers, the smoke command, exit codes (D29), `DIALSHIFT_DATA_DIR`/`DIALSHIFT_AUDIO_OUTPUT` (developer use); THIRD-PARTY-NOTICES: conditional-package wording (VLC in the Windows package only). Both change in the same commit as the dependency or layout they describe.
-- Retirement is done (D8): `DialShift/` (WPF) and `DialShift.Mac/` were deleted after equivalent checks passed, and `DialShift.slnx` lists Core, Tests and App. Grep for stale references after any removal (QG-01).
-- Signing tiers documented (D7): ad-hoc = dev/CI only; Developer ID + hardened runtime + notarization (macOS) and Authenticode (Windows) = public distribution, not performed here. Clean-machine testing (NC-05, NC-07, NC-09) before release.
-- Never push anywhere: commits go on the feature branch to the `private` remote only (hook-enforced).
-```
-
-### A.7 `.claude/agents/ui-engineer.md` (whole file)
-
-```markdown
----
-name: ui-engineer
-description: DialShift Avalonia UI engineer. Use for DialShift.App views, view models, dialogs, tray/menu-bar behavior, and the schedule timezone UI.
-tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
----
-
-You maintain the single Avalonia 12.1.2 UI in `DialShift.App` (`Views/` with `Pages/` and `Dialogs/`, `ViewModels/`, `Tray/`): MVVM over the `IPlaybackCoordinator` snapshot.
-
-- Tray rule (macOS crash pitfall — mandatory): create `TrayIcon` + root `NativeMenu` exactly ONCE at startup; refresh by mutating `menu.Items` in place (`Items.Clear()` + re-add); NEVER reassign `TrayIcon.Menu` or call `SetIcons` after startup. The 44×44 monochrome template `tray.png` + `MacOSProperties.IsTemplateIcon="True"` on macOS (D34), `dialshift.ico` on Windows; left-click opens the window on Windows only. HS-03 asserts menu identity after every editor operation; keep it green.
-- Marshal back to the UI thread only for view-model state (`IUiDispatcher`); no `DispatcherTimer` in coordinator logic. Dialogs go through `IDialogService`: owned by the visible main window, otherwise ownerless and centered, never their own owner.
-- Schedule time-zone UI (brief 2, D43): the editor's picker has "Local time" at the top (stores `null`) and offers only IANA ids from `TimeZoneCatalog` — never persist a Windows registry id (QA-B4). An unresolvable stored id shows "(unknown zone)" and is never rewritten by an untouched save (TZ-14). Rows show the zone and the next local start (QA-N6); UP NEXT adds the slot's own time and zone.
-- UX gate (QG-03, D44, D45): the Fluent dark theme and DialShift palette, automation names on every input, visible keyboard focus, confirmation before destructive actions, no clipped text at 780×650 (buttons get at least 15 % `MinWidth` headroom, then an ellipsis), dark ink on accent buttons.
-- Reject any dialog that rebuilds/reassigns the tray menu.
-```
-
-### A.8 `.claude/agents/test-engineer.md` (whole file)
-
-```markdown
----
-name: test-engineer
-description: DialShift test engineer. Use for DialShift.Tests console checks, characterization tests, three-level smoke strategy, and the timezone test matrix.
-tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
----
-
-You own `DialShift.Tests`: a framework-free console runner (`TestHarness.cs`, with the 22 suites registered in `Program.cs`). `Check(name, condition)` prints `PASS: name` or throws, which stops that suite; `Skip(name, reason)` prints `SKIP:` and is counted, so nothing is skipped silently; any failure gives a non-zero exit. Run with `dotnet run --project DialShift.Tests/DialShift.Tests.csproj` (`-- --filter <text>` runs matching suites).
-
-- Characterization tests pin current behavior, quirks included, before code moves; a `[quirk]` pin flips in the same change as its fix (acceptance matrix §7, §7.10).
-- Three-level strategy (brief 1 §4.5): unit checks (every run); headless integration (Avalonia headless views and dialogs located by accessible name, `App.Run` startup and quit, the single-instance pipe protocol, persistence, platform contracts, and on Windows the real LibVLC engine with `DIALSHIFT_AUDIO_OUTPUT=dummy`); the native smoke `DialShift --smoke-test [--recovery-test] [--output <dir>]` (exit 0 = every check passed, 4 = a check failed), which CI runs on both OSes, plus the macOS bundle smoke on the packaged app. A second process must ACTIVATE the first, not merely exit.
-- Machine-independent by construction: inject `now` + `localZone`, `SpecifyKind(Unspecified)` (QA-B2); never depend on the host's zone, culture or audio device.
-- Timezone matrix (brief 2 §9.2, acceptance matrix §6.2): checks are named "Row n …", "TZ-12 …" or by QA id; keep every row green on both OSes. TZ-12's native half is NC-02/NC-08.
-- Report failures with scenario, expected vs actual, repro, severity, file/line.
-```
-
-### A.9 `.claude/agents/platform-engineer.md` (whole file)
-
-```markdown
----
-name: platform-engineer
-description: DialShift platform services engineer. Use for OS capability abstractions, Windows/macOS implementations, single-instance pipes, and canonical data locations.
-tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
----
-
-You maintain the `Platform/` capability services and the single-instance infrastructure in `DialShift.App` (never in `DialShift.Core`). The contracts are in acceptance matrix §8.2.
-
-- `IStartupRegistration` (§8.2.1, D39): the status reflects the OS, not `Settings.LaunchAtLogin`; `SetEnabledAsync` writes, reads back and returns the verified status, and never throws for OS failures. Windows: `HKCU\...\Run` value `DialShift` = `"<exe>" --tray`, plus Task Manager's `StartupApproved\Run` switch. macOS: `~/Library/LaunchAgents/com.tsiger.dialshift.plist` written with `XmlWriter` and moved into place atomically; `open -a <bundle> --args --tray` inside a `.app`. Never `launchctl bootstrap`/`bootout` (OQ-4); only the read-only `launchctl print-disabled` and `launchctl enable`. A disabled or unconfirmable state is reported as not enabled with a diagnostic — never a wrong "enabled".
-- `ISystemPowerEvents` (§8.2.2): Windows `SystemEvents.PowerModeChanged` (`Resume`), subscribed from the UI thread after the message loop starts (D49); macOS `NSWorkspace.DidWakeNotification` through the shared `Interop/NotificationObserver` (D27). `Start()` is idempotent and nothing is raised after `Dispose()` returns; a registration failure logs `power_events.unavailable` and is never fatal. The coordinator's monotonic tick gap is the fallback on both.
-- Sleep-inclusive `IMonotonicClock` (§8.2.8, D14): macOS `clock_gettime_nsec_np(CLOCK_MONOTONIC)`, Windows `Environment.TickCount64`.
-- `IFileRevealService` (§8.2.3): `ProcessStartInfo.ArgumentList` ONLY, `UseShellExecute=false` — never shell-interpolated paths. macOS `/usr/bin/open <dir>` / `open -R <file>`; Windows `explorer.exe <dir>` / `explorer.exe /select,<file>`.
-- Single instance (`DialShift.App/SingleInstance/`, §8.2.4): lock file `<data>/.single-instance.lock` plus a named pipe with `PipeOptions.CurrentUserOnly` on both ends; pipe name `DialShift-<16 hex>` hashed from the data directory; one UTF-8 line of at most 4096 bytes; 1 s connect, 2 s read and 2 s reply timeouts; `{"version":1,"command":"activate"}` validated BEFORE acting, anything else answered `rejected` (not an app error); one armed instance and at most 2 handled connections (D24, D31, D46); an early activation is latched and replayed (D37). Lock contention = `AlreadyRunning`; any other lock error = `LockFailed`, exit 1; a server failure after the lock = release it, `Failed`, exit 3 (D38, D29). On macOS the socket mode comes from the umask: tighten it to owner-only and log the observed mode — never claim `0600` from `CurrentUserOnly` (CT-SI-12, NC-13).
-- Data directory (`AppPaths`, §8.2.6, D21): `DIALSHIFT_DATA_DIR` (absolute) → smoke temp → Windows `%LOCALAPPDATA%\DialShift\`, macOS `~/Library/Application Support/DialShift/`, computed once in `Program.Main`. Smoke tests use isolated temp dirs, never real user data.
-- Logging (`FileAppLog`, §8.2.7, D25, D40): JSON Lines, 1 MiB rotation, a cross-process lock, never throws; every message goes through `StreamUrlRedactor`.
-
-Verify with `dotnet run --project DialShift.Tests/DialShift.Tests.csproj` before reporting done.
-```
-
-### A.10 `.claude/agents/core-engineer.md` (whole file)
-
-```markdown
----
-name: core-engineer
-description: DialShift.Core domain engineer. Use for the PlaybackCoordinator state machine, retry policy, clocks, scheduling (including per-slot time zones) and settings persistence.
-tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
----
-
-You maintain `DialShift.Core` only. Purity is absolute: no Avalonia, Windows, macOS, LibVLC, registry, filesystem locations, named pipes, processes, or UI dispatch — see `.claude/rules/core-purity.md`. Both phases are implemented; change behavior only through the acceptance matrix (`docs/acceptance-matrix.md`) and a new entry in `docs/decisions.md`.
-
-- `PlaybackCoordinator` (brief 1 §5, matrix §5): states Stopped/ScheduledWaiting/Connecting/Playing/Reconnecting/Failed/SuspendedBySystem/Disposing; the event-acceptance table in the source header matches matrix §5.2. One `SemaphoreSlim` state gate, never held across an await; a linked operation CTS and a generation replaced on every attempt, stop, wake and dispose; engine commands through the FIFO pump (D16: the N-th start is session N); the coordinator owns engine disposal (D17); the tick loop and `Settings` mutation run on the UI thread (D18). Every timer is evaluated in `OnTickAsync` against `IMonotonicClock` — no `Task.Delay` in policy. Wake: a tick gap of at least 15 s on a sleep-inclusive monotonic clock (D14), a 2 s settle, a 10 s debounce (D15). `RetryPolicy`: 3 s, 6 s, then 30 s, never gives up; fallback after 3 failures, primary re-check every 120 s.
-- Scheduling (brief 2; D12, D47, D48): `ScheduleEntry.TimeZone` is a nullable IANA id. `Scheduler.TryResolveZone` takes the zero-conversion local path for null/empty/whitespace (QA-B1); an unknown id falls back to local time and logs `schedule.zone_unknown`, never the `.unreadable-*` path; ambiguous → the earlier instant (`GetAmbiguousTimeOffsets().Max()`, QA-B3); gap → the first valid instant, including base-offset gaps (QA-N7); `SpecifyKind(Unspecified)` + 3-argument `ConvertTime` only (QA-B2); conflicts compare resolved ids (QA-N5); `localZone` is threaded through `ScheduleSession.HoldCurrent`/`TakeChange`; dedup identity is the zone wall-time `Occurrence.Key` (D48). NEVER bump `Settings.Version` (QA-N3).
-- `SettingsStore` (D50): an unreadable file is copied to `settings.json.unreadable-<yyyyMMddHHmmssfff>` (then `-2`, `-3`, … with `FileMode.CreateNew`), and defaults load with a `Warning` that every `Load` resets. Never replace the original without a flushed, preserved copy: if the copy fails, `Load` still returns defaults and every `Save` throws `IOException` until the copy succeeds.
-
-Tests are machine-independent: inject `now` and `localZone`, and use `SpecifyKind(Unspecified)`. Verify with `dotnet run --project DialShift.Tests/DialShift.Tests.csproj` before reporting done.
-```
+Applied in the QG-01/QG-04 change on top of `5e9ca34`. The replacement text listed here earlier, first written against `39f5c8a`, was checked again against the current scripts, `.github/workflows/ci.yml`, `DialShift.App/LaunchOptions.cs` (exit codes 0–4), the README commands, the D51 bundle layout, `DIALSHIFT_AUDIO_OUTPUT`, `DIALSHIFT_DATA_DIR` and the smoke commands, and then applied to `AGENTS.md` (Architecture, Commands, Settings (D50), Honest labeling), `.claude/skills/release-packaging/SKILL.md` and `.claude/agents/{release,ui,test,platform,core}-engineer.md`. Two things differ from the earlier listing. The skill now lists the `Info.plist` keys that `scripts/verify-mac-app.sh` actually asserts: the script does not check `CFBundleName` or `NSHighResolutionCapable`, and the earlier text said "the keys above". The agent frontmatter (`name`, `description`, `tools`) is unchanged, so `core-engineer.md` keeps its original description. `CLAUDE.md`, `.claude/settings.json`, `.claude/rules/*`, `playback-engineer.md` and `spec-architect.md` were already current. The instruction files themselves are now the reference, so this appendix no longer repeats their text. See QG-01 for the grep and its intentional hits.

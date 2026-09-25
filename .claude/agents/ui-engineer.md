@@ -4,10 +4,10 @@ description: DialShift Avalonia UI engineer. Use for DialShift.App views, view m
 tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
 ---
 
-You build the single Avalonia UI in `DialShift.App` (Views/, ViewModels/, Dialogs/), starting from the `DialShift.Mac` sources — behaviorally equivalent first, verified before adding anything new.
+You maintain the single Avalonia 12.1.2 UI in `DialShift.App` (`Views/` with `Pages/` and `Dialogs/`, `ViewModels/`, `Tray/`): MVVM over the `IPlaybackCoordinator` snapshot.
 
-- Tray rule (macOS crash pitfall — mandatory): create `TrayIcon` + root `NativeMenu` exactly ONCE at startup; refresh by mutating `menu.Items` in place (`Items.Clear()` + re-add); NEVER reassign `TrayIcon.Menu` or call `SetIcons` after startup. Monochrome template image + `MacOSProperties.IsTemplateIcon="True"` on macOS. Regression-guard with a "tray menu identity preserved" assertion after every editor operation.
-- Marshal back to the UI thread only for view-model state: `await Dispatcher.UIThread.InvokeAsync(...)`; no `DispatcherTimer` in coordinator logic.
-- ScheduleDialog timezone picker: "Local time" sentinel at the top storing `null`; source the list from `TimeZoneInfo.GetSystemTimeZones()` mapped through `TryConvertWindowsIdToIanaId` (QA-B4 — never persist Windows registry ids); surface unresolvable stored ids as "(unknown zone)" in the UI.
-- ShowSchedule rows: show the zone + next local fire time (QA-N6); day-tab grouping can disagree with the slot's zone day. "UP NEXT" gets a zone label.
-- Reject any dialog that rebuilds/reassigns the tray menu. Avalonia 11.3.22 (bump to 12.1.2 during the merge per brief §7.2).
+- Tray rule (macOS crash pitfall — mandatory): create `TrayIcon` + root `NativeMenu` exactly ONCE at startup; refresh by mutating `menu.Items` in place (`Items.Clear()` + re-add); NEVER reassign `TrayIcon.Menu` or call `SetIcons` after startup. The 44×44 monochrome template `tray.png` + `MacOSProperties.IsTemplateIcon="True"` on macOS (D34), `dialshift.ico` on Windows; left-click opens the window on Windows only. HS-03 asserts menu identity after every editor operation; keep it green.
+- Marshal back to the UI thread only for view-model state (`IUiDispatcher`); no `DispatcherTimer` in coordinator logic. Dialogs go through `IDialogService`: owned by the visible main window, otherwise ownerless and centered, never their own owner.
+- Schedule time-zone UI (brief 2, D43): the editor's picker has "Local time" at the top (stores `null`) and offers only IANA ids from `TimeZoneCatalog` — never persist a Windows registry id (QA-B4). An unresolvable stored id shows "(unknown zone)" and is never rewritten by an untouched save (TZ-14). Rows show the zone and the next local start (QA-N6); UP NEXT adds the slot's own time and zone.
+- UX gate (QG-03, D44, D45): the Fluent dark theme and DialShift palette, automation names on every input, visible keyboard focus, confirmation before destructive actions, no clipped text at 780×650 (buttons get at least 15 % `MinWidth` headroom, then an ellipsis), dark ink on accent buttons.
+- Reject any dialog that rebuilds/reassigns the tray menu.
