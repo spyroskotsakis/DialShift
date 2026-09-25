@@ -56,6 +56,8 @@ _FREQUENCY_NUMBER = re.compile(r'[0-9]+(?:\.[0-9]*)?|\.[0-9]+')
 _DECIMAL_MAX = 79_228_162_514_264_337_593_543_950_335
 FM_RANGE = (64, 108)
 KHZ_MIN = 150
+# Rule 9's own cap, not BandOf's: a kHz value above the top of shortwave is a data error, not a band.
+KHZ_MAX = 30_000
 
 
 def _text(value):
@@ -158,12 +160,14 @@ def frequency_band(value: str):
 
 def _frequency_problem(value, band_words):
     """Rule 9 of §2.3 for one frequency_fm, or None when it holds: "", an FM value written with a '.', a kHz
-    value, or one of the band words of data/frequency-bands.yaml (exactly)."""
+    value of at most KHZ_MAX (the top of shortwave), or one of the band words of data/frequency-bands.yaml
+    (exactly)."""
     band = frequency_band(value)
-    if value == '' or value in band_words or band == 'kHz' or (band == 'FM' and '.' in value):
+    if (value == '' or value in band_words or (band == 'kHz' and int(value) <= KHZ_MAX)
+            or (band == 'FM' and '.' in value)):
         return None
-    return ("is not an FM value with a '.' (64-108), a kHz integer (>= 150) or a band word of "
-            'data/frequency-bands.yaml')
+    return (f"is not an FM value with a '.' ({FM_RANGE[0]}-{FM_RANGE[1]}), a kHz integer ({KHZ_MIN}-{KHZ_MAX}) "
+            'or a band word of data/frequency-bands.yaml')
 
 
 def _notes(value):
@@ -720,15 +724,24 @@ def self_test() -> int:
                         (' 101.5', None), ('1 593', None), ('1,593', None), ('101.5 FM', None),
                         ('١٠١.٥', None), ('１０１.５', None), ('1e2', None), (None, None)):
         check(f'frequency_band({value!r}) -> {want!r} (Core BandOf)', frequency_band(value) == want)
-    for value in ('', '101.5', '87.5', '64.0', '108.0', '89.0', '101.', '1593', '150', '8500', 'Fixwave', 'Fix Band'):
+    for value in ('', '101.5', '87.5', '64.0', '108.0', '89.0', '101.', '1593', '150', '8500', '30000',
+                  'Fixwave', 'Fix Band'):
         check(f'rule 9: frequency_fm {value!r} passes',
               broken(lambda d: d['stations'][0].update(frequency_fm=value)) == [])
     free_text = 'Shortwave and satellite for the diaspora, see the website'
     for value in ('fixwave', 'FIXWAVE', 'Fix  Band', '100', '64', '149', '108.5', '63.9', '1593.0', '.5',
                   '-101.5', '101,5', '1 593', '101.5 FM', '1593 kHz', '١٠١.٥', 'n/a', '?', free_text,
-                  '79228162514264337593543950336'):
+                  '30001', '100000', '79228162514264337593543950335', '79228162514264337593543950336'):
         check(f'rule 9: frequency_fm {value!r} fails', _frequency_problem(value, bands) is not None
               and any('frequency_fm' in p for p in broken(lambda d: d['stations'][0].update(frequency_fm=value))))
+    check('rule 9: the kHz cap is the validator\'s, not BandOf\'s', frequency_band('30001') == 'kHz'
+          and _frequency_problem('30000', frozenset()) is None and 'kHz integer (150-30000)' in
+          (_frequency_problem('30001', frozenset()) or ''))
+    over_rows = [_row(country='XF', name='Over Cap', frequency_fm='30001', stream_url='https://f.example.test/3')]
+    odoc, _ = build_app_catalog([({'code': 'XF', 'name': 'Bandland'}, over_rows)], _UTC, langs)
+    oproblems = validate_app_catalog(odoc, over_rows, langs, bands)
+    check('rule 9: a kHz value over the cap fails the run, naming the station',
+          len(oproblems) == 1 and "'Over Cap'" in oproblems[0] and "'30001'" in oproblems[0])
     check('rule 9: without band words a band word fails', _frequency_problem('Fixwave', frozenset()) is not None)
     band_rows = [_row(country='XF', name='Band One', frequency_fm='Fixwave', stream_url='https://f.example.test/1'),
                  _row(country='XF', name='Band Two', frequency_fm=free_text, stream_url='https://f.example.test/2')]
