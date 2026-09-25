@@ -1422,7 +1422,12 @@ function Start-NC04Install {
     $installedExe = Join-Path $InstalledDir 'DialShift.exe'
     $log = Join-Path $RealData 'dialshift.log'
     if (-not (Test-Path -LiteralPath $install)) { Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' "no Install.ps1 in $(Hide-Home $folder)"; return $false }
-    if ($folder.TrimEnd('\') -ieq $InstalledDir.TrimEnd('\')) { Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' 'the copy under test is the installed copy; step 6 needs an extracted copy outside it'; return $false }
+    # The same overlap test as Install.ps1, which refuses both cases.
+    $folderKey = [IO.Path]::GetFullPath($folder).TrimEnd('\') + '\'
+    $installedKey = [IO.Path]::GetFullPath($InstalledDir).TrimEnd('\') + '\'
+    if ($folderKey.StartsWith($installedKey, [StringComparison]::OrdinalIgnoreCase) -or $installedKey.StartsWith($folderKey, [StringComparison]::OrdinalIgnoreCase)) {
+        Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' 'the copy under test is in or contains the install folder; step 6 needs an extracted copy outside it'; return $false
+    }
     Write-Host "Install.ps1 replaces $(Hide-Home $InstalledDir) and the Start menu shortcut DialShift.lnk. The kit moves an"
     Write-Host 'existing install and shortcut aside first and puts them back when it restores your files.'
     if (-not (Confirm-Choice 'Run step 6 (one more sign-out)?' $true)) { Add-Step 'manual' 'SKIP' '6. Upgrade with Install.ps1' 'not run'; return $false }
@@ -1432,9 +1437,9 @@ function Start-NC04Install {
     Request-Quit
     Assert-NoDialShift
     Backup-Install
-    Write-Host "The kit runs this folder's Install.ps1 with -NoLaunch (so it can wait for it), then starts the installed copy."
+    Write-Host "The kit runs this folder's Install.ps1 with -NoLaunch -NonInteractive (so it can wait for it and it never waits for Enter), then starts the installed copy."
     $global:LASTEXITCODE = -1
-    Save-Command 'install-ps1.txt' { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $install -NoLaunch 2>&1 }
+    Save-Command 'install-ps1.txt' { & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -NoLaunch 2>&1 }
     $code = $global:LASTEXITCODE
     Add-AutoStep '6b. Install.ps1 finishes with exit code 0' ($code -eq 0) "exit code $code"
     $value = [string](Get-EntryValue $RunKey)

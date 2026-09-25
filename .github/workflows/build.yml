@@ -157,15 +157,19 @@ jobs:
           ./scripts/verify-win-package.ps1 -Path $extracted
 
       # Install.ps1 (SW-N4, D56) from the folder extracted above, run as "Run with PowerShell" runs it (Windows
-      # PowerShell 5.1), with LOCALAPPDATA in a temp folder and -NoLaunch, so no DialShift is started:
-      # (a) a fresh install; (b) an upgrade over it, which leaves no file of the old build and no DialShift.new-* or
-      # DialShift.old-* folder, and moves an existing HKCU Run value to the installed copy; (c) a copy extracted inside
-      # the install folder and (d) an install folder inside the source are refused with a non-zero exit, changing nothing.
-      # The HKCU Run value is restored and the Start menu shortcut removed afterwards.
-      - name: Install.ps1 (fresh install, upgrade, refusals)
+      # PowerShell 5.1), with LOCALAPPDATA in a temp folder, -NoLaunch (no DialShift is started) and -NonInteractive
+      # (it never waits for Enter): (a) a fresh install; (b) an upgrade over it, which leaves no file of the old build,
+      # removes a stale DialShift.new-*/DialShift.old-* folder of an earlier run and leaves none of its own, and moves
+      # an existing HKCU Run value to the installed copy; (e) an upgrade while a file of the install is open without
+      # delete sharing fails after its rename retries, non-zero, with the install unchanged; (c) a copy extracted inside
+      # the install folder, (f) the installed copy's own Install.ps1 and (d) an install folder inside the source are
+      # refused with a non-zero exit and their message, changing nothing. The HKCU Run value is restored and the Start
+      # menu shortcut removed afterwards.
+      # Six copies of the package and one ~4 s rename retry take a minute or two; the timeout leaves room for a slow disk.
+      - name: Install.ps1 (fresh install, upgrade, locked file, refusals)
         if: runner.os == 'Windows'
         shell: pwsh
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
           $package = Join-Path $env:RUNNER_TEMP 'DialShift-win-x64'
           $root = Join-Path $env:RUNNER_TEMP 'install-check'
@@ -180,9 +184,15 @@ jobs:
             $saved = $env:LOCALAPPDATA
             $env:LOCALAPPDATA = $localAppData
             try {
-              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $folder 'Install.ps1') -NoLaunch | Out-Host
-              return $LASTEXITCODE
+              $text = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $folder 'Install.ps1') -NoLaunch 2>&1 | Out-String
+              Write-Host $text
+              return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $text }
             } finally { $env:LOCALAPPDATA = $saved }
+          }
+          # Whitespace is ignored, so Windows PowerShell's line wrapping cannot split the expected text.
+          function Assert-Failed([string]$case, $result, [string]$expected) {
+            if ($result.Code -eq 0) { throw "($case) Install.ps1 exited with 0; expected it to stop." }
+            if (-not ($result.Text -replace '\s', '').Contains($expected -replace '\s', '')) { throw "($case) The output does not say '$expected'." }
           }
           function Get-Listing([string]$folder) {
             Get-ChildItem -LiteralPath $folder -Recurse -Force -File |
@@ -192,9 +202,13 @@ jobs:
             $names = @(Get-ChildItem -LiteralPath $programs -Force | ForEach-Object Name)
             if ("$names" -ne 'DialShift') { throw "($case) $programs holds '$($names -join "', '")', expected only DialShift." }
           }
+          function Assert-Unchanged([string]$case, $before) {
+            if (Compare-Object $before (Get-Listing $installed)) { throw "($case) The install folder changed." }
+            Assert-OnlyInstall $case
+          }
           try {
-            $code = Invoke-Install $package $root
-            if ($code -ne 0) { throw "(a) Fresh install: Install.ps1 exited with $code." }
+            $result = Invoke-Install $package $root
+            if ($result.Code -ne 0) { throw "(a) Fresh install: Install.ps1 exited with $($result.Code)." }
             if (-not (Test-Path -LiteralPath $installedExe)) { throw "(a) Fresh install: $installedExe is missing." }
             Assert-OnlyInstall 'a'
             $target = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut).TargetPath
@@ -202,9 +216,10 @@ jobs:
             Write-Host '(a) Fresh install: passed.'
 
             Set-Content -LiteralPath (Join-Path $installed 'only-in-old-build.txt') -Value 'old'
+            New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.new-stale'), (Join-Path $programs 'DialShift.old-stale') | Out-Null
             Set-ItemProperty -Path $runKey -Name DialShift -Value '"C:\Old\DialShift\DialShift.exe" --tray'
-            $code = Invoke-Install $package $root
-            if ($code -ne 0) { throw "(b) Upgrade: Install.ps1 exited with $code." }
+            $result = Invoke-Install $package $root
+            if ($result.Code -ne 0) { throw "(b) Upgrade: Install.ps1 exited with $($result.Code)." }
             if (-not (Test-Path -LiteralPath $installedExe)) { throw "(b) Upgrade: $installedExe is missing." }
             if (Test-Path -LiteralPath (Join-Path $installed 'only-in-old-build.txt')) { throw '(b) Upgrade: a file of the old build is still there.' }
             Assert-OnlyInstall 'b'
@@ -212,20 +227,30 @@ jobs:
             if ($run -ne "`"$installedExe`" --tray") { throw "(b) Upgrade: the Run value is '$run', expected `"$installedExe`" --tray." }
             Write-Host '(b) Upgrade: passed.'
 
+            $locked = Join-Path $installed 'DialShift.dll'
+            if (-not (Test-Path -LiteralPath $locked)) { throw "(e) $locked is missing." }
+            $before = Get-Listing $installed
+            $handle = [IO.File]::Open($locked, 'Open', 'Read', 'Read')
+            try { $result = Invoke-Install $package $root } finally { $handle.Dispose() }
+            Assert-Failed 'e' $result 'Could not move the new build into'
+            Assert-Unchanged 'e' $before
+            Write-Host "(e) Upgrade with a locked file: failed with exit code $($result.Code), install unchanged."
+
             $nested = Join-Path $installed 'extracted'
             Copy-Item -LiteralPath $package -Destination $nested -Recurse
             $before = Get-Listing $installed
-            $code = Invoke-Install $nested $root
-            if ($code -eq 0) { throw '(c) Install.ps1 run from inside the install folder exited with 0.' }
-            if (Compare-Object $before (Get-Listing $installed)) { throw '(c) The refused run changed the install folder.' }
-            Assert-OnlyInstall 'c'
-            Write-Host "(c) Source inside the install folder: refused with exit code $code, install unchanged."
+            Assert-Failed 'c' (Invoke-Install $nested $root) 'is running from inside the install folder'
+            Assert-Unchanged 'c' $before
+            Write-Host '(c) Source inside the install folder: refused, install unchanged.'
+
+            Assert-Failed 'f' (Invoke-Install $installed $root) 'is running from inside the install folder'
+            Assert-Unchanged 'f' $before
+            Write-Host '(f) The installed copy''s own Install.ps1: refused, install unchanged.'
 
             Copy-Item -LiteralPath $package -Destination $outer -Recurse
-            $code = Invoke-Install $outer $outer
-            if ($code -eq 0) { throw '(d) Install.ps1 with the install folder inside its own folder exited with 0.' }
+            Assert-Failed 'd' (Invoke-Install $outer $outer) 'Extract the release zip to a folder of its own'
             if (Test-Path -LiteralPath (Join-Path $outer 'Programs')) { throw '(d) The refused run created an install folder.' }
-            Write-Host "(d) Install folder inside the source: refused with exit code $code."
+            Write-Host '(d) Install folder inside the source: refused.'
 
             $started = @(Get-Process DialShift -ErrorAction SilentlyContinue |
               Where-Object { $_.Path -like "$root\*" -or $_.Path -like "$outer\*" })
