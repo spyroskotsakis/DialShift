@@ -1,6 +1,6 @@
 # Open items: native verification and release sign-off
 
-> **As of 2026-09-25**, branch `refactor/single-codebase-timezone`, code at `65771f7` (SW-N4), after the pre-merge sweep; the CI evidence below is at `1b16518`.
+> **As of 2026-09-25**, branch `refactor/single-codebase-timezone` at `bc807b5` plus docs-only updates, after the pre-merge sweep and SW-N4; the CI evidence below is run `36163420184` at `bc807b5`.
 > This is the hand-off list for the work that is still open after both briefs were implemented. The implementation task is closed. Only the items below remain.
 >
 > Related documents:
@@ -29,12 +29,12 @@
 | Area | State | Evidence |
 |---|---|---|
 | Brief 1 (single codebase) and brief 2 (per-slot time zones) | Implemented. WPF and `DialShift.Mac` are retired, and one Avalonia app, `DialShift.App`, ships as `win-x64` and `osx-arm64` | Branch `refactor/single-codebase-timezone` at `1b16518`, pushed to the `private` remote (`spyroskotsakis/dialshift-dev`) |
-| CI | Green on both OSes | Run [`36126312566`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36126312566) at `1b16518`: **windows-latest 1,702 passed / 18 skipped**, **macos-latest 1,769 passed / 5 skipped**, **24/24 suites** on both |
-| Native smoke in CI | `--smoke-test --recovery-test` **34/34 on both OSes**. The **bundle smoke** (the packaged `osx-arm64` app, extracted from the release zip with `unzip`) passes **32/32** with `MacAvPlayerPlaybackEngine` | Same run: `smoke-win-x64` and `smoke-osx-arm64` artifacts, and the "Bundle smoke" step of the macOS job |
-| Packaging | Both downloadable zips verified: `win-x64` by `verify-win-package.ps1`, `osx-arm64` by `verify-mac-app.sh --zip` after both `ditto` and `unzip` extraction | Same run |
+| CI | Green on both OSes | Run [`36163420184`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36163420184) at `bc807b5`: **windows-latest 1,702 passed / 18 skipped**, **macos-latest 1,769 passed / 5 skipped**, **24/24 suites** on both |
+| Native smoke in CI | `--smoke-test --recovery-test` passes on both OSes (**34/34** in run `36126312566` at `1b16518`; the step fails on any failed check). The **bundle smoke** (the packaged `osx-arm64` app, extracted from the release zip with `unzip`) passes **32/32** with `MacAvPlayerPlaybackEngine` | Run `36163420184`: `smoke-win-x64` and `smoke-osx-arm64` artifacts, and the "Bundle smoke" step of the macOS job |
+| Packaging | Both downloadable zips verified: `win-x64` by `verify-win-package.ps1`, `osx-arm64` by `verify-mac-app.sh --zip` after both `ditto` and `unzip` extraction. `Install.ps1` from the `win-x64` zip passes fresh install, upgrade, locked file, install lock and the three refusals (SW-N4) | Run `36163420184` |
 | Acceptance matrix §3 (106 rows) | **62 GREEN / 44 NATIVE-PENDING / 0 TODO** | [Matrix §3](acceptance-matrix.md#3-acceptance-matrix) |
 | Timezone QA tracker | QA-B1..B4 (blocking) all GREEN. QA-N1..N9: 8 GREEN, 1 NATIVE-PENDING (QA-N1). §9.2: 14 of 15 GREEN, TZ-12 NATIVE-PENDING (the unit half is green) | [Matrix §6](acceptance-matrix.md#6-timezone-qa-tracker-brief-2) |
-| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING, and SW-N4 (GREEN-pending-CI, [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items)). The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
+| Review findings (§7.10) | All GREEN or accepted except SR-02 and NX-01, both NATIVE-PENDING. The pre-merge sweep's blockers (SW-B1 RT-07 flake, SW-B2 culture-dependent slot times) and should-fixes (SW-S1..S5) are fixed, and SW-N4 (`Install.ps1`, D56) is GREEN in CI `36163420184` ([§2.10](#210-release-engineering-not-blocked-on-hardware-2-items)) | [Matrix §7.10](acceptance-matrix.md#710-characterization-and-review-findings-tracked) |
 | Decisions | D1–D56 recorded | [docs/decisions.md](decisions.md) |
 | Rollback point | Tag `legacy-last-known-good` (commit `82281e5`) keeps the last build of both old front-ends, including the last Intel Mac build | `git show legacy-last-known-good` |
 
@@ -199,7 +199,17 @@ NC-05 and NC-09 flip no §3 row. They are the D7 release gate (see [§6](#6-clos
 
 | Item | What's left | Severity | Owner | Done when |
 |---|---|---|---|---|
-| SW-N4 | **GREEN-pending-CI: `Install.ps1` robustness, fixed in `58b813a` with the review fixes in `dc032fe` and the hardening in `65771f7` (D56).** `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now copies into `DialShift.new-<id>` beside the install, renames the old install to `DialShift.old-<id>` and the new one in (each rename retried for about 4 s), and deletes the old one (a failed delete is a warning). A failed copy or swap restores the old install and exits 1. A source inside or equal to the install folder, or an install folder inside the source, is refused before anything changes. One run at a time (named mutex `Local\DialShift.Install`). Leftovers of earlier runs are removed only under their exact generated names, never through a junction. The window shows every message and waits for Enter unless the run is non-interactive. The `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, refusals)" checks this on `windows-latest` under Windows PowerShell 5.1, including an upgrade with a file held open (which CI run `36161860229` already showed refusing correctly on Windows; that run was red on a CI helper bug fixed in `65771f7`) and a held install lock. Left: its first green CI run | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | The `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, install lock, refusals)" passes, with `build.ps1` and `verify-win-package.ps1`, in a CI run at or after `65771f7`. Matrix §7.10 SW-N4 is GREEN. NC-04 step 6 then runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
+| SW-N4 | **Done: GREEN in CI [`36163420184`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36163420184) at `bc807b5`.** `Install.ps1` robustness, fixed in `58b813a` with the review fixes in `dc032fe` and the hardening in `65771f7` (D56). `scripts/Install.ps1` used to delete `%LOCALAPPDATA%\Programs\DialShift` before copying the new build. It now:
+- copies into `DialShift.new-<id>` beside the install;
+- renames the old install to `DialShift.old-<id>` and the new one in, retrying each rename for about 4 s;
+- deletes the old one (a failed delete is a warning);
+- on a failed copy or swap, restores the old install and exits 1;
+- refuses a source inside or equal to the install folder, or an install folder inside the source, before changing anything;
+- runs one install at a time (named mutex `Local\DialShift.Install`);
+- removes leftovers of earlier runs only under their exact generated names, never through a junction;
+- shows every message and waits for Enter unless the run is non-interactive.
+
+In run `36163420184` the `build.yml` step "Install.ps1 (fresh install, upgrade, locked file, install lock, refusals)" passed on `windows-latest` under Windows PowerShell 5.1: (a) fresh install; (b) upgrade, with both planted leftovers removed; (e) locked file and (g) install lock held, both exit 1 with the install unchanged; (c) and (f) refused with the install unchanged; (d) refused. Remaining native part: NC-04 step 6 | SHOULD-FIX before the full release `v0.3.0`; ships in `v0.3.0-rc.2`; not a native check | release | Done: the step passed with `build.ps1` and `verify-win-package.ps1` in run `36163420184` at `bc807b5`, and matrix §7.10 SW-N4 is GREEN. NC-04 step 6 runs the fixed script on hardware (as a fresh install: the kit moves an existing install aside first) |
 | Legacy tag on the public repository | The README ("Upgrading", "Earlier versions") and CHANGELOG name the tag `legacy-last-known-good`, which exists on the private remote only. Push it to the public repository with the first release (`git push origin legacy-last-known-good`), a manual maintainer step like the release push | Before the public `v0.3.0-rc.1` push | maintainer | `git ls-remote --tags origin` lists `legacy-last-known-good` |
 
 ---
@@ -222,7 +232,7 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
 | 11 | **Signing: NC-05 (b), NC-09** | Release pipeline | Getting the certificates is outside the team and can take days to weeks. Then about half a day to a day of release-lane script work (Developer ID signing, hardened runtime, entitlements, notarization, Authenticode), plus about 1 h to verify each | Release gate only. No §3 row depends on it |
 
-The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items (SW-N4 and the legacy tag) need no hardware. They can run in parallel with any step. SW-N4 has landed (`58b813a`, `dc032fe`, `65771f7`): run the Windows hardware block from a CI zip built at or after `65771f7`, so that NC-04 step 6 tests the fixed `Install.ps1`.
+The [§2.10](#210-release-engineering-not-blocked-on-hardware-2-items) items need no hardware. SW-N4 is done (GREEN in CI `36163420184`); the legacy tag waits for the public push. Run the Windows hardware block from a CI zip built at or after `65771f7`, so that NC-04 step 6 tests the fixed `Install.ps1`.
 
 ---
 
