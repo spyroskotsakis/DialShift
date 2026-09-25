@@ -47,9 +47,9 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
-using DialShift.App.Services.Interop;
+using DialShift.App.Interop;
 using DialShift.Core.Playback;
-using Sel = DialShift.App.Services.Interop.AVFoundation.Sel;
+using Sel = DialShift.App.Interop.AVFoundation.Sel;
 
 namespace DialShift.App.Services;
 

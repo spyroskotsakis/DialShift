@@ -374,6 +374,11 @@ DialShift.App/
       MacStartupRegistration.cs
       MacPowerEvents.cs
       MacFileRevealService.cs
+  Interop/                   (the App's only Objective-C runtime bindings, shared by the AVPlayer backend and MacPowerEvents)
+    ObjCRuntime.cs
+    NotificationObserver.cs
+    MacMainQueue.cs
+    AVFoundation.cs
   SingleInstance/            (process/transport concern — deliberately NOT in Core)
     SingleInstanceService.cs
     SingleInstanceMessage.cs

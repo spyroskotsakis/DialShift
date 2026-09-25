@@ -1,4 +1,5 @@
-// Objective-C runtime bindings for the macOS AVPlayer adapter (docs/spikes.md, "Production guidance").
+// The App's only Objective-C runtime bindings, shared by the macOS AVPlayer adapter and the NSWorkspace wake observer
+// (docs/spikes.md, "Production guidance"). Add new prototypes here; never declare objc_* P/Invokes anywhere else.
 //
 // arm64 ABI rule: objc_msgSend is a trampoline, not a variadic function. The callee's real prototype decides where
 // arguments live (x0..x7 for pointers/integers, s0..s7 for float, x8 for the address of an indirect struct return), so
@@ -8,14 +9,14 @@
 // Ownership vocabulary used by every caller:
 //   +1  returned by alloc/init/new/copy: the caller owns it and releases it exactly once (Release).
 //   +0  returned by any other getter: borrowed. Never released, only read inside an autorelease pool scope
-//       (MacMainQueue wraps every work item in objc_autoreleasePoolPush/Pop).
+//       (MacMainQueue and NotificationObserver wrap every work item and callback in objc_autoreleasePoolPush/Pop).
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 
-namespace DialShift.App.Services.Interop;
+namespace DialShift.App.Interop;
 
-/// <summary>Typed <c>objc_msgSend</c> entry points plus the handful of runtime functions the AVPlayer adapter needs.</summary>
+/// <summary>Typed <c>objc_msgSend</c> entry points plus the handful of runtime functions the macOS adapters need.</summary>
 [SupportedOSPlatform("macos")]
 internal static unsafe partial class ObjCRuntime
 {
@@ -41,6 +42,10 @@ internal static unsafe partial class ObjCRuntime
 
     [LibraryImport(LibObjC, EntryPoint = "objc_registerClassPair")]
     internal static partial void RegisterClassPair(nint cls);
+
+    /// <summary>Destroys a class allocated by <see cref="AllocateClassPair"/> that was never registered.</summary>
+    [LibraryImport(LibObjC, EntryPoint = "objc_disposeClassPair")]
+    internal static partial void DisposeClassPair(nint cls);
 
     /// <summary><c>BOOL class_addMethod(Class, SEL, IMP, const char *types)</c>; BOOL is a 1-byte C bool on arm64.</summary>
     [LibraryImport(LibObjC, EntryPoint = "class_addMethod", StringMarshalling = StringMarshalling.Utf8)]

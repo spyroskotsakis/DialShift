@@ -11,7 +11,7 @@
     <RollForward>Major</RollForward>
     <Version>0.3.0</Version>
     <ApplicationIcon>Assets\dialshift.ico</ApplicationIcon>
-    <!-- [LibraryImport] stubs and [UnmanagedCallersOnly] function pointers in Services/Interop (macOS AVPlayer adapter). -->
+    <!-- [LibraryImport] stubs and [UnmanagedCallersOnly] function pointers in Interop/ (macOS AVPlayer adapter, NSWorkspace wake observer). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Ship only the x64 VLC runtime in the win-x64 package (D2). -->
     <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
