@@ -99,7 +99,7 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   the Working rows that pass the URL rule, 1–10,000 entries, every `language` a clean list
   (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key), no note
   still in the raw `tags:` form, and every `frequency_fm` empty, an FM value with a `.` (64–108),
-  a kHz integer (at least 150; the app's own FM/kHz rule) or one of the band words of
+  a kHz integer (150 to 30,000, the top of shortwave) or one of the band words of
   `frequency-bands.yaml`, so free text never reaches the app's frequency column. On any problem
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
