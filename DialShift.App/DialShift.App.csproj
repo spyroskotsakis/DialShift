@@ -53,4 +53,11 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Brief 3: the generated station catalog (data/output/app-catalog.json), a loose file next to the apphost (D59, D60). -->
+    <Content Include="..\data\output\app-catalog.json" Link="app-catalog.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('..\data\output\app-catalog.json')" />
+  </ItemGroup>
 </Project>
