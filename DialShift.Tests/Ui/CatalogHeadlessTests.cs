@@ -193,13 +193,15 @@ internal static class CatalogHeadlessTests
             Items(dialog).Select(AccessibleName).SequenceEqual(rows.Select(r => r.AutomationName)) && AccessibleName(Items(dialog)[0]) == "Radio Thessaloniki, Thessaloniki · 94.5 FM · Greece");
 
         var title = Find<TextBlock>(Items(dialog)[0]).Single(t => t.Classes.Contains("resultTitle"));
-        Check("CAT-14 a result's first line reads \"Radio Thessaloniki · Thessaloniki · 94.5 FM · Greece\" (one space each side of the dot): " +
-            "the template's three Runs are its only inlines (no whitespace runs between them), the name semibold, the subtitle 12 px",
-            title.Inlines is [Run name, Run { Text: " · " }, Run subtitle] && DisplayText(title) == "Radio Thessaloniki · Thessaloniki · 94.5 FM · Greece"
-            && name.FontWeight == Avalonia.Media.FontWeight.SemiBold && subtitle.FontSize == 12);
+        Check("CAT-14 D85 a result's first line reads \"Radio Thessaloniki · Thessaloniki · Greece\" (one space each side of the dot): " +
+            "the template's three Runs are its only inlines (no whitespace runs between them), the name semibold, the place 12 px",
+            title.Inlines is [Run name, Run { Text: " · " }, Run place] && DisplayText(title) == "Radio Thessaloniki · Thessaloniki · Greece"
+            && name.FontWeight == Avalonia.Media.FontWeight.SemiBold && place.FontSize == 12);
+        Check("CAT-14 D85 the frequency (\"94.5 FM\") has its own column at the row's right",
+            Find<TextBlock>(Items(dialog)[0]).Single(t => t.Classes.Contains("resultFrequency")) is { IsEffectivelyVisible: true, Text: "94.5 FM" } frequency
+            && frequency.Bounds.X > title.Bounds.X);
 
-        await PressAsync(dialog, Key.Down);
-        Check("CAT-12 Down highlights the first result (the list selection follows); the detail pane shows it, notes included",
+        Check("CAT-12 D85 typing opens the results on the first one, highlighted (the list selection follows); the detail pane shows it, notes included",
             editor.HighlightedResult == rows[0] && list.SelectedItem == rows[0] && Focused(dialog) == search
             && Detail(dialog).IsEffectivelyVisible && Shows(Detail(dialog), "Radio Thessaloniki") && Shows(Detail(dialog), "A regional station."));
         await PressAsync(dialog, Key.Down);
@@ -276,9 +278,9 @@ internal static class CatalogHeadlessTests
         Check("CAT-10 §5.5 pressing a result picks it: the real text boxes are filled and the results close",
             Field(dialog, StationEditorViewModel.NameLabel).Text == "Kosmos 93.6" && Field(dialog, StationEditorViewModel.UrlLabel).Text == Kosmos.StreamUrl
             && Field(dialog, StationEditorViewModel.TagLabel).Text == "Public · World" && !Overlay(dialog).IsVisible && editor.SelectedEntry == Kosmos);
-        Check("CAT-10 the detail pane shows the full long notes (wrapped, in a scroller) with \"4210 votes\", \"93.6 FM\", \"Public · World\"",
+        Check("CAT-10 the detail pane shows the full long notes (wrapped, in a scroller) with \"4,210 votes\", \"93.6 FM\", \"Public · World\"",
             Find<TextBlock>(Detail(dialog)).Any(t => t.Text == KosmosNotes && t.IsEffectivelyVisible && t.TextWrapping != Avalonia.Media.TextWrapping.NoWrap)
-            && Shows(Detail(dialog), "4210 votes") && Shows(Detail(dialog), "93.6 FM") && Shows(Detail(dialog), "Public · World"));
+            && Shows(Detail(dialog), "4,210 votes") && Shows(Detail(dialog), "93.6 FM") && Shows(Detail(dialog), "Public · World"));
         Png(dialog, "catalog-add-picked-long-notes");
 
         await SearchAsync(dialog, editor, "radio th");
@@ -291,7 +293,7 @@ internal static class CatalogHeadlessTests
         await PumpAsync();
     }
 
-    // ─── CAT-12: Enter without a highlight saves; Escape closes ───
+    // ─── CAT-12: type and Enter picks the top match; Enter without a highlight saves; Escape closes the list, then the dialog ───
 
     private static async Task EnterAndEscape()
     {
@@ -299,20 +301,33 @@ internal static class CatalogHeadlessTests
         rig.Catalog.Result = Loaded(Small);
         var (dialog, editor) = await OpenAddAsync(rig);
         await SearchAsync(dialog, editor, "melodia");
-        Check("CAT-12 fixture: results open, nothing highlighted", Overlay(dialog).IsVisible && editor.HighlightedResult == null);
+        Check("CAT-12 D85 fixture: results open on the top match, highlighted", Overlay(dialog).IsVisible && editor.HighlightedResult?.Entry == Melodia);
         await PressAsync(dialog, Key.Enter);
-        Check("CAT-12 BHV-52 Enter with the results open but nothing highlighted is Save: \"Give this station a name.\", the name field focused, the results closed",
-            dialog.IsVisible && VisibleError(dialog)?.Text == "Give this station a name." && Focused(dialog) == Field(dialog, StationEditorViewModel.NameLabel)
-            && !Overlay(dialog).IsVisible && rig.Settings.Stations.Count == 3);
+        Check("CAT-12 D85 typing then Enter picks the top match: the fields hold Melodia 99.2, the results closed, nothing highlighted, the dialog open",
+            dialog.IsVisible && Field(dialog, StationEditorViewModel.NameLabel).Text == "Melodia 99.2" && editor.SelectedEntry == Melodia
+            && !Overlay(dialog).IsVisible && editor.HighlightedResult == null && rig.Settings.Stations.Count == 3);
 
         var search = ByName<TextBox>(dialog, "Search stations");
-        search.Focus();
+        await ClickAsync(search);
+        Layout(dialog);
+        Check("CAT-12 fixture: a click in the search box brings the results back, nothing highlighted",
+            Overlay(dialog).IsVisible && editor.HighlightedResult == null && Focused(dialog) == search);
+        await PressAsync(dialog, Key.Enter);
+        Check("CAT-12 BHV-52 Enter with the results open but nothing highlighted is Save: the dialog closes and the picked Melodia 99.2 is saved",
+            await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Saved && rig.Settings.Stations.Any(s => s.Name == "Melodia 99.2"));
+
+        var saved = rig.Settings.Stations.Count;
+        (dialog, editor) = await OpenAddAsync(rig);
         await SearchAsync(dialog, editor, "radio");
         await PressAsync(dialog, Key.Down);
         Check("CAT-12 fixture: results open with a highlight", Overlay(dialog).IsVisible && editor.HighlightedResult != null);
         await PressAsync(dialog, Key.Escape);
-        Check("CAT-12 §5.5 Escape is never the catalog's: with the results open and a highlight it closes the dialog, nothing added, nothing saved",
-            !dialog.IsVisible && editor.Result == EditorResult.Cancelled && rig.Settings.Stations.Count == 3 && !rig.SavedToDisk);
+        Layout(dialog);
+        Check("CAT-12 D85 Escape with the results open closes only the results: the dialog stays open, nothing added",
+            dialog.IsVisible && !Overlay(dialog).IsVisible && rig.Settings.Stations.Count == saved);
+        await PressAsync(dialog, Key.Escape);
+        Check("CAT-12 §5.5 Escape with the results closed cancels the dialog: nothing added",
+            await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Cancelled && rig.Settings.Stations.Count == saved);
     }
 
     // ─── CAT-13: loading, no catalog ───
@@ -552,12 +567,14 @@ internal static class CatalogHeadlessTests
         rig.Catalog.Result = real;
         var count = real.Catalog.Entries.Count;
         var (dialog, editor) = await OpenAddAsync(rig);
-        Check($"CAT-17 real catalog: the status line reads \"{count} stations · catalog updated {real.GeneratedUtc?.UtcDateTime:yyyy-MM-dd}\"",
-            real.GeneratedUtc is { } generated && StatusLine(dialog).Text == $"{count} stations · catalog updated {generated.UtcDateTime:yyyy-MM-dd}");
+        var stations = count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " stations";
+        Check($"CAT-17 D85 real catalog: the status line reads \"{stations} · catalog updated {real.GeneratedUtc?.UtcDateTime:yyyy-MM-dd}\"",
+            real.GeneratedUtc is { } generated && StatusLine(dialog).Text == $"{stations} · catalog updated {generated.UtcDateTime:yyyy-MM-dd}");
         await PressAsync(dialog, Key.Down);
         Layout(dialog);
-        Check($"CAT-13 CAT-12 real catalog: Down opens the 50 most-voted with the footer \"Showing 50 of {count} matches\", the first highlighted",
-            Overlay(dialog).IsVisible && Shows(dialog, $"Showing 50 of {count} matches") && editor.HighlightedResult == editor.Results[0]);
+        var footer = $"Top 50 of {count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} stations by votes";
+        Check($"CAT-13 CAT-12 D85 real catalog: Down opens the 50 most-voted with the footer \"{footer}\", the first highlighted",
+            Overlay(dialog).IsVisible && Shows(dialog, footer) && editor.HighlightedResult == editor.Results[0]);
         var realized = Items(dialog).Count;
         Check($"CAT-14 §5.5 the results list is virtualized: {realized} of 50 rows are realized", realized is > 0 and < 50);
         // Catalog names reach 399 characters: a result title may end in an ellipsis by design (D44); nothing may be cut without one.

@@ -37,6 +37,8 @@
     <SolidColorBrush x:Key="DsInputBrush" Color="#243134"/>
     <SolidColorBrush x:Key="DsInputHoverBrush" Color="#2A393C"/>
     <SolidColorBrush x:Key="DsInputBorderBrush" Color="#4C6264"/>
+    <!-- A raised card over other content (the Add dialog's catalog results). -->
+    <BoxShadows x:Key="DsOverlayShadow">0 10 28 0 #99000000</BoxShadows>
 
     <!-- Fluent overrides: accent -->
     <Color x:Key="SystemAccentColor">#C2F278</Color>

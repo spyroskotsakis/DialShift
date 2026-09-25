@@ -13,10 +13,11 @@ namespace DialShift.App.Views.Dialogs;
 /// catalog search (D68), or the name field when the catalog is unavailable and the search box is disabled.
 /// </summary>
 /// <remarks>
-/// The search box's keys (docs/catalog-contracts.md §5.5): Down opens the results and moves the highlight, Up moves it
-/// back, Enter picks the highlighted result (with none, it falls through to Save). Escape is never handled here, so the
-/// Cancel button's <c>IsCancel</c> closes the dialog. The results list never takes focus: pointing at a row highlights
-/// it, pressing it picks it.
+/// The search box's keys (docs/catalog-contracts.md §5.5, D85): Down opens the results and moves the highlight, Up moves
+/// it back, Enter picks the highlighted result while the results are open (otherwise it falls through to Save). Escape
+/// with the results open closes them; with them closed it is not handled here, so the Cancel button's <c>IsCancel</c>
+/// closes the dialog. Page Down and Page Up scroll the detail pane (its notes can be long). The results list never takes
+/// focus: pointing at a row highlights it, pressing it picks it.
 /// </remarks>
 public partial class StationEditorDialog : Window
 {
@@ -86,6 +87,18 @@ public partial class StationEditorDialog : Window
                 break;
             case Key.Enter when editor.IsResultsOpen && editor.HighlightedResult != null:
                 editor.SelectEntryCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Key.Escape when editor.IsResultsOpen:
+                editor.IsResultsOpen = false;
+                e.Handled = true;
+                break;
+            case Key.PageDown:
+                DetailScroll.PageDown();
+                e.Handled = true;
+                break;
+            case Key.PageUp:
+                DetailScroll.PageUp();
                 e.Handled = true;
                 break;
         }

@@ -130,7 +130,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// <summary>The catalog loaded; search, filters and Clear work. False while loading and in degraded mode.</summary>
     public bool IsCatalogAvailable { get => isCatalogAvailable; private set => SetProperty(ref isCatalogAvailable, value); }
 
-    /// <summary>Loading, unavailable, or "8274 stations · catalog updated 2026-09-25" (§5.3).</summary>
+    /// <summary>Loading, unavailable, or "8,274 stations · catalog updated 2026-09-25" (§5.3).</summary>
     public string CatalogStatusText { get => catalogStatusText; private set => SetProperty(ref catalogStatusText, value); }
 
     /// <summary>The search text; a change searches after the debounce delay (D72). Typed during the load, it is searched when the load completes.</summary>
@@ -164,7 +164,7 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     public int TotalCount { get => totalCount; private set => SetProperty(ref totalCount, value); }
 
-    /// <summary>The results footer (§5.3): "Showing 50 of 214 matches".</summary>
+    /// <summary>The results footer (§5.3, D85): "Top 50 of 8,274 stations by votes" or "Showing 50 of 214 matches".</summary>
     public string TotalCountText { get => totalCountText; private set => SetProperty(ref totalCountText, value); }
 
     /// <summary>The catalog is available, a search was applied, and nothing matched.</summary>
@@ -200,7 +200,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     internal Task PendingSearch => pendingSearch?.Task ?? Task.CompletedTask;
 
     /// <summary>Walks the results (§5.5): from no highlight, down goes to the first row and up stays; otherwise it moves and
-    /// stops at the first and last row.</summary>
+    /// stops at the first and last row. Results the user asked for already open on the first row (D85).</summary>
     public void MoveHighlight(int delta)
     {
         if (results.Count == 0 || delta == 0) return;
@@ -368,9 +368,12 @@ public sealed class StationEditorViewModel : EditorViewModel
         var rows = outcome.Result.Items.Select(e => new CatalogResultRow(e)).ToList();
         Results = rows;
         TotalCount = outcome.Result.TotalCount;
-        TotalCountText = UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
+        var browsing = string.IsNullOrWhiteSpace(outcome.Request.Text) && outcome.Request.Filters == CatalogFilters.None;
+        TotalCountText = UiText.ResultCount(rows.Count, outcome.Result.TotalCount, browsing);
         HasNoMatches = outcome.Result.TotalCount == 0;
-        HighlightedResult = null;
+        // D85: results the user asked for open with the top match highlighted, so typing and Enter picks it; the first
+        // results after the load wait closed, with nothing highlighted, behind Down.
+        HighlightedResult = outcome.Request.Open && rows.Count > 0 ? rows[0] : null;
         if (outcome.Request.Open) IsResultsOpen = true;
         LoadRowLogos(rows);
         pendingSearch?.TrySetResult();

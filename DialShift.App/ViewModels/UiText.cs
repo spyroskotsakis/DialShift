@@ -100,27 +100,40 @@ public static class UiText
     public const string CatalogNoMatch = "No stations match — adjust filters or enter the stream manually";
     public const string ManualEntrySeparator = "Or enter stream details manually";
 
-    /// <summary>The detail pane before any result is highlighted or picked.</summary>
-    public const string CatalogDetailPlaceholder = "Point at a result or pick one to see its details and notes here.";
+    /// <summary>The detail pane before any result is highlighted or picked: how to start, and what shows here.</summary>
+    public const string CatalogDetailPlaceholder = "Type to search, or press Down to browse the most-voted stations. Details and notes show here.";
 
-    /// <summary>The catalog status line: "8274 stations · catalog updated 2026-09-25" (the UTC date of generated_utc, CAT-17),
-    /// or "8274 stations" when the file has no usable date.</summary>
+    /// <summary>The catalog status line: "8,274 stations · catalog updated 2026-09-25" (the UTC date of generated_utc, CAT-17),
+    /// or "8,274 stations" when the file has no usable date.</summary>
     public static string CatalogStatus(int count, DateTimeOffset? generatedUtc)
     {
-        var stations = count.ToString(CultureInfo.InvariantCulture) + (count == 1 ? " station" : " stations");
+        var stations = Stations(count);
         return generatedUtc is { } generated
             ? $"{stations} · catalog updated {generated.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"
             : stations;
     }
 
-    /// <summary>The results footer: "" for no match, "1 match", "214 matches" when all are shown, else "Showing 50 of 214 matches".</summary>
-    public static string ResultCount(int shown, int total)
+    /// <summary>
+    /// The results footer (D85). Browsing (no search text, no filter): "Top 50 of 8,274 stations by votes", or "7 stations
+    /// by votes" / "1 station" when all are shown. Searching or filtering: "1 match", "214 matches" when all are shown, else
+    /// "Showing 50 of 214 matches". "" when nothing matched.
+    /// </summary>
+    public static string ResultCount(int shown, int total, bool browsing)
     {
         if (total <= 0) return "";
-        var totalText = total.ToString(CultureInfo.InvariantCulture);
-        if (shown >= total) return total == 1 ? "1 match" : totalText + " matches";
-        return $"Showing {shown.ToString(CultureInfo.InvariantCulture)} of {totalText} matches";
+        if (browsing)
+        {
+            if (shown < total) return $"Top {Count(shown)} of {Stations(total)} by votes";
+            return total == 1 ? Stations(total) : Stations(total) + " by votes";
+        }
+        if (shown >= total) return total == 1 ? "1 match" : Count(total) + " matches";
+        return $"Showing {Count(shown)} of {Count(total)} matches";
     }
+
+    /// <summary>A catalog count, grouped the invariant way whatever the computer's culture: "8,274".</summary>
+    public static string Count(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string Stations(int count) => Count(count) + (count == 1 ? " station" : " stations");
 
     /// <summary>
     /// A catalog frequency as shown (§5.4, D79): "101.5 FM" for an FM value, "1593 kHz" for a medium-wave one, the raw value
