@@ -1,6 +1,16 @@
 code: FR
 name: France
 language_default: French
+city_aliases:
+  # one spelling per place in the City filter (D86): accent, hyphen and punctuation variants of the
+  # same region or department (a region maps to itself, never to its capital, D71)
+  guadeloupe: Guadeloupe
+  hauts de france: Hauts-De-France
+  ile de france: Île-De-France
+  nouvelle aquitaine: Nouvelle-Aquitaine
+  occitanie: Occitanie
+  pas de calais: Pas-De-Calais
+  provence alpes cote d azur: "Provence-Alpes-Côte D'Azur"
 curated:
 - match:
   - france inter

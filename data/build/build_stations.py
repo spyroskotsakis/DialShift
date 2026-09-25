@@ -24,8 +24,9 @@ from pathlib import Path
 
 import yaml
 
-from common import (DATA_DIR, city_aliases, classify, clean_name, dedupe_rb, fetch_radio_browser,
-                    fetch_text, language_key, language_replace, norm, norm_city, norm_freq, row_score, url_norm)
+from common import (DATA_DIR, RB_TAGS_LABEL, city_aliases, classify, clean_name, dedupe_rb,
+                    fetch_radio_browser, fetch_text, language_key, language_replace, norm, norm_city, norm_freq,
+                    row_score, url_norm)
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
 COLLECTIONS_DIR = DATA_DIR / 'collections'
@@ -348,7 +349,7 @@ def build_country(cfg, force_refresh=False):
                  codec=s.get('codec') or '', bitrate=s.get('bitrate') or '',
                  stream_status='Working', votes=s.get('votes') or 0,
                  logo=s.get('favicon') or '',
-                 notes=f"tags: {tags}", source='radio-browser'))
+                 notes=f"{RB_TAGS_LABEL} {tags}", source='radio-browser'))
         extras += 1
 
     # final safety dedupe: same normalized name + city + stream = same station

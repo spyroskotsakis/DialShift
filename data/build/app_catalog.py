@@ -20,7 +20,8 @@ import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from common import app_tag, city_aliases, language_key, language_table, norm, norm_city, row_score, url_norm
+from common import (RB_TAGS_LABEL, app_tag, city_aliases, language_key, language_table, norm, norm_city,
+                    row_score, url_norm)
 
 SCHEMA_VERSION = 1
 MAX_ENTRIES = 10_000
@@ -42,7 +43,9 @@ _INTEGER = re.compile(r'-?[0-9]+')
 # punctuation after it: the pipeline's provenance prefix of an empty note, never shown in the app.
 _BARE_LABEL = re.compile(r'[^\W_][\w+\-]*:[\W_]*')
 _EMPHASIS = re.compile(r'(?<!\w)_([^_\n]+?)_(?!\w)')        # Wikipedia _emphasis_ markers
-_LANGUAGE_LIST = re.compile('[,;]')                          # radio-browser's list syntax; not - / or .
+_LIST = re.compile('[,;]')                  # radio-browser's list syntax (languages, tags); not - / or .
+TAGS_NOTE_LABEL = 'Tags:'                   # the app's label of a formatted radio-browser tag note
+TAG_SEPARATOR = ', '
 
 
 def _text(value):
@@ -82,12 +85,28 @@ def valid_stream_url(url: str) -> bool:
     return _http_url(url) is not None
 
 
+def _tags_note(tags):
+    """A radio-browser tag list (the text after RB_TAGS_LABEL) as the app shows it: "Tags: a, b". Split on
+    , and ; (the list syntax, as for languages); each tag's whitespace runs collapsed and trimmed; a tag
+    without a letter or digit (a bare "#") dropped; repeats dropped case-insensitively (NFC, casefold),
+    keeping the first spelling. "" when no tag is left."""
+    kept = {}
+    for tag in _LIST.split(tags):
+        tag = ' '.join(tag.split())
+        if any(c.isalnum() for c in tag):
+            kept.setdefault(unicodedata.normalize('NFC', tag).casefold(), tag)
+    return f'{TAGS_NOTE_LABEL} {TAG_SEPARATOR.join(kept.values())}' if kept else ''
+
+
 def _notes(value):
     """Trimmed notes without Wikipedia _emphasis_ markers; "" when nothing readable is left: a bare
-    source label (optionally followed by punctuation only) or no letter or digit at all."""
+    source label (optionally followed by punctuation only) or no letter or digit at all. A radio-browser
+    tag note ("tags: music,variety") is formatted by _tags_note; every other note is kept as it is."""
     s = _EMPHASIS.sub(r'\1', _text(value))
     if _BARE_LABEL.fullmatch(s) or not any(c.isalnum() for c in s):
         return ''
+    if s.startswith(RB_TAGS_LABEL):
+        return _tags_note(s[len(RB_TAGS_LABEL):])
     return s
 
 
@@ -102,7 +121,7 @@ def normalize_language(raw: str, table: dict[str, tuple[str, ...]]) -> tuple[str
     canonical name, an alias's names, nothing for a drop key) or, when unknown, its capwords form. Names
     are kept once, first seen first, and joined with LANGUAGE_SEPARATOR."""
     names, unknown = [], []
-    for part in _LANGUAGE_LIST.split(_text(raw)):
+    for part in _LIST.split(_text(raw)):
         part = ' '.join(part.split())
         if not part:
             continue
@@ -245,6 +264,8 @@ def _entry_problems(i, e, mapped):
             out.append(f'{where}: {key} is the placeholder {marker!r}')
     if e['logo'] and not _http_url(e['logo']):
         out.append(f'{where}: logo is not an http(s) URL')
+    if e['notes'].startswith(RB_TAGS_LABEL):
+        out.append(f'{where}: notes is a raw radio-browser tag list (not formatted as {TAGS_NOTE_LABEL!r})')
     if not e['tag']:
         out.append(f'{where}: empty tag')
     language = _language_problem(e['language'], mapped)
@@ -451,6 +472,27 @@ def self_test() -> int:
         msg = unnormalized_error(key)
         check(f'city_aliases: key {key!r} not in norm() form is a hard error naming file, key and {want}',
               'fixture.yaml' in msg and repr(key) in msg and want in msg and "'fixton north' (" not in msg)
+    def chain_error(block):
+        try:
+            city_aliases(block, 'fixture.yaml')
+        except ValueError as e:
+            return str(e)
+        return ''
+
+    chained = chain_error({'fixtoen': 'Fixtön', 'fixton': 'Fixtonia'})    # norm('Fixtön') is the key 'fixton'
+    check('city_aliases: a chain (a city whose norm() is a key mapping elsewhere) is a hard error naming both keys',
+          'fixture.yaml' in chained and 'chain' in chained and "'fixtoen'" in chained and "'fixton'" in chained)
+    group = city_aliases({'fixtoen': 'Fixtön', 'fixton': 'Fixtön', 'fixtonn': 'Fixtön'}, 'fixture.yaml')
+    check('city_aliases: a group of spellings mapped to one city passes, the city\'s own key included',
+          group['fixton'] == 'Fixtön')
+    check('norm_city: every spelling of a group gives one city, and that city maps to itself (no chain)',
+          {norm_city(c, group) for c in ('Fixtoen', 'FIXTÖN', 'Fixton,', 'fixtonn', 'Fixtön')} == {'Fixtön'})
+    group_rows = [_row(country='XD', name='Group One', city=c, stream_url='https://x.example.test/g')
+                  for c in ('Fixtoen', 'Fixtön')]
+    _, grouped = build_app_catalog([({'code': 'XD', 'name': 'Groupland', 'city_aliases': group}, group_rows)],
+                                   _UTC, langs)
+    check('dedupe key: one station under two spellings of an aliased city is one duplicate',
+          grouped['duplicates_removed'] == 1)
     check('city_aliases: keys already in norm() form pass (Greek transliterated form too)',
           city_aliases({'frankfurt am main': 'Frankfurt', 'thessaloniki': 'Thessaloniki', 'in athens': 'Athens'},
                        'fixture.yaml') == {'frankfurt am main': 'Frankfurt', 'thessaloniki': 'Thessaloniki',
@@ -473,16 +515,33 @@ def self_test() -> int:
           and strs['bitrate'] == 192 and by_name['Fixture One'][0]['bitrate'] == 128)
     check('votes: "" and negative -> null, "7" -> 7', pad['votes'] is None and num['votes'] is None
           and strs['votes'] == 7)
-    check('notes: bare "tags:" -> "", _text_ -> text, tags kept', pad['notes'] == ''
-          and num['notes'] == 'relays of Some Name here' and strs['notes'] == 'tags: jazz,soul')
+    check('notes: bare "tags:" -> "", _text_ -> text, a tag list formatted', pad['notes'] == ''
+          and num['notes'] == 'relays of Some Name here' and strs['notes'] == 'Tags: jazz, soul')
     check('notes: a bare "curated:" label -> ""', by_name['Bare Label'][0]['notes'] == '')
     for note, want in (('tags:', ''), ('curated:', ''), (' curated:  ', ''), ('wiki:', ''), ('source:\t', ''),
                        ('curated+radio-browser:', ''), ('tags: ..', ''), ('curated: —', ''), ('tags: , ;', ''),
                        ('Πηγή:', ''), ('—', ''), (' .. ', ''), (None, ''), ('_curated_:', ''),
-                       ('tags: 80s', 'tags: 80s'), ('curated: pinned stream', 'curated: pinned stream'),
+                       ('tags: 80s', 'Tags: 80s'), ('curated: pinned stream', 'curated: pinned stream'),
                        ('Info: 24/7', 'Info: 24/7'), ('Radio in Fixton:', 'Radio in Fixton:'),
                        ('source: _Some Wiki_', 'source: Some Wiki'), ('ok', 'ok')):
         check(f'notes: {note!r} -> {want!r}', _notes(note) == want)
+    # radio-browser tag notes (D86): "Tags: " + the tags joined with ", "; every other note untouched
+    nfd_cafe = unicodedata.normalize('NFD', 'café')
+    for note, want in (('tags: music,variety', 'Tags: music, variety'),                  # the common shape
+                       ('  tags:jazz , soul  ', 'Tags: jazz, soul'),                     # trimmed
+                       ('tags: Rock,rock,ROCK,pop', 'Tags: Rock, pop'),                  # case-insensitive, first kept
+                       ('tags: straße,STRASSE', 'Tags: straße'),                         # casefold, not lower
+                       (f'tags: café,{nfd_cafe}', 'Tags: café'),                         # NFC before comparing
+                       ('tags: ,, jazz ,,', 'Tags: jazz'),                               # empty tags dropped
+                       ('tags: #,#charts,club  dance', 'Tags: #charts, club dance'),     # no letter/digit dropped
+                       ('tags: darkwave; ebm; gothic,ebm', 'Tags: darkwave, ebm, gothic'),  # ; is a separator
+                       ('tags: hip-hop,r&b/urban,top 40', 'Tags: hip-hop, r&b/urban, top 40'),  # not - or /
+                       ('tags: #,-', ''),                                                # nothing readable left
+                       ('tags: _Soul_,funk', 'Tags: Soul, funk'),                        # _emphasis_ first
+                       ('Tags: music, variety', 'Tags: music, variety'),                 # idempotent
+                       ('TAGS: a,b', 'TAGS: a,b'), ('Radio tags: a,b', 'Radio tags: a,b'),  # not the label
+                       ('curated: tags,and,commas', 'curated: tags,and,commas')):
+        check(f'notes: tag note {note!r} -> {want!r}', _notes(note) == want)
     check('logo: "null" and ftp -> "", https kept', pad['logo'] == '' and num['logo'] == ''
           and strs['logo'] == 'https://a.example.test/l.png')
     check('tag of Other/Other is "Other"', pad['tag'] == 'Other')
@@ -528,6 +587,9 @@ def self_test() -> int:
     check('rule 2: internet_only as a string', broken(lambda d: d['stations'][0].update(internet_only='No')) != [])
     check('rule 2: city placeholder', broken(lambda d: d['stations'][0].update(city='—')) != [])
     check('rule 2: empty tag', broken(lambda d: d['stations'][0].update(tag='')) != [])
+    check('rule 2: a raw radio-browser tag note', any('raw radio-browser tag list' in p for p in broken(
+        lambda d: d['stations'][0].update(notes='tags: jazz,soul'))))
+    check('rule 2: a formatted tag note passes', broken(lambda d: d['stations'][0].update(notes='Tags: jazz')) == [])
     check('rule 3: empty name', broken(lambda d: d['stations'][0].update(name='')) != [])
     check('rule 3: empty country', broken(lambda d: d['stations'][0].update(country='')) != [])
     check('rule 3: invalid URL', broken(lambda d: d['stations'][0].update(stream_url='ftp://x')) != [])
