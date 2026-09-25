@@ -3,8 +3,9 @@ using System.Collections.ObjectModel;
 namespace DialShift.Core.Catalog;
 
 /// <summary>The loaded catalog with its search keys folded once (D70). Immutable and thread-safe.</summary>
-/// <remarks>Folding per search measured up to 11.2 ms on the real catalog; matching the precomputed keys ordinally
-/// takes well under a millisecond (docs/catalog-contracts.md §1). The index is built once, inside the load.</remarks>
+/// <remarks>Matching each search with culture-aware <c>CompareInfo.IndexOf(IgnoreCase | IgnoreNonSpace)</c> measured up
+/// to 11.2 ms on the real catalog; matching these precomputed folded keys ordinally takes well under a millisecond
+/// (docs/catalog-contracts.md §1). The index is built once, inside the load.</remarks>
 public sealed class StationCatalogIndex
 {
     private readonly StationCatalogEntry[] items;

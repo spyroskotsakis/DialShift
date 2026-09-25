@@ -135,11 +135,13 @@ public static partial class StationCatalogQuery
     /// <c>ς→σ ß→ss æ→ae œ→oe ø→o ł→l đ→d ı→i</c>, then each whitespace run collapsed to one space and both ends trimmed.
     /// So <c>"München"</c> → <c>"munchen"</c>, <c>"ΑΘΗΝΑΣ"</c> and <c>"αθήνας"</c> → <c>"αθηνασ"</c>, <c>"ﬁp"</c> →
     /// <c>"fip"</c>. Returns <paramref name="value"/> itself when it is already folded.
+    /// <para>Never throws (D77): FormKD rejects an unpaired surrogate, so each one becomes U+FFFD first; valid pairs are
+    /// kept, and text without surrogates is normalized as is.</para>
     /// </remarks>
     internal static string Fold(string value)
     {
         if (value.Length == 0) return value;
-        var decomposed = value.Normalize(NormalizationForm.FormKD);
+        var decomposed = ReplaceUnpairedSurrogates(value).Normalize(NormalizationForm.FormKD);
         // ß, æ and œ become two characters each, so the folded text is at most twice as long as the decomposed text.
         var capacity = decomposed.Length * 2;
         char[]? rented = null;
@@ -182,6 +184,41 @@ public static partial class StationCatalogQuery
         {
             if (rented is not null) ArrayPool<char>.Shared.Return(rented);
         }
+    }
+
+    /// <summary><paramref name="value"/> with each unpaired high or low surrogate replaced by U+FFFD (D77), or
+    /// <paramref name="value"/> itself when it has none, which is the common case and allocates nothing.</summary>
+    private static string ReplaceUnpairedSurrogates(string value)
+    {
+        var first = FirstUnpairedSurrogate(value);
+        if (first < 0) return value;
+        return string.Create(value.Length, (value, first), static (text, state) =>
+        {
+            state.value.AsSpan().CopyTo(text);
+            for (var i = state.first; i < text.Length; i++)
+            {
+                if (!char.IsSurrogate(text[i])) continue;
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+                else text[i] = '\uFFFD';
+            }
+        });
+    }
+
+    /// <summary>The index of the first unpaired surrogate in <paramref name="text"/>, or -1. A vectorized search finds the
+    /// first surrogate, so text without one costs one fast pass and no allocation.</summary>
+    /// <remarks>The search runs on the text as <c>ushort</c>: the <c>char</c> overload of <c>IndexOfAnyInRange</c> measured
+    /// 96 bytes allocated per call on .NET 10, which would add an allocation to every fold.</remarks>
+    private static int FirstUnpairedSurrogate(ReadOnlySpan<char> text)
+    {
+        var start = MemoryMarshal.Cast<char, ushort>(text).IndexOfAnyInRange((ushort)0xD800, (ushort)0xDFFF);
+        if (start < 0) return -1;
+        for (var i = start; i < text.Length; i++)
+        {
+            if (!char.IsSurrogate(text[i])) continue;
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+            else return i;
+        }
+        return -1;
     }
 
     /// <summary>
