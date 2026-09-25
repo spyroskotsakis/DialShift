@@ -6,6 +6,7 @@ import json
 import re
 import ssl
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -95,6 +96,102 @@ def city_aliases(value, source):
         raise ValueError(f'{source}: city_aliases keys must be in normalized form (lowercase, no '
                          'accents or punctuation) or they never match: ' + ', '.join(unnormalized))
     return dict(value)
+
+# ---------------------------------------------------------------- languages (data/languages.yaml)
+def language_key(s):
+    """The lookup key of a language token: NFC, str.lower(), every whitespace run -> one space, trimmed."""
+    return ' '.join(unicodedata.normalize('NFC', str(s)).lower().split())
+
+def _key_problem(what, k):
+    """Why k cannot be a key of the language table, or None (a key must be a string in key form)."""
+    if not isinstance(k, str):
+        return f'{what} {k!r} is not a string (quote it: YAML reads an unquoted no, yes, on or off as a boolean)'
+    if not language_key(k):
+        return f'{what} {k!r} is empty'
+    if k != language_key(k):
+        return f'{what} {k!r} is not in key form and would never match (write it as {language_key(k)!r})'
+    return None
+
+def language_replace(value, source):
+    """A country YAML's `language_replace` block: a radio-browser language value (the whole value, in
+    language_key form) -> the language the canonical CSV gets instead (missing or empty = {}). A key not in
+    key form, or an empty value, is a hard error naming source: it would never apply and fail silently."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f'{source}: language_replace must be a mapping of radio-browser language -> language')
+    problems = [_key_problem('language_replace key', k) for k in value]
+    problems += [f'language_replace {k!r} must map to a non-empty string' for k, v in value.items()
+                 if not (isinstance(v, str) and v.strip())]
+    problems = [p for p in problems if p]
+    if problems:
+        raise ValueError(f'{source}: ' + '; '.join(problems))
+    return dict(value)
+
+def language_table(value, source):
+    """data/languages.yaml checked as one lookup: each canonical name's key -> (name,), each alias key ->
+    its names, each drop key -> (). A bad table is a hard ValueError naming source and every problem:
+    a key never matching, or an alias to a name that is not listed, would otherwise fail silently."""
+    if not isinstance(value, dict):
+        raise ValueError(f'{source}: must be a mapping with a non-empty languages list (and optional aliases '
+                         'and drop)')
+    problems = [f'unknown top-level key {k!r} (expected languages, aliases, drop)'
+                for k in value if k not in ('languages', 'aliases', 'drop')]
+    names, aliases, drop = value.get('languages'), value.get('aliases') or {}, value.get('drop') or []
+    if not isinstance(names, list) or not names:
+        problems.append('languages must be a non-empty list of canonical names')
+        names = []
+    if not isinstance(aliases, dict):
+        problems.append('aliases must be a mapping of key -> canonical name or list of names')
+        aliases = {}
+    if not isinstance(drop, list):
+        problems.append('drop must be a list of keys')
+        drop = []
+    table, listed = {}, set()
+    for name in names:
+        if not (isinstance(name, str) and name and name == ' '.join(name.split())
+                and name == unicodedata.normalize('NFC', name)) or ',' in name or ';' in name:
+            problems.append(f'canonical name {name!r} must be a non-empty NFC string, trimmed with single '
+                            'spaces, without , or ;')
+            continue
+        key = language_key(name)
+        if key in table:
+            problems.append(f'canonical names {table[key][0]!r} and {name!r} have the same key {key!r}')
+            continue
+        table[key] = (name,)
+        listed.add(name)
+    for k, target in aliases.items():
+        problem = _key_problem('alias key', k)
+        if problem:
+            problems.append(problem)
+            continue
+        targets = [target] if isinstance(target, str) else target
+        if not isinstance(targets, list) or not targets:
+            problems.append(f'alias {k!r} must map to a canonical name or a non-empty list of them')
+        elif k in table:
+            problems.append(f'alias key {k!r} is the key of a canonical name, which already matches itself '
+                            'in any case')
+        else:
+            unlisted = [t for t in targets if not isinstance(t, str) or t not in listed]
+            if unlisted:
+                problems.append(f'alias {k!r} maps to {unlisted!r}, not listed under languages')
+            else:
+                table[k] = tuple(targets)
+    for k in drop:
+        problem = _key_problem('drop key', k)
+        if problem:
+            problems.append(problem)
+        elif k in aliases:
+            problems.append(f'key {k!r} is both an alias and a drop')
+        elif table.get(k) == ():
+            problems.append(f'drop key {k!r} is listed twice')
+        elif k in table:
+            problems.append(f'drop key {k!r} is the key of a canonical name')
+        else:
+            table[k] = ()
+    if problems:
+        raise ValueError(f'{source}: ' + '; '.join(problems))
+    return table
 
 # ---------------------------------------------------------------- row helpers
 def row_score(r):

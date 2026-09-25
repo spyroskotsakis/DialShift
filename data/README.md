@@ -13,6 +13,7 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 | **Per-country CSVs** | `canonical/<country>-stations.csv` | clean, one row per station |
 | **Country data files** | `countries/<name>.yaml` | THE source of truth for curated station facts |
 | **Collection data files** | `collections/<name>.yaml` | curated genre folders of internet radio (Ambient & Chill) |
+| **Language table** | `languages.yaml` | the app catalog's language names, aliases and dropped non-languages (the only place for language facts) |
 | **Build scripts** | `build/` | one generic pipeline + the XLSX writer |
 | **Raw caches** | `raw/<CC>/` | downloaded sources; disposable, auto-regenerated, **not in git** |
 
@@ -63,7 +64,7 @@ The one file the app reads. `build/build_all.py` writes it on every run, from th
 writes to `canonical/*.csv` (after the CSVs, before the XLSX); `build/app_catalog.py` holds the
 export, the validation and the writer. It is **generated, never hand-edited, and checked in**
 like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
-`docs/catalog-contracts.md` §2 (decisions D59, D69, D71).
+`docs/catalog-contracts.md` §2 (decisions D59, D69, D71, D84).
 
 - **Shape:** `{"schema_version":1,"generated_utc":"yyyy-MM-ddTHH:mm:ssZ","stations":[…]}`, UTF-8,
   one station per line (readable diffs). Each station has exactly these 18 keys, in this order:
@@ -81,12 +82,31 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   note that is only a source label (`tags:`, `curated:`, …) followed by nothing or punctuation, or
   that has no letter or digit at all, becomes `""` (the CSVs and the XLSX keep the pipeline's
   label); logos that are not http(s) become `""`.
+- **Language (D84):** a list of single language names joined with `", "` (`English, German, Low
+  German`), or `""`. The raw value is split on `,` and `;` only (never on `-`, `/` or `.`), and each
+  token is looked up in `languages.yaml` (below) in any case: a canonical name stays itself, an alias
+  becomes its name or names, a drop key disappears; names are kept once, first seen first. Only the
+  JSON is normalized: the CSVs and the XLSX keep the raw value.
 - **Validation (hard failure, same run):** schema version, the 18 keys and their types, non-empty
   name and country, valid stream URL, no duplicate `(name, country, stream_url)`, the count equals
-  the Working rows that pass the URL rule, 1–10,000 entries. On any problem the run prints every
-  problem, exits non-zero and leaves the previous JSON (and the XLSX) untouched. If it fails on real
-  data, fix the YAML, not the script. Every run logs one line, for example
-  `app-catalog: working=8281 url_excluded=7 duplicates_removed=0 exported=8274 -> data/output/app-catalog.json`.
+  the Working rows that pass the URL rule, 1–10,000 entries, and every `language` a clean list
+  (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key). On any problem
+  the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
+  untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
+  example
+  `app-catalog: working=8281 url_excluded=7 duplicates_removed=0 exported=8274 -> data/output/app-catalog.json`
+  and `app-catalog: languages=42 unknown=0`.
+- **Language table (`languages.yaml`):** `languages` (canonical names: a language's usual English
+  name), `aliases` (key → one name or a list: spellings, typos, native names, and dialects or
+  varieties mapped to their language, e.g. `deutsch fränkisch: German`; Low German, Sorbian,
+  Breton, Occitan and the other recognized regional languages keep their own name) and `drop`
+  (tokens that are not a language: `instrumental`, `multilingual`, …). Keys are written lower case
+  with single spaces; a key in another form, an unquoted `no:`/`yes:`, an alias to a name not
+  listed, or a key both aliased and dropped stops the run before anything is written, naming every
+  problem. A token the table does not know is **not** a failure: it is exported in capwords form
+  and reported, one line each, as
+  `app-catalog: unknown language "<token>" in <n> entries, exported as "<Token>"; add it to data/languages.yaml`.
+  Add it under `languages`, `aliases` or `drop` and rebuild, so the run says `unknown=0` again.
 - **Self-test:** `.venv/bin/python build/app_catalog.py --self-test` (stdlib only, inline fixtures,
   no network).
 - **In the app:** the build copies the file next to the app (the output and publish folders, and
@@ -108,13 +128,16 @@ notes · source`
   **None** (not applicable/unknown). Only filled where well documented.
 - `internet_only` — Yes (web-only) · No (terrestrial) · Unknown (not in an official FM directory)
 - `stream_status` — Working / Down / No stream found (from radio-browser.info checks)
+- `language` — as the source gives it (radio-browser's comma-joined list, or the YAML value),
+  kept as provenance; only the app catalog normalizes it (above)
 
 ## How it works (single source of truth, no double-maintained data)
 
 1. **`countries/<name>.yaml`** holds the only hand-maintained data: curated station facts
    (name, city, type, genre, political leaning, optional pinned stream URL), national-programme
-   consolidation rules (the ERT network), city aliases, and an optional Wikipedia list URL.
-   Station data never lives in Python code.
+   consolidation rules (the ERT network), city aliases, the language defaults, and an optional
+   Wikipedia list URL. **`languages.yaml`** holds the app catalog's language table. Station and
+   language data never live in Python code.
 2. **`build/build_stations.py`** is THE pipeline for every country (same logic, zero per-country code):
    fetch → Wikipedia FM list (optional) → radio-browser stream pool → national consolidation →
    curated overlay → unmatched extras → dedupe → canonical rows.
@@ -141,6 +164,10 @@ notes · source`
    `auvergne rhone alpes: Lyon` would move every station in the region to Lyon. The block is
    optional (`france.yaml` has none). Quote a key YAML reads as a boolean or a number
    (`'no': …`): the build stops on a block that is not all non-empty strings.
+   `language_default` is the CSV language of a station whose source gives none. The optional
+   `language_replace` maps a whole radio-browser language value, written lower case with single
+   spaces, to the language the CSV gets instead (`greece.yaml`: `ancient greek: Greek`); the build
+   stops on a key in another form.
 2. Optional: `wiki.url` for a Wikipedia FM list, and `focus_areas` for local shortlist tabs
    (a focus area is a city — `{city: Paris, label: Paris}` — or a region —
    `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;
@@ -154,7 +181,8 @@ and a `stations:` list — each entry: `name`, `match` (radio-browser search key
 (e.g. `SomaFM · Ambient / downtempo`; the tab's Description / Genre column and the app's
 Description/Genre tag are the same `app_tag()` text, `<type> · <genre>` with an optional `type`
 that defaults to `Music`), optional pinned `url`,
-`language`, `notes`. Unpinned entries resolve their stream from radio-browser at build time.
+`language` (else the collection's `language_default`), `notes`. Unpinned entries resolve their
+stream from radio-browser at build time.
 Collections become their own tab + `canonical/collection-<code>.csv`.
 
 ## Refreshing the data
@@ -166,7 +194,9 @@ uv pip install --python .venv/bin/python openpyxl pyyaml pillow
 .venv/bin/python build/build_all.py --refresh     # re-downloads sources and rebuilds
 ```
 
-Refreshing is manual (D65): run with `--refresh`, check the `app-catalog:` line, then commit
+Refreshing is manual (D65): run with `--refresh`, check the `app-catalog:` lines (a refresh can
+bring new language spellings: add every reported unknown language to `languages.yaml` and rerun
+until `unknown=0`), then commit
 the regenerated `canonical/*.csv`, `output/dialshift-radio-catalog.xlsx` and
 `output/app-catalog.json` together. The next app build ships the new catalog; no app code changes.
 
@@ -189,7 +219,8 @@ votes); commit such a change only together with the JSON built from it.
 
 - Never edit `canonical/`, `output/` (the XLSX and `app-catalog.json`), or `raw/` by hand — they
   are generated; edits get overwritten.
-- Curated facts go ONLY in `countries/*.yaml`.
+- Curated facts go ONLY in `countries/*.yaml` (and `collections/*.yaml`); language names,
+  aliases and drops ONLY in `languages.yaml`.
 - Streams rot: prefer letting curated entries resolve their stream dynamically from
   radio-browser (omit `url` in the YAML); pin a `url` only for official streams you have verified.
 - Same-name stations in different cities are kept separate (matching is by name + state).

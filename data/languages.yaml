@@ -1,0 +1,150 @@
+# The language table of the app catalog (decision D84, docs/catalog-contracts.md §2.6).
+#
+# The ONLY place for language facts: build/app_catalog.py splits a station's raw `language`
+# (radio-browser free text or a YAML value) on `,` and `;`, looks each token up here by its key
+# (NFC, lower case, whitespace runs collapsed to one space), and exports the names joined with ", ".
+# Only output/app-catalog.json uses this table; the canonical CSVs and the XLSX keep the raw value.
+#
+# - languages: the canonical names, each a language's usual English name. A canonical name
+#   matches itself in any case, so it needs no alias. A dialect, regional variety, region, script
+#   or genre is not a canonical name: it is an alias of its language. A language with an
+#   ISO 639-1 code, or a regional or minority language Germany or France recognizes, keeps its name.
+# - aliases: key -> one canonical name, or a list of them (spellings, typos, native names, dialects).
+# - drop: keys that are not a language (genres, "multilingual", stray text); they export nothing.
+#
+# Keys are written in key form (lower case, single spaces) or the build stops and says how to write
+# them; quote a key YAML reads as a boolean or a number ('no', 'yes', 'on', 'off').
+# A run that meets a token this table does not know prints
+#   app-catalog: unknown language "<token>" in <n> entries, exported as "<Capwords>"; add it to data/languages.yaml
+# Add it under languages (a real language), aliases or drop, and rebuild.
+
+languages:
+  - Arabic
+  - Armenian
+  - Basque
+  - Bosnian
+  - Breton
+  - Catalan
+  - Chinese
+  - Corsican
+  - Creole
+  - Croatian
+  - Czech
+  - Dutch
+  - English
+  - Esperanto
+  - French
+  - Gallo
+  - German
+  - Greek
+  - Hindi
+  - Italian
+  - Japanese
+  - Korean
+  - Kurdish
+  - Low German
+  - Luxembourgish
+  - Malagasy
+  - Occitan
+  - Persian
+  - Polish
+  - Portuguese
+  - Romanian
+  - Russian
+  - Serbian
+  - Sorbian
+  - Spanish
+  - Swahili
+  - Swedish
+  - Tamazight
+  - Turkish
+  - Ukrainian
+  - Vietnamese
+  - Yiddish
+
+aliases:
+  # Basque, Breton, Corsican
+  euskera: Basque
+  brezhoneg: Breton
+  corsu: Corsican
+  # Czech, Dutch, Hindi, Kurdish
+  bohemian: Czech
+  flemish: Dutch
+  hind: Hindi
+  kurdi: Kurdish
+  # English: varieties and typos
+  american english: English
+  british english: English
+  english uk: English
+  engilsh: English
+  englsih: English
+  engels: English
+  английский: English
+  # French: spellings, typos and native names
+  français: French
+  francaise: French
+  franch: French
+  fench: French
+  fra: French
+  französich: French
+  francia: French
+  # German: spellings, typos, native names and the dialects and varieties (Low German is its own language)
+  deutsch: German
+  deutch: German
+  gernan: German
+  ger: German
+  德语: German
+  'germanhttps://stream.laut.fm/deutrockosterreich': German
+  deutsch fränkisch: German
+  fränkisch: German
+  norddeutsch: German
+  sächsisch: German
+  kölscher dialekt: German
+  pfälzisch: German
+  bayrisch: German
+  bavarian: German
+  swabian: German
+  swiss german: German
+  # Greek
+  ελληνικά: Greek
+  ancient greek: Greek
+  # Occitan: its dialects
+  gascon: Occitan
+  bearnese: Occitan
+  # Russian
+  'язык: русский': Russian
+  # Sorbian: its two standard forms
+  upper sorbian: Sorbian
+  lower sorbian: Sorbian
+  # Spanish: spellings, native names and regions
+  espanish: Spanish
+  espaňol: Spanish
+  español internacional: Spanish
+  castellano. español: Spanish
+  spain: Spanish
+  latinoamerica: Spanish
+  # Turkish, Ukrainian
+  türkisch: Turkish
+  turkçe: Turkish
+  ukrainisch: Ukrainian
+  ukranian: Ukrainian
+  # one token naming several languages (radio-browser lists are comma-joined; these are not)
+  français - lëtzebuergesch: [French, Luxembourgish]
+  'english/ españa/ russian /francia /italia': [English, Spanish, Russian, French, Italian]
+
+drop:
+  # genres and descriptions, not languages
+  - instrumental
+  - music
+  - pop music
+  - roots
+  - global
+  - multilingual
+  - various languages
+  # stray values: a lone letter, and extinct or historical languages set on
+  # contemporary music streams
+  - f
+  - aka bo
+  - moselle romance
+  - muromian
+  - old novgorod

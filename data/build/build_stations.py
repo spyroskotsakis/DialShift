@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 from common import (DATA_DIR, city_aliases, classify, clean_name, dedupe_rb, fetch_radio_browser,
-                    fetch_text, norm, norm_city, norm_freq, row_score, url_norm)
+                    fetch_text, language_key, language_replace, norm, norm_city, norm_freq, row_score, url_norm)
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
 COLLECTIONS_DIR = DATA_DIR / 'collections'
@@ -38,6 +38,7 @@ def load_country(path):
     with open(path, encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     cfg['city_aliases'] = city_aliases(cfg.get('city_aliases'), Path(path).name)
+    cfg['language_replace'] = language_replace(cfg.get('language_replace'), Path(path).name)
     # focus areas: 'focus_areas:' list (city- or region-based), or the older
     # 'focus_cities:' / single 'focus:' block (kept working for compatibility)
     cfg['focus_areas'] = cfg.get('focus_areas') or cfg.get('focus_cities') \
@@ -337,8 +338,7 @@ def build_country(cfg, force_refresh=False):
         tags = s.get('tags', '') or ''
         t, g = classify('', tags, code)
         lang = (s.get('language') or '').title() or lang_default
-        if lang == 'Ancient Greek':
-            lang = lang_default or 'Greek'
+        lang = cfg['language_replace'].get(language_key(lang), lang)
         add(dict(country=code, name=s['name'], name_local='',
                  city=norm_city(s.get('state') or '', aliases) or '—',
                  region=s.get('state') or '(unlisted)',
@@ -413,7 +413,7 @@ def build_collection(cfg):
         rows.append(dict(country='Internet', name=e.get('name') or (e.get('match') or [''])[0],
                          name_local='', city='—', region='Internet radio',
                          frequency_fm='', type=e.get('type', 'Music'),
-                         genre=e.get('genre', ''), language=e.get('language', 'Instrumental'),
+                         genre=e.get('genre', ''), language=e.get('language', cfg.get('language_default', '')),
                          political_leaning='None', internet_only='Yes',
                          stream_url=url, codec=(s or {}).get('codec', ''),
                          bitrate=(s or {}).get('bitrate', 0),
