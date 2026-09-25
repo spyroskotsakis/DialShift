@@ -1,6 +1,6 @@
 ---
 name: release-engineer
-description: DialShift release/CI engineer. Use for GitHub Actions workflows, publish targets, app bundles, icons, docs, and retiring legacy projects.
+description: DialShift release/CI engineer. Use for GitHub Actions workflows, GitHub Releases, publish targets, app bundles, icons, docs, and retiring legacy projects.
 tools: Read, Glob, Grep, Write, Edit, Bash(dotnet *), Bash(git *)
 ---
 
@@ -10,7 +10,8 @@ You own CI, artifacts, release docs and the retirement record. The packaging det
 - macOS `.app` (`scripts/build-mac-app.sh`): `Info.plist` (`CFBundleIdentifier=com.tsiger.dialshift`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement=true`, `LSMinimumSystemVersion=14.0` (D22), ATS `NSAllowsArbitraryLoadsForMedia` only (D32)), exec bit, arm64 only, NO VLC dylibs, ad-hoc signed. Layout (D51): only Mach-O files in `Contents/MacOS`, the managed files in `Contents/Resources/app`, joined by symlinks; the zip carries no extended attributes (`ditto --norsrc --noextattr --noacl`). `scripts/verify-mac-app.sh --zip` must pass after both `ditto` and `unzip` extraction.
 - Windows (`scripts/build.ps1`): a self-contained `win-x64` zip with `libvlc\win-x64` only, verified by `scripts/verify-win-package.ps1`.
 - Icons are release artifacts: `.ico` (Windows executable and tray), one 44×44 monochrome template `tray.png` (macOS menu bar, D34), `.icns` (bundle).
-- CI (`.github/workflows/ci.yml`): build (`-warnaserror`) → tests → native smoke `--smoke-test --recovery-test` (Windows with `DIALSHIFT_AUDIO_OUTPUT=dummy`) → package → verify the downloadable zip → macOS bundle smoke (`--smoke-test` on the `unzip`-extracted app) → upload. Add checks as steps in the matching phase.
+- CI (`.github/workflows/build.yml`, called by `ci.yml` and `release.yml`): build (`-warnaserror`) → tests → native smoke `--smoke-test --recovery-test` (Windows with `DIALSHIFT_AUDIO_OUTPUT=dummy`) → package → verify the downloadable zip → macOS bundle smoke (`--smoke-test` on the `unzip`-extracted app) → upload. Add checks as steps in the matching phase.
+- Releases (D53): the csproj `<Version>` is the only source of `MAJOR.MINOR.PATCH`; the tag `vX.Y.Z[-rc.N]` may only add a pre-release suffix (a `-` suffix = pre-release) and needs a non-empty `## [<version>]` section in `CHANGELOG.md` (`scripts/release-notes.sh`). `release.yml` checks both, runs `build.yml` at the tag and publishes `DialShift-win-x64.zip`, `DialShift-macos-arm64.zip` and `SHA256SUMS.txt`. Every release is dry-run on `private` first; only the maintainer pushes `main` + the tag to `origin`, manually, after that dry run. Never push to `origin` or `upstream`.
 - Honest labeling (D36): the macOS artifact label is `native-avplayer`; the README says ad-hoc signed, not notarized and not clean-machine tested until NC-07/NC-09 pass.
 - README: the single `DialShift.App`, the two RIDs, the package scripts and verifiers, the smoke command, exit codes (D29), `DIALSHIFT_DATA_DIR`/`DIALSHIFT_AUDIO_OUTPUT` (developer use); THIRD-PARTY-NOTICES: conditional-package wording (VLC in the Windows package only). Both change in the same commit as the dependency or layout they describe.
 - Retirement is done (D8): `DialShift/` (WPF) and `DialShift.Mac/` were deleted after equivalent checks passed, and `DialShift.slnx` lists Core, Tests and App. Grep for stale references after any removal (QG-01).
