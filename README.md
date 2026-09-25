@@ -11,6 +11,10 @@ One Avalonia app, `DialShift.App`, ships as two self-contained packages:
 
 There is no Intel Mac build.
 
+## Open items / release status
+
+Both packages build, test and pass the native smoke in CI. Before the phase can be signed off and a release made, some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
+
 ## Run on Windows
 
 Extract `DialShift-win-x64.zip` and open `DialShift.exe` (a local build is at `artifacts/DialShift-win-x64/DialShift.exe`). Keep the whole folder together: it includes .NET and VLC. No separate runtime or VLC installation is needed.
