@@ -80,6 +80,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D74 | 2026-09-25 | Core catalog types carry no JSON attributes; the App parses through private DTOs; a relative `DIALSHIFT_CATALOG_PATH`, a wrong `schema_version`, an oversized or empty catalog are Unavailable, with no fallback | brief 3 §5.2, §7 |
 | D75 | 2026-09-25 | While the private repository's Actions are refused, the per-phase gate is the local macOS build plus tests; a CAT row missing only Windows evidence is `WINDOWS-PENDING` | brief 3 §10, §12; D58 |
 | D76 | 2026-09-25 | The app packages now carry third-party catalog data (radio-browser.info, Wikipedia): `THIRD-PARTY-NOTICES.md` gains a station-catalog section in the same change as the bundling | brief 3 §5, §10 (CAT-18) |
+| D77 | 2026-09-25 | Fold never throws: unpaired surrogates become U+FFFD before FormKD, so `Search` and the index never throw on text content (amends D70's fold) | brief 3 §7.2; D70 |
 
 ---
 
@@ -723,7 +724,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 
 ## D70 — Brief 3: culture-independent matching on a folded index
 
-- **Status:** Adopted (spec lane, Phase 0); amends the brief's `Search` signature.
+- **Status:** Adopted (spec lane, Phase 0); amends the brief's `Search` signature. Fold step 1 amended by D77 (unpaired surrogates).
 - **Decision:** `StationCatalogIndex` folds name, local name and city once (FormKD, non-spacing marks removed, invariant lower case, `ς→σ ß→ss æ→ae œ→oe ø→o ł→l đ→d ı→i`, whitespace collapsed) and keeps the frequency digits; `StationCatalogQuery.Search(StationCatalogIndex, string?, CatalogFilters, int cap = 50)` matches ordinally on those keys. A frequency query is 2–4 digits with an optional `.`/`,` and up to 2 decimals and an optional `fm`/`mhz`/`khz`; it matches when the entry's frequency digits start with the query's digits. Tiers: name prefix, name substring, local name or city, frequency. Ties: votes desc (null = 0), folded name, name, country, stream URL, position, all ordinal. Exact rules: `docs/catalog-contracts.md` §3.3.
 - **Rationale:** Measured on the real data, `CompareInfo.IndexOf(…, IgnoreCase | IgnoreNonSpace)` per field per search took up to 11.2 ms (`münchen`) before any ranking, over the 10 ms budget; the same search on folded keys took 0.12–0.22 ms, and folding every row once takes 7.3 ms, inside the load budget. Ordinal tie-breaks make the order identical on every OS and culture, which the tests need.
 - **Consequence:** CAT-06, CAT-07, CAT-09, CAT-16. `Fold` is internal to Core and tested directly.
@@ -782,3 +783,12 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Rationale:** Until now the catalog lived only in the repository's `data/` folder; shipping it inside the app is a new redistribution.
 - **Consequence:** Part of CAT-18.
 - **Brief ref:** brief 3 §5, §10 (CAT-18).
+
+## D77 — Brief 3: fold never throws on unpaired surrogates
+
+- **Status:** Adopted (spec lane, 2026-09-25); amends D70 and `docs/catalog-contracts.md` §3.3 step 1.
+- **Decision:** Fold never throws. Step 1 of `Fold` first replaces every unpaired high surrogate (U+D800–U+DBFF not followed by a low surrogate) and every unpaired low surrogate (U+DC00–U+DFFF not preceded by a high surrogate) with U+FFFD, then applies `Normalize(NormalizationForm.FormKD)`; steps 2–4 are unchanged. A well-formed string may skip the replacement scan (a string with no surrogate code unit is always well-formed), but `string.IsNormalized` is not a validity test, because it throws on the same input.
+- **Context:** The core lane's adversarial review found that `string.Normalize(NormalizationForm.FormKD)` throws `ArgumentException` ("String contains invalid Unicode code points") on an unpaired surrogate. Repro: `StationCatalogQuery.Search(StationCatalogIndex.Empty, "\uD800", CatalogFilters.None)` throws, and so does `new StationCatalogIndex(…)` over an entry whose `Name` contains one. The contract documents only `ArgumentNullException` and `ArgumentOutOfRangeException`, so it contradicted itself, and a pasted lone surrogate would fault the search. Measured here (.NET 10, macOS): `Normalize` and `IsNormalized` both throw on `"\uD800"` and `"a\uDC00b"`; a valid pair (`"\uD83D\uDCFB"`) passes; U+FFFD is `OtherSymbol`, so step 2 keeps it.
+- **Rationale:** U+FFFD is the standard replacement for an ill-formed code unit (it is what the UTF-8 encoder writes for one), so a lone surrogate becomes an ordinary character that matches itself instead of an error. The input is user text (the search box) and catalog text (the index), and neither is a programming error that deserves an exception.
+- **Consequence:** `Search` and `StationCatalogIndex` never throw on text content; their only exceptions stay `ArgumentNullException` and `ArgumentOutOfRangeException`. CAT-06 gains a lone-surrogate check: `Fold("\uD800") == "\uFFFD"`, `Fold("a\uDC00b") == "a\uFFFDb"`, a valid pair passes unchanged, `Search` with `"\uD800"` returns a result instead of throwing, and an index over a `Name` with a lone surrogate builds and matches.
+- **Brief ref:** brief 3 §7.2; D70.

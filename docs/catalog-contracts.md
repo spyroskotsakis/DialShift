@@ -3,7 +3,8 @@
 > **Status: frozen 2026-09-25 by the spec lane, before any implementation lane starts.** Normative for brief 3
 > (`docs/add-station-catalog-search.md`, "the brief"; § numbers without a file name are this document's). Lanes
 > implement the signatures here **verbatim**; a change goes through the spec lane and a new decision in
-> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0). The
+> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77 the
+> first post-freeze amendment). The
 > acceptance rows are CAT-01..18 in `docs/acceptance-matrix.md` §11. Nothing here exists as code yet: the
 > contracts are written down, not stubbed, so no lane ever finds dead or throwing placeholder code.
 
@@ -176,7 +177,8 @@ public sealed class StationCatalogIndex
     public static StationCatalogIndex Empty { get; }
 
     /// <summary>Copies <paramref name="entries"/> (order kept) and folds Name, NameLocal and City and extracts the
-    /// FrequencyFm digits of every entry. O(n); throws ArgumentNullException for a null list or a null entry.</summary>
+    /// FrequencyFm digits of every entry. O(n); throws ArgumentNullException for a null list or a null entry, and never
+    /// throws on text content (§3.3, D77).</summary>
     public StationCatalogIndex(IReadOnlyList<StationCatalogEntry> entries);
 
     public IReadOnlyList<StationCatalogEntry> Entries { get; }
@@ -212,18 +214,18 @@ public static class StationCatalogQuery
 }
 ```
 
-**Amendment of the brief's signature (D70):** the brief wrote `Search(IReadOnlyList<StationCatalogEntry>, …)`. `Search` takes the `StationCatalogIndex` instead, because folding per call measured up to 11.2 ms on the real data before ranking (§1). The index is built once, inside the load. Files: `StationCatalogEntry.cs`, `StationCatalogIndex.cs`, `StationCatalogQuery.cs` (with `CatalogFilters`, `CatalogSearchResult`, `CatalogField`, `CatalogFilterValue`).
+**Amendment of the brief's signature (D70):** the brief wrote `Search(IReadOnlyList<StationCatalogEntry>, …)`. `Search` takes the `StationCatalogIndex` instead, because culture-aware matching per call (`CompareInfo.IndexOf` with `IgnoreCase | IgnoreNonSpace`, per field) measured up to 11.2 ms on the real data before ranking, while folding every entry once took 7.3 ms (§1). The index is built once, inside the load. Files: `StationCatalogEntry.cs`, `StationCatalogIndex.cs`, `StationCatalogQuery.cs` (with `CatalogFilters`, `CatalogSearchResult`, `CatalogField`, `CatalogFilterValue`).
 
 ### 3.3 Matching and ranking (normative, testable)
 
 **Fold(s)** (replaces `CompareOptions.IgnoreCase | IgnoreNonSpace`, same intent, culture-independent, D70):
 
-1. `s.Normalize(NormalizationForm.FormKD)` (compatibility decomposition: `ﬁ` → `fi`, full-width → ASCII, `é` → `e` + U+0301).
+1. Replace every unpaired surrogate with U+FFFD, then `Normalize(NormalizationForm.FormKD)` (compatibility decomposition: `ﬁ` → `fi`, full-width → ASCII, `é` → `e` + U+0301). An unpaired surrogate is a high surrogate (U+D800–U+DBFF) not followed by a low surrogate, or a low surrogate (U+DC00–U+DFFF) not preceded by a high surrogate; a valid pair is kept. `Normalize` throws `ArgumentException` on an unpaired surrogate, so the replacement is what makes `Fold` total (D77). A fast path may skip the replacement scan when the string is already well-formed UTF-16 (a string with no surrogate code unit, e.g. `IndexOfAnyInRange('\uD800', '\uDFFF') < 0`, always is); `string.IsNormalized` is not a validity test, because it throws on the same input.
 2. Drop every character whose `CharUnicodeInfo.GetUnicodeCategory` is `NonSpacingMark` or `EnclosingMark`.
 3. `char.ToLowerInvariant` per character, then map `ς` → `σ`, `ß` → `ss`, `æ` → `ae`, `œ` → `oe`, `ø` → `o`, `ł` → `l`, `đ` → `d`, `ı` → `i`.
 4. Every run of `char.IsWhiteSpace` characters becomes one space; trim both ends.
 
-Examples that are tests: `Fold("München") == "munchen"`, `Fold("ΑΘΗΝΑΣ") == Fold("αθήνας") == "αθηνασ"`, `Fold("Straße") == "strasse"`, `Fold("  Radio\t  FM ") == "radio fm"`, `Fold("ﬁp") == "fip"`.
+Examples that are tests: `Fold("München") == "munchen"`, `Fold("ΑΘΗΝΑΣ") == Fold("αθήνας") == "αθηνασ"`, `Fold("Straße") == "strasse"`, `Fold("  Radio\t  FM ") == "radio fm"`, `Fold("ﬁp") == "fip"`, `Fold("\uD800") == "\uFFFD"`, `Fold("a\uDC00b") == "a\uFFFDb"`, `Fold("\uD83D\uDCFB") == "\uD83D\uDCFB"` (a valid pair, unchanged). `Fold` never throws for a non-null string.
 
 **Query.** `q = Fold(text ?? "")`. If `q == ""` there is no text constraint.
 
@@ -244,7 +246,7 @@ Only Name, NameLocal, City and FrequencyFm are searched; genre, notes and tags a
 
 **Total order** (fully deterministic, independent of the host culture): tier ascending → `Votes ?? 0` descending → `Fold(Name)` ordinal → `Name` ordinal → `Country` ordinal → `StreamUrl` ordinal → position in `catalog.Entries`.
 
-**Result.** `TotalCount` = number of matches; `Items` = the first `min(cap, TotalCount)` of the total order. `cap < 1` → `ArgumentOutOfRangeException`; `catalog` or `filters` null → `ArgumentNullException`. The scan is O(n) over precomputed keys with a bounded top-`cap` selection; no allocation per non-matching entry.
+**Result.** `TotalCount` = number of matches; `Items` = the first `min(cap, TotalCount)` of the total order. `cap < 1` → `ArgumentOutOfRangeException`; `catalog` or `filters` null → `ArgumentNullException`. Those are the only exceptions: no `text` content throws, including an unpaired surrogate (D77). The scan is O(n) over precomputed keys with a bounded top-`cap` selection; no allocation per non-matching entry.
 
 **AvailableValues(entries, field).** Distinct non-empty values of the field (ordinal distinct). `Label` = `Value`, except for `Country`: the first non-empty `CountryLabel` of an entry with that code (list order), else the code. Ordered by `Fold(Label)` ordinal, then `Label` ordinal, then `Value` ordinal. Filter lists are flat, computed from the whole catalog, never cascading (D72).
 
@@ -562,7 +564,7 @@ Check names start with the row id (`"CAT-06 …"`), as the timezone rows start w
 | CAT-03 | `scripts/build-mac-app.sh` + `scripts/verify-mac-app.sh --zip` (the JSON check, after `ditto` and `unzip`); `pwsh scripts/build.ps1 -SkipTests` + `verify-win-package.ps1` on this Mac (D58); the bundle smoke's catalog check | yes | the Windows native smoke from the zip (the file resolves next to `DialShift.exe` at run time) |
 | CAT-04 | `Catalog`: "CAT-04 …" for missing, empty, not JSON, truncated, `schema_version` 2 / `"1"` / missing, `stations` missing / null, every entry invalid, 10,001 entries, a directory, an unreadable file (SKIP on Windows): Unavailable, exactly one `catalog.unavailable` (`RecordingAppLog`), no exception; the default location in the test process loads the real file; `UiViewModels`: "CAT-04 …" a provider that never completes leaves the dialog responsive and manual Save working; the smoke catalog check | yes | the Windows smoke catalog check |
 | CAT-05 | `Catalog`: "CAT-05 …" `ResolveLocation` for unset / empty / whitespace / relative / absolute values, a fixture loaded through the override, no fallback for a relative value | yes | `windows-latest` (drive-letter and UNC rules of `IsPathFullyQualified`) |
-| CAT-06 | `Catalog`: "CAT-06 …" the §3.3 `Fold` examples, name / name_local / city matching, genre and notes not searched, whitespace collapse, Greek with tonos and final sigma, German umlauts and ß, French accents | yes | `windows-latest` (the OS normalization data behind `string.Normalize`) |
+| CAT-06 | `Catalog`: "CAT-06 …" the §3.3 `Fold` examples, name / name_local / city matching, genre and notes not searched, whitespace collapse, Greek with tonos and final sigma, German umlauts and ß, French accents; lone surrogates (D77): the §3.3 surrogate `Fold` examples, `Search(StationCatalogIndex.Empty, "\uD800", CatalogFilters.None)` returns an empty result instead of throwing, and an index over a `Name` with a lone surrogate builds and matches a query containing the same surrogate | yes | `windows-latest` (the OS normalization data behind `string.Normalize`) |
 | CAT-07 | `Catalog`: "CAT-07 …" `1015`, `101.5`, `101,5`, `101.5 FM` match `101.5`; `101` prefix; `1`, `12345`, `101.555` are not frequency queries; AM `1593`; empty `FrequencyFm` never matches; tier 3 ranks below name matches | yes | DoD only |
 | CAT-08 | `Catalog`: "CAT-08 …" each filter alone, all five ANDed with text, `null` = All, ordinal equality, `AvailableValues` distinct / non-empty / ordered / country labels; `UiViewModels`: "CAT-08 …" options = All + catalog values, a filter change re-searches, Clear resets | yes | DoD only |
 | CAT-09 | `Catalog`: "CAT-09 …" tier order, votes desc (null = 0), every tie-break, same result for a shuffled catalog, cap 50 with the true total, `cap < 1` throws; `UiViewModels`: `TotalCountText` for 0, 1, 50-of-50 and 50-of-214 | yes | DoD only |
