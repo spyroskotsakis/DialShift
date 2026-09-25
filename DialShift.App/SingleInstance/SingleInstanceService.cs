@@ -15,20 +15,36 @@ namespace DialShift.App.SingleInstance;
 /// <c>flock(LOCK_EX|LOCK_NB)</c>, so the OS releases it if the process dies.</para>
 /// <para><b>Pipe name:</b> <see cref="DerivePipeName"/>: a hash of the app identity and the normalized data directory,
 /// so it is per-user, stable, and never derived from untrusted input.</para>
-/// <para><b>Server:</b> <c>PipeOptions.CurrentUserOnly | Asynchronous | FirstPipeInstance</c>, one instance, byte
-/// mode. <c>FirstPipeInstance</c> refuses to start over a live pipe of the same name (without it, .NET on Unix
-/// silently unlinks and re-binds the socket path). On Unix a leftover socket file from a crashed primary is detected
-/// by a probe connect, removed, and the create is retried once.</para>
+/// <para><b>Server:</b> <c>PipeOptions.CurrentUserOnly | Asynchronous</c>, byte mode, up to
+/// <see cref="MaxServerInstances"/> instances. The instance that actually binds the name (the first one, and any
+/// re-bind after every instance of this service has gone) adds <c>FirstPipeInstance</c>, which refuses to start over a
+/// live pipe of the same name (without it, .NET on Unix silently unlinks and re-binds the socket path). Later instances
+/// join the bound name without it: on Windows a second <c>FILE_FLAG_FIRST_PIPE_INSTANCE</c> create fails, and on
+/// net10.0 Unix it throws <see cref="UnauthorizedAccessException"/> while this process already serves the name
+/// (verified on macOS). On Unix a leftover socket file from a crashed primary is detected by a probe connect, removed,
+/// and the create is retried once.</para>
+/// <para><b>Always listening:</b> the next server instance is created <i>before</i> an accepted connection is handed
+/// to its handler, so the name never has zero instances between connections. On Unix every instance shares one
+/// ref-counted listening socket, which closes when the last instance is disposed; a client that connected into that
+/// gap used to sit in the old socket's backlog and was dropped. On Windows the armed instance lets a client connect at
+/// once instead of waiting for a free instance.</para>
+/// <para><b>Concurrency:</b> at most <see cref="MaxConcurrentConnections"/> connections are handled at once, each
+/// off the accept loop, so a client that connects and stalls (held for at most <see cref="ReadTimeout"/>) can't block
+/// a real activation. Further clients wait in the socket backlog (Unix) or on the armed instance (Windows) until a
+/// handler finishes.</para>
 /// <para><b>Protocol (v1):</b> one UTF-8 line per connection, read with a <see cref="ReadTimeout"/> deadline and at
 /// most <see cref="SingleInstanceMessage.MaxMessageBytes"/> + 1 bytes, validated by
 /// <see cref="SingleInstanceMessage.TryParse"/> before anything happens, answered with one reply line, then closed.
 /// Invalid input is logged as <c>single_instance.rejected</c> (byte count only, never the payload) and is not an app
 /// error. The only effect of a valid message is <see cref="ActivationRequested"/>.</para>
-/// <para><b>Listener:</b> survives every per-connection exception (logged, 1 s back-off) and stops only on dispose.</para>
+/// <para><b>Listener:</b> a failed connection is logged as <c>single_instance.connection_error</c> and only closes that
+/// connection. An accept or create failure is logged as <c>single_instance.listener_error</c> and retried after a 1 s
+/// back-off. The listener stops only on dispose, which cancels and awaits every handler and disposes every instance
+/// (the last one removes the Unix socket file).</para>
 /// <para><b>macOS socket permissions:</b> on <c>net10.0</c> the socket file mode comes from the process umask, not
 /// from <c>CurrentUserOnly</c> (the explicit <c>0600</c> is a .NET 11 change). After every server instance is created
-/// (the socket is re-bound per connection), the actual socket file is inspected and group/other bits are removed if
-/// present; the observed mode is logged once as <c>single_instance.socket</c>. Its directory,
+/// (a real bind, or a re-check of the shared socket), the actual socket file is inspected and group/other bits are
+/// removed if present; the observed mode is logged once as <c>single_instance.socket</c>. Its directory,
 /// <c>$TMPDIR</c>, is itself per-user on macOS. <c>CurrentUserOnly</c> additionally checks the peer's uid.</para>
 /// </remarks>
 public sealed class SingleInstanceService : ISingleInstanceService
@@ -38,12 +54,19 @@ public sealed class SingleInstanceService : ISingleInstanceService
     public static readonly TimeSpan ReplyTimeout = TimeSpan.FromMilliseconds(2000);
     public static readonly TimeSpan ListenerErrorBackoff = TimeSpan.FromSeconds(1);
 
+    /// <summary>Connections handled at the same time; one stalled client can't block a real activation.</summary>
+    public const int MaxConcurrentConnections = 2;
+
+    /// <summary>The handled connections plus the one armed instance waiting for the next client.</summary>
+    public const int MaxServerInstances = MaxConcurrentConnections + 1;
+
     /// <summary>How long the stale-socket probe waits for a live server before treating the file as leftover.</summary>
     private static readonly TimeSpan StaleProbeTimeout = TimeSpan.FromMilliseconds(250);
 
     private const string PipeIdentity = "com.tsiger.dialshift/single-instance/v1|";
     private const PipeOptions ClientOptions = PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous;
-    private const PipeOptions ServerOptions = ClientOptions | PipeOptions.FirstPipeInstance;
+    private const PipeOptions ServerOptions = ClientOptions;
+    private const PipeOptions BindingServerOptions = ServerOptions | PipeOptions.FirstPipeInstance;
 
     private static readonly byte[] OkReply = Encoding.UTF8.GetBytes("{\"version\":1,\"status\":\"ok\"}\n");
     private static readonly byte[] RejectedReply = Encoding.UTF8.GetBytes("{\"version\":1,\"status\":\"rejected\"}\n");
@@ -52,11 +75,13 @@ public sealed class SingleInstanceService : ISingleInstanceService
     private readonly IAppLog log;
     private readonly Lock gate = new();
     private FileStream? lockFile;
-    private NamedPipeServerStream? firstServer;
     private CancellationTokenSource? listenerCts;
     private Task? listenerTask;
     private bool disposed;
     private bool socketModeLogged;
+
+    /// <summary>Server instances of this service not yet disposed (guarded by <see cref="gate"/>).</summary>
+    private int liveServers;
 
     public SingleInstanceService(AppPaths paths, IAppLog log)
     {
@@ -112,6 +137,7 @@ public sealed class SingleInstanceService : ISingleInstanceService
                 return SingleInstanceStartResult.Failed;
             }
 
+            NamedPipeServerStream firstServer;
             try
             {
                 firstServer = CreateServerWithStaleRecovery();
@@ -128,7 +154,7 @@ public sealed class SingleInstanceService : ISingleInstanceService
 
             listenerCts = new CancellationTokenSource();
             var token = listenerCts.Token;
-            listenerTask = Task.Run(() => ListenAsync(token), CancellationToken.None);
+            listenerTask = Task.Run(() => ListenAsync(firstServer, token), CancellationToken.None);
             log.Info("single_instance.primary", $"Primary instance; pipe {PipeName}.");
             return SingleInstanceStartResult.Primary;
         }
@@ -163,8 +189,7 @@ public sealed class SingleInstanceService : ISingleInstanceService
 
         lock (gate)
         {
-            firstServer?.Dispose();
-            firstServer = null;
+            // The listener disposed every server instance before it completed.
             listenerCts?.Dispose();
             listenerCts = null;
             lockFile?.Dispose();
@@ -213,11 +238,32 @@ public sealed class SingleInstanceService : ISingleInstanceService
 
     // ---- server ------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Creates one server instance and counts it in <see cref="liveServers"/>. It uses <c>FirstPipeInstance</c> only if
+    /// none of this service's instances is alive, i.e. only when .NET really binds the name. With a live instance,
+    /// .NET joins it (on Unix, the same listening socket), and <c>FirstPipeInstance</c> would fail. Every instance must be
+    /// released with <see cref="ReleaseServer"/>. Creation and release share <see cref="gate"/>, so "none alive" can't
+    /// change while an instance is created.
+    /// </summary>
     private NamedPipeServerStream CreateServer()
     {
-        var server = new NamedPipeServerStream(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, ServerOptions);
-        if (!OperatingSystem.IsWindows()) ValidateUnixSocket();
-        return server;
+        lock (gate)
+        {
+            var options = liveServers == 0 ? BindingServerOptions : ServerOptions;
+            var server = new NamedPipeServerStream(PipeName, PipeDirection.InOut, MaxServerInstances, PipeTransmissionMode.Byte, options);
+            liveServers++;
+            if (!OperatingSystem.IsWindows()) ValidateUnixSocket();
+            return server;
+        }
+    }
+
+    private void ReleaseServer(NamedPipeServerStream server)
+    {
+        lock (gate)
+        {
+            server.Dispose();
+            liveServers--;
+        }
     }
 
     private NamedPipeServerStream CreateServerWithStaleRecovery()
@@ -265,7 +311,7 @@ public sealed class SingleInstanceService : ISingleInstanceService
             var tightened = (mode & groupOrOther) != 0;
             if (tightened) File.SetUnixFileMode(socketPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-            // The socket is re-bound for every connection, so report the observed mode once per service.
+            // Checked for every instance (and re-bind), so report the observed mode once per service.
             if (socketModeLogged) return;
             socketModeLogged = true;
             log.Info("single_instance.socket", tightened
@@ -282,43 +328,99 @@ public sealed class SingleInstanceService : ISingleInstanceService
     private static string FormatMode(UnixFileMode mode) =>
         "0" + Convert.ToString((int)mode & 0x1FF, 8).PadLeft(3, '0');
 
-    private async Task ListenAsync(CancellationToken token)
+    /// <summary>
+    /// Accept loop. It owns <paramref name="first"/> and every instance it creates. Each accepted connection goes to
+    /// <see cref="ServeConnectionAsync"/>, which runs on its own and releases its instance and handler slot. On exit
+    /// (cancellation), it releases the armed instance and awaits every handler, so no instance survives.
+    /// </summary>
+    private async Task ListenAsync(NamedPipeServerStream first, CancellationToken token)
     {
-        NamedPipeServerStream? server;
-        lock (gate)
+        using var slots = new SemaphoreSlim(MaxConcurrentConnections, MaxConcurrentConnections);
+        var handlers = new List<Task>();
+        NamedPipeServerStream? listening = first;
+        try
         {
-            server = firstServer;
-            firstServer = null;
-        }
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await slots.WaitAsync(token).ConfigureAwait(false);
+                    NamedPipeServerStream connected;
+                    try
+                    {
+                        listening ??= CreateServer();
+                        await listening.WaitForConnectionAsync(token).ConfigureAwait(false);
+                        connected = listening;
+                        listening = null;
+                    }
+                    catch
+                    {
+                        slots.Release();
+                        throw;
+                    }
 
-        while (!token.IsCancellationRequested)
+                    // Arm the next instance BEFORE handing this connection off. While this one is alive the name is
+                    // still served, so a client that connects in between is accepted, never dropped (SI-D1).
+                    Exception? armFailure = null;
+                    try { listening = CreateServer(); }
+                    catch (Exception ex) { armFailure = ex; }
+
+                    // One command per connection: the handler closes it and frees its slot.
+                    handlers.Add(Task.Run(() => ServeConnectionAsync(connected, slots, token), CancellationToken.None));
+                    handlers.RemoveAll(static handler => handler.IsCompleted);
+
+                    if (armFailure != null)
+                    {
+                        log.Warn("single_instance.listener_error", "Couldn't arm the next activation pipe instance; retrying.", armFailure);
+                        await Task.Delay(ListenerErrorBackoff, token).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("single_instance.listener_error", "Activation listener error; continuing.", ex);
+                    if (listening != null)
+                    {
+                        ReleaseServer(listening);
+                        listening = null;
+                    }
+                    try { await Task.Delay(ListenerErrorBackoff, token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
+                }
+            }
+        }
+        finally
         {
-            try
-            {
-                server ??= CreateServer();
-                await server.WaitForConnectionAsync(token).ConfigureAwait(false);
-                await HandleConnectionAsync(server, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                log.Warn("single_instance.listener_error", "Activation listener error; continuing.", ex);
-                server?.Dispose();
-                server = null;
-                try { await Task.Delay(ListenerErrorBackoff, token).ConfigureAwait(false); }
-                catch (OperationCanceledException) { break; }
-                continue;
-            }
-
-            // One command per connection: close it and create a fresh instance for the next client.
-            server.Dispose();
-            server = null;
+            if (listening != null) ReleaseServer(listening);
+            // Handlers observe the same token and never throw.
+            await Task.WhenAll(handlers).ConfigureAwait(false);
         }
+    }
 
-        server?.Dispose();
+    /// <summary>Handles one connection, then always releases its server instance and its handler slot.</summary>
+    private async Task ServeConnectionAsync(NamedPipeServerStream server, SemaphoreSlim slots, CancellationToken token)
+    {
+        try
+        {
+            await HandleConnectionAsync(server, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Shutting down.
+        }
+        catch (Exception ex)
+        {
+            // A client that resets mid-read and similar failures only affect this connection.
+            log.Warn("single_instance.connection_error", "An activation connection failed; the listener continues.", ex);
+        }
+        finally
+        {
+            ReleaseServer(server);
+            slots.Release();
+        }
     }
 
     private async Task HandleConnectionAsync(NamedPipeServerStream server, CancellationToken token)
