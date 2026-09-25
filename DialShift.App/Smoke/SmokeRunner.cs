@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using DialShift.App.Services;
@@ -675,59 +676,70 @@ public sealed class SmokeRunner
         return Describe(SmokeUi.Capture(window, file), file);
     }
 
-    private async Task<string> CaptureStationEditorAsync(string file)
-    {
-        var command = viewModel.Stations.Rows.First().EditCommand.ExecuteAsync();
-        var dialog = await SmokeUi.WaitForWindowAsync<StationEditorDialog>();
-        try { return Describe(SmokeUi.Capture(dialog, file), file); }
-        finally
-        {
-            SmokeUi.Click(dialog, ((StationEditorViewModel)dialog.DataContext!).CancelCommand);
-            await SmokeUi.CompleteAsync(command, "Station editor (screenshot)");
-        }
-    }
+    private Task<string> CaptureStationEditorAsync(string file) =>
+        CaptureDialogAsync<StationEditorDialog>(viewModel.Stations.Rows.First().EditCommand.ExecuteAsync(), "Station editor (screenshot)",
+            dialog => Task.FromResult(Describe(SmokeUi.Capture(dialog, file), file)),
+            dialog => ((StationEditorViewModel)dialog.DataContext!).CancelCommand);
 
     /// <summary>The Add dialog with the loaded catalog searched for <see cref="CatalogSearchQuery"/> and its results open.
     /// Cancelled afterwards, so nothing is saved.</summary>
-    private async Task<string> CaptureCatalogSearchAsync(string file)
-    {
-        var command = viewModel.Stations.AddCommand.ExecuteAsync();
-        var dialog = await SmokeUi.WaitForWindowAsync<StationEditorDialog>();
-        var editor = (StationEditorViewModel)dialog.DataContext!;
-        try
-        {
-            var (available, _) = await SmokeUi.WaitUntilAsync(() => editor.IsCatalogAvailable, CatalogTimeout);
-            if (!available) throw new InvalidOperationException($"The catalog did not load within {CatalogTimeout.TotalSeconds:0} s: {editor.CatalogStatusText}");
-            SmokeUi.Type(dialog.SearchBox, CatalogSearchQuery);
-            var (shown, _) = await SmokeUi.WaitUntilAsync(
-                () => editor.PendingSearch.IsCompleted && editor.IsResultsOpen && editor.Results.Count > 0, CatalogTimeout);
-            if (!shown)
-                throw new InvalidOperationException($"No results for \"{CatalogSearchQuery}\" within {CatalogTimeout.TotalSeconds:0} s " +
-                    $"(open={editor.IsResultsOpen}, rows={editor.Results.Count}).");
-            // One layout and render pass for the results overlay.
-            await Task.Delay(300);
-            // At 1:1: on a Retina screen, Avalonia 12.1.2's RenderTargetBitmap applies the scale to the ListBox rows twice (they
-            // land outside the bitmap); the rows' on-screen layout is right. The other shots keep the screen scale.
-            return Describe(SmokeUi.Capture(dialog, file, scale: 1), file) + $" ({editor.TotalCountText} for \"{CatalogSearchQuery}\")";
-        }
-        finally
-        {
-            SmokeUi.Click(dialog, editor.CancelCommand);
-            await SmokeUi.CompleteAsync(command, "Add station with catalog results (screenshot)");
-        }
-    }
+    private Task<string> CaptureCatalogSearchAsync(string file) =>
+        CaptureDialogAsync<StationEditorDialog>(viewModel.Stations.AddCommand.ExecuteAsync(), "Add station with catalog results (screenshot)",
+            async dialog =>
+            {
+                var editor = (StationEditorViewModel)dialog.DataContext!;
+                var (available, _) = await SmokeUi.WaitUntilAsync(() => editor.IsCatalogAvailable, CatalogTimeout);
+                if (!available) throw new InvalidOperationException($"The catalog did not load within {CatalogTimeout.TotalSeconds:0} s: {editor.CatalogStatusText}");
+                SmokeUi.Type(dialog.SearchBox, CatalogSearchQuery);
+                var (shown, _) = await SmokeUi.WaitUntilAsync(
+                    () => editor.PendingSearch.IsCompleted && editor.IsResultsOpen && editor.Results.Count > 0, CatalogTimeout);
+                if (!shown)
+                    throw new InvalidOperationException($"No results for \"{CatalogSearchQuery}\" within {CatalogTimeout.TotalSeconds:0} s " +
+                        $"(open={editor.IsResultsOpen}, rows={editor.Results.Count}).");
+                // One layout and render pass for the results overlay.
+                await Task.Delay(300);
+                // At 1:1: on a Retina screen, Avalonia 12.1.2's RenderTargetBitmap applies the scale to the ListBox rows twice (they
+                // land outside the bitmap); the rows' on-screen layout is right. The other shots keep the screen scale.
+                return Describe(SmokeUi.Capture(dialog, file, scale: 1), file) + $" ({editor.TotalCountText} for \"{CatalogSearchQuery}\")";
+            },
+            dialog => ((StationEditorViewModel)dialog.DataContext!).CancelCommand);
 
-    private async Task<string> CaptureScheduleEditorAsync(string file)
+    private Task<string> CaptureScheduleEditorAsync(string file)
     {
         if (slot != null) viewModel.Schedule.SelectDay(slot.Days[0]);
         var row = viewModel.Schedule.Slots.FirstOrDefault();
         var command = row != null ? row.EditCommand.ExecuteAsync() : viewModel.Schedule.AddCommand.ExecuteAsync();
-        var dialog = await SmokeUi.WaitForWindowAsync<ScheduleEditorDialog>();
-        try { return Describe(SmokeUi.Capture(dialog, file), file); }
-        finally
+        return CaptureDialogAsync<ScheduleEditorDialog>(command, "Schedule editor (screenshot)",
+            dialog => Task.FromResult(Describe(SmokeUi.Capture(dialog, file), file)),
+            dialog => ((ScheduleEditorViewModel)dialog.DataContext!).CancelCommand);
+    }
+
+    /// <summary>
+    /// Waits for the dialog <paramref name="command"/> opens, captures it, presses its Cancel button and waits for the command.
+    /// When any of that fails (the dialog never opened, the capture threw, Cancel could not be pressed, the command did not
+    /// finish), every open <typeparamref name="T"/>, also one that opens late, is closed from the title bar until the command
+    /// finishes (at most <see cref="SmokeUi.DialogTimeout"/>), and the step's own exception is rethrown: a failed capture
+    /// never leaves a dialog open or its command running into the next check.
+    /// </summary>
+    private static async Task<string> CaptureDialogAsync<T>(Task command, string what, Func<T, Task<string>> capture, Func<T, ICommand> cancel)
+        where T : Window
+    {
+        try
         {
-            SmokeUi.Click(dialog, ((ScheduleEditorViewModel)dialog.DataContext!).CancelCommand);
-            await SmokeUi.CompleteAsync(command, "Schedule editor (screenshot)");
+            var dialog = await SmokeUi.WaitForWindowAsync<T>();
+            var described = await capture(dialog);
+            SmokeUi.Click(dialog, cancel(dialog));
+            await SmokeUi.CompleteAsync(command, what);
+            return described;
+        }
+        catch
+        {
+            await SmokeUi.WaitUntilAsync(() =>
+            {
+                foreach (var open in SmokeUi.OpenWindows().OfType<T>().ToList()) open.Close();
+                return command.IsCompleted;
+            }, SmokeUi.DialogTimeout);
+            throw;
         }
     }
 
