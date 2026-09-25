@@ -927,13 +927,23 @@ public static class PlaybackCoordinatorTests
 
     // ─── CT-LOG (Core part) ───
 
-    private static async Task LogRedaction()
+    // HZ-07: every secret is a sentinel that cannot occur in a filesystem path, so the check scans the full entry text
+    // (event, message, exception with its stack trace) and still passes when the checkout lives under /private/tmp or
+    // /private/var/folders, where stack-trace source paths contain "/private".
+    private static readonly string[] LogSentinels =
+    [
+        "ds-user-q7", "ds-pass-q7", "ds-relay-q7", "ds-pwd-q7", "ds-other-q7", "ds-s3cr3t-q7", "ds-ftpuser-q7", "ds-ftppass-q7",
+        "ds-path-alpha-q7", "alpha-q7.mp3", "ds-path-bravo-q7", "bravo-q7.aac", "ds-path-charlie-q7", "ds-path-moved-q7", "charlie2-q7.mp3", "ds-path-ftp-q7",
+        "token=", "ALPHA-TOKEN", "key=", "BRAVO-KEY", "sig=", "CHARLIE-SIG", "C2-TOKEN", "ds-frag-q7", "://"
+    ];
+
+    private static async Task LogRedaction([System.Runtime.CompilerServices.CallerFilePath] string sourceFile = "")
     {
         string[] urls =
         [
-            "https://listener:hunter2@secret-a.example.org:8443/private/alpha.mp3?token=ALPHA-TOKEN#frag-a",
-            "http://relay:pa55word@secret-b.example.org/hidden/bravo.aac?key=BRAVO-KEY",
-            "https://secret-c.example.org/obscure/charlie-path/stream?sig=CHARLIE-SIG"
+            "https://ds-user-q7:ds-pass-q7@secret-a.example.org:8443/ds-path-alpha-q7/alpha-q7.mp3?token=ALPHA-TOKEN#ds-frag-q7",
+            "http://ds-relay-q7:ds-pwd-q7@secret-b.example.org/ds-path-bravo-q7/bravo-q7.aac?key=BRAVO-KEY",
+            "https://secret-c.example.org/ds-path-charlie-q7/stream?sig=CHARLIE-SIG"
         ];
         await using var rig = CoordinatorRig.Create(schedule: true, urls: urls);
         rig.Settings.FallbackStationId = rig.B.Id;
@@ -948,9 +958,9 @@ public static class PlaybackCoordinatorTests
         await rig.Coordinator.PlayAsync(rig.C.Id);
         await rig.Coordinator.NotifyWakeAsync();
         await rig.Step(3);
-        rig.C.Url = "https://other:s3cr3t@secret-c2.example.org/moved/charlie2.mp3?token=C2-TOKEN";
+        rig.C.Url = "https://ds-other-q7:ds-s3cr3t-q7@secret-c2.example.org/ds-path-moved-q7/charlie2-q7.mp3?token=C2-TOKEN";
         await rig.Coordinator.NotifySettingsChangedAsync();
-        rig.Settings.Stations.Add(new Station { Name = "Broken", Url = "ftp://ftpuser:ftppass@files.example.org/secret-dir/x.mp3" });
+        rig.Settings.Stations.Add(new Station { Name = "Broken", Url = "ftp://ds-ftpuser-q7:ds-ftppass-q7@files.example.org/ds-path-ftp-q7/x.mp3" });
         await rig.Coordinator.PlayAsync(rig.Settings.Stations[3].Id);
         await rig.Coordinator.NextStationAsync();
         await rig.Coordinator.SetVolumeAsync(20);
@@ -960,10 +970,13 @@ public static class PlaybackCoordinatorTests
         await rig.Coordinator.DisposeAsync();
         string[] required = ["schedule.fired", "playback.state", "playback.failed", "playback.fallback", "playback.engine_error", "wake.detected", "wake.recovery", "playback.invalid_url", "playback.disposed"];
         Check("CT-LOG (core) setup: the scenario produced every coordinator log event", required.All(rig.Log.HasEvent));
+        Check("CT-LOG (core) HZ-07 the secret sentinels cannot occur in this checkout's paths (source, binaries, temp)",
+            LogSentinels.All(s => !sourceFile.Contains(s, StringComparison.OrdinalIgnoreCase) && !AppContext.BaseDirectory.Contains(s, StringComparison.OrdinalIgnoreCase)
+                && !Path.GetTempPath().Contains(s, StringComparison.OrdinalIgnoreCase)));
+        Check("CT-LOG (core) HZ-07 the engine_error entry carries a stack trace, so full-text scanning covers exception text",
+            rig.Log.Entries.Any(e => e.EventName == "playback.engine_error" && e.Exception?.StackTrace != null));
         Check("CT-LOG (core) no coordinator log entry contains URL user-info, path, query, fragment or scheme://",
-            rig.Log.NoEntryContains("hunter2", "listener", "pa55word", "relay:", "s3cr3t", "other:", "ftpuser", "ftppass",
-                "/private", "alpha.mp3", "/hidden", "bravo.aac", "/obscure", "charlie-path", "/moved", "charlie2.mp3", "secret-dir",
-                "token=", "ALPHA-TOKEN", "key=", "BRAVO-KEY", "sig=", "CHARLIE-SIG", "C2-TOKEN", "frag-a", "://"));
+            rig.Log.NoEntryContains(LogSentinels));
     }
 
     // ─── Adversarial (verification wave for the core lane) ───
