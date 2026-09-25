@@ -3,7 +3,7 @@
 > **Status: Ready to execute (spec frozen 2026-09-25).** Nothing implemented yet. This is brief 3, after
 > `single-codebase-refactor.md` (brief 1) and `schedule-timezone-research.md` (brief 2). Execution per §12
 > by the orchestrator (goal prompt: `docs/add-station-catalog-search-goal.md`, ≤4,000 chars, same discipline
-> as `claude-goal-execution.md`). All decisions taken during execution are recorded as D58+ in `docs/decisions.md`.
+> as `claude-goal-execution.md`). All decisions taken during execution are recorded as D59+ (D58 is the local backup release path) in `docs/decisions.md`.
 
 ## 1. Context
 
@@ -272,7 +272,7 @@ QG-03 UI/UX polish; test→fix→retest until green).
 | CAT-15 | `Station.Notes` persists only when set; null writes nothing; Settings.Version stays 1; old files load | `Catalog`/settings checks |
 | CAT-16 | Perf budget: ≤5,000 entries, load <50 ms, search <10 ms (measured) | perf check |
 | CAT-17 | Zero station facts in C#; refresh = re-run pipeline; `generated_utc` shown in UI | review + docs |
-| CAT-18 | Docs current in the same change: README, data/README, matrix, decisions D58+, XLSX README tab | docs review |
+| CAT-18 | Docs current in the same change: README, data/README, matrix, decisions D59+, XLSX README tab | docs review |
 
 ## 11. Open questions (pre-seeded defaults — record as decisions, do not stop to ask)
 
@@ -317,7 +317,7 @@ files: `name`, one-sentence `description`, `tools`, body = role + deliverables +
    (Critical blocks, ordered, each with the concrete fix). Fix loop: max 3 rounds, then escalate to
    the user.
 4. **Phase 6 — docs + release (docs-engineer + release-engineer):** README, matrix status banner,
-   decisions D58+, release notes NOT yet (release-time); CI green with the JSON in both artifacts;
+   decisions D59+, release notes NOT yet (release-time); CI green with the JSON in both artifacts;
    final report (per-agent summaries, real build/test/publish excerpts, matrix status, remaining
    native checks — Windows smoke/clean-machine can't run on this macOS box — decisions, `git log --stat`).
 
