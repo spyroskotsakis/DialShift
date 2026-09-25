@@ -33,6 +33,8 @@ public static class SingleInstanceTests
         await OversizeAsync();
         await SlowlorisAsync();
         await DisconnectsAsync();
+        await ClientGoneBeforeAcceptAsync();
+        await RapidDisconnectsAsync();
         await LockHeldWithoutServerAsync();
         await ForeignServerAsync();
         await DisposeReleasesAsync();
@@ -294,7 +296,85 @@ public static class SingleInstanceTests
         }
         Check("CT-SI-13 disconnect before the reply: the activation still happens", await activations.WaitForAsync(3, EventWait));
         Check("CT-SI-13 ... and the next client is served", await ExchangeAsync(primary.PipeName, SingleInstanceMessage.Activate.ToUtf8Line()) == OkReply);
-        Check("CT-SI-13 no listener error back-off was needed", !log.HasEvent("single_instance.listener_error"));
+        Console.WriteLine($"  CT-SI-13 clients gone before accept: {ClientsGoneBeforeAccept(log)}");
+        Check("CT-SI-13 no listener error back-off was needed" + ListenerErrors(log), !log.HasEvent("single_instance.listener_error"));
+    }
+
+    /// <summary>
+    /// Both handler slots are held by stalled clients, so the armed instance sits idle until a slot frees. A client
+    /// connects to it and leaves. On Windows that client is connected to the instance at once, and the later
+    /// <c>ConnectNamedPipe</c> fails with <c>ERROR_NO_DATA</c>. On Unix it waits in the backlog and is accepted as an
+    /// empty connection. The stalled clients keep their handles after the server drops them. On Windows those closed
+    /// instances can still count against the OS instance limit, which is why that limit is not the service's own bound.
+    /// Neither case may cost a listener back-off, and the next activation must be served.
+    /// </summary>
+    private static async Task ClientGoneBeforeAcceptAsync()
+    {
+        using var temp = new TempDirectory("si-gone");
+        var log = new RecordingAppLog();
+        await using var primary = StartPrimary(temp.Path, log, out var activations);
+
+        await using var stalled1 = await ConnectRawAsync(primary.PipeName);
+        await using var stalled2 = await ConnectRawAsync(primary.PipeName);
+        await using (await ConnectRawAsync(primary.PipeName)) { } // onto the idle armed instance, then gone
+        var replies = await Task.WhenAll(ReadReplyAsync(stalled1, TimeSpan.FromSeconds(6)), ReadReplyAsync(stalled2, TimeSpan.FromSeconds(6)));
+        Check("CT-SI-13 both stalled clients are dropped at the read timeout (their handles stay open)", replies.All(r => r == ""));
+
+        Check("CT-SI-13 a client gone before accept: the next activation is served",
+            await ExchangeAsync(primary.PipeName, SingleInstanceMessage.Activate.ToUtf8Line()) == OkReply && await activations.WaitForAsync(1, EventWait));
+        Check("CT-SI-13 ... with no listener error back-off" + ListenerErrors(log), !log.HasEvent("single_instance.listener_error"));
+        Check($"CT-SI-13 ... and at most MaxServerInstances ({SingleInstanceService.MaxServerInstances}) instances held (peak {primary.PeakServerInstances})",
+            primary.PeakServerInstances <= SingleInstanceService.MaxServerInstances);
+        if (OperatingSystem.IsWindows())
+            Check($"CT-SI-13 Windows: the departed client was discarded as a connection error ({ClientsGoneBeforeAccept(log)} logged)", ClientsGoneBeforeAccept(log) >= 1);
+        else
+            Check("CT-SI-13 Unix: the departed client was accepted from the backlog and rejected as empty (0 bytes read)",
+                log.Entries.Any(e => e.EventName == "single_instance.rejected" && e.Message.Contains("(0 bytes read)", StringComparison.Ordinal)));
+    }
+
+    /// <summary>50 rapid connect-then-close and disconnect-before-reply cycles, then a real second launch.</summary>
+    private static async Task RapidDisconnectsAsync()
+    {
+        const int cycles = 50;
+        using var temp = new TempDirectory("si-rapid");
+        var log = new RecordingAppLog();
+        await using var primary = StartPrimary(temp.Path, log, out var activations);
+
+        var clock = Stopwatch.StartNew();
+        for (var i = 0; i < cycles; i++)
+        {
+            await using (await ConnectRawAsync(primary.PipeName)) { }
+            await using (var client = await ConnectRawAsync(primary.PipeName))
+            {
+                await client.WriteAsync(SingleInstanceMessage.Activate.ToUtf8Line());
+                await client.FlushAsync();
+            }
+        }
+        var elapsed = clock.Elapsed;
+
+        await using var second = new SingleInstanceService(PathsFor(temp.Path), new RecordingAppLog());
+        var before = activations.Count;
+        var result = await second.ActivateExistingAsync();
+        Console.WriteLine($"  rapid disconnects: {cycles} cycles in {elapsed.TotalMilliseconds:F0} ms; fire-and-forget activations raised so far {before} of {cycles}; " +
+            $"clients gone before accept {ClientsGoneBeforeAccept(log)}; peak instances {primary.PeakServerInstances}; then {result}");
+        Check($"CT-SI-13 after {cycles} rapid connect-then-close / disconnect-before-reply cycles a second launch is Activated",
+            result == SingleInstanceActivationResult.Activated && await activations.WaitForAsync(before + 1, EventWait));
+        Check("CT-SI-13 ... with no listener error back-off" + ListenerErrors(log), !log.HasEvent("single_instance.listener_error"));
+        Check($"CT-SI-13 ... and at most MaxServerInstances ({SingleInstanceService.MaxServerInstances}) instances held (peak {primary.PeakServerInstances})",
+            primary.PeakServerInstances <= SingleInstanceService.MaxServerInstances);
+    }
+
+    private static int ClientsGoneBeforeAccept(RecordingAppLog log) =>
+        log.Entries.Count(e => e.EventName == "single_instance.connection_error" && e.Message.Contains("before its connection was accepted", StringComparison.Ordinal));
+
+    /// <summary>"" when no <c>single_instance.listener_error</c> was logged; otherwise every one, with its exception type, HRESULT and message.</summary>
+    private static string ListenerErrors(RecordingAppLog log)
+    {
+        var errors = log.Entries.Where(e => e.EventName == "single_instance.listener_error").ToList();
+        return errors.Count == 0
+            ? ""
+            : $" (logged {errors.Count}: " + string.Join(" | ", errors.Select(e =>
+                $"{e.Message} {e.Exception?.GetType().FullName} 0x{e.Exception?.HResult:X8}: {e.Exception?.Message}")) + ")";
     }
 
     // ---- CT-SI-08 --------------------------------------------------------------------------------------------

@@ -15,8 +15,9 @@ namespace DialShift.App.SingleInstance;
 /// <c>flock(LOCK_EX|LOCK_NB)</c>, so the OS releases it if the process dies.</para>
 /// <para><b>Pipe name:</b> <see cref="DerivePipeName"/>: a hash of the app identity and the normalized data directory,
 /// so it is per-user, stable, and never derived from untrusted input.</para>
-/// <para><b>Server:</b> <c>PipeOptions.CurrentUserOnly | Asynchronous</c>, byte mode, up to
-/// <see cref="MaxServerInstances"/> instances. The instance that actually binds the name (the first one, and any
+/// <para><b>Server:</b> <c>PipeOptions.CurrentUserOnly | Asynchronous</c>, byte mode, at most
+/// <see cref="MaxServerInstances"/> instances held by this service (the OS-level limit is looser, see
+/// <see cref="OsInstanceLimit"/>). The instance that actually binds the name (the first one, and any
 /// re-bind after every instance of this service has gone) adds <c>FirstPipeInstance</c>, which refuses to start over a
 /// live pipe of the same name (without it, .NET on Unix silently unlinks and re-binds the socket path). Later instances
 /// join the bound name without it: on Windows a second <c>FILE_FLAG_FIRST_PIPE_INSTANCE</c> create fails, and on
@@ -38,9 +39,10 @@ namespace DialShift.App.SingleInstance;
 /// Invalid input is logged as <c>single_instance.rejected</c> (byte count only, never the payload) and is not an app
 /// error. The only effect of a valid message is <see cref="ActivationRequested"/>.</para>
 /// <para><b>Listener:</b> a failed connection is logged as <c>single_instance.connection_error</c> and only closes that
-/// connection. An accept or create failure is logged as <c>single_instance.listener_error</c> and retried after a 1 s
-/// back-off. The listener stops only on dispose, which cancels and awaits every handler and disposes every instance
-/// (the last one removes the Unix socket file).</para>
+/// connection. That includes a client that connected and left before it was accepted (Windows <c>ERROR_NO_DATA</c>):
+/// its instance is replaced and discarded, with no back-off. Any other accept or create failure is logged as
+/// <c>single_instance.listener_error</c> and retried after a 1 s back-off. The listener stops only on dispose, which
+/// cancels and awaits every handler and disposes every instance (the last one removes the Unix socket file).</para>
 /// <para><b>macOS socket permissions:</b> on <c>net10.0</c> the socket file mode comes from the process umask, not
 /// from <c>CurrentUserOnly</c> (the explicit <c>0600</c> is a .NET 11 change). After every server instance is created
 /// (a real bind, or a re-check of the shared socket), the actual socket file is inspected and group/other bits are
@@ -59,6 +61,17 @@ public sealed class SingleInstanceService : ISingleInstanceService
 
     /// <summary>The handled connections plus the one armed instance waiting for the next client.</summary>
     public const int MaxServerInstances = MaxConcurrentConnections + 1;
+
+    /// <summary>
+    /// The <c>maxNumberOfServerInstances</c> passed to the OS. This service bounds its own instances to
+    /// <see cref="MaxServerInstances"/> through its handler slots. The OS limit is not a safe place to enforce that. On
+    /// Windows a pipe instance exists "as long as a server or client process has an open handle" (documented), so an
+    /// instance the server has already closed can still count against the limit until its client closes too. A client
+    /// that is slow to close after its reply, or a stalled client that keeps its handle after the read timeout, could
+    /// then use up a limit of 3, and creating the next armed instance would fail with "All pipe instances are busy". On
+    /// Unix, .NET counts only live server objects (and always listens with the maximum backlog), so nothing changes there.
+    /// </summary>
+    private const int OsInstanceLimit = NamedPipeServerStream.MaxAllowedServerInstances;
 
     /// <summary>How long the stale-socket probe waits for a live server before treating the file as leftover.</summary>
     private static readonly TimeSpan StaleProbeTimeout = TimeSpan.FromMilliseconds(250);
@@ -82,6 +95,9 @@ public sealed class SingleInstanceService : ISingleInstanceService
 
     /// <summary>Server instances of this service not yet disposed (guarded by <see cref="gate"/>).</summary>
     private int liveServers;
+
+    /// <summary>The highest <see cref="liveServers"/> so far (guarded by <see cref="gate"/>).</summary>
+    private int peakServers;
 
     public SingleInstanceService(AppPaths paths, IAppLog log)
     {
@@ -250,11 +266,18 @@ public sealed class SingleInstanceService : ISingleInstanceService
         lock (gate)
         {
             var options = liveServers == 0 ? BindingServerOptions : ServerOptions;
-            var server = new NamedPipeServerStream(PipeName, PipeDirection.InOut, MaxServerInstances, PipeTransmissionMode.Byte, options);
+            var server = new NamedPipeServerStream(PipeName, PipeDirection.InOut, OsInstanceLimit, PipeTransmissionMode.Byte, options);
             liveServers++;
+            peakServers = Math.Max(peakServers, liveServers);
             if (!OperatingSystem.IsWindows()) ValidateUnixSocket();
             return server;
         }
+    }
+
+    /// <summary>The most server instances this service has held at once (never above <see cref="MaxServerInstances"/>).</summary>
+    internal int PeakServerInstances
+    {
+        get { lock (gate) return peakServers; }
     }
 
     private void ReleaseServer(NamedPipeServerStream server)
@@ -333,6 +356,12 @@ public sealed class SingleInstanceService : ISingleInstanceService
     /// <see cref="ServeConnectionAsync"/>, which runs on its own and releases its instance and handler slot. On exit
     /// (cancellation), it releases the armed instance and awaits every handler, so no instance survives.
     /// </summary>
+    /// <remarks>
+    /// The loop takes a handler slot <i>before</i> it waits on an instance, and every instance it creates while holding
+    /// that slot (the next armed one, or the replacement of one whose client left) exists together with at most
+    /// <see cref="MaxConcurrentConnections"/> - 1 other handled instances. So this service never holds more than
+    /// <see cref="MaxServerInstances"/> instances (<see cref="PeakServerInstances"/>).
+    /// </remarks>
     private async Task ListenAsync(NamedPipeServerStream first, CancellationToken token)
     {
         using var slots = new SemaphoreSlim(MaxConcurrentConnections, MaxConcurrentConnections);
@@ -349,7 +378,18 @@ public sealed class SingleInstanceService : ISingleInstanceService
                     try
                     {
                         listening ??= CreateServer();
-                        await listening.WaitForConnectionAsync(token).ConfigureAwait(false);
+                        if (!await TryAcceptAsync(listening, token).ConfigureAwait(false))
+                        {
+                            // The instance is dead, not the listener. Replace it BEFORE releasing it, as when arming
+                            // (SI-D1): the name stays served, and no FirstPipeInstance re-bind is needed. A failed
+                            // replacement is a real listener error (below); the dead instance is released either way.
+                            var dead = listening;
+                            listening = null;
+                            try { listening = CreateServer(); }
+                            finally { ReleaseServer(dead); }
+                            slots.Release();
+                            continue;
+                        }
                         connected = listening;
                         listening = null;
                     }
@@ -399,6 +439,44 @@ public sealed class SingleInstanceService : ISingleInstanceService
             await Task.WhenAll(handlers).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// Waits for a client on <paramref name="server"/>. Returns false, logged as <c>single_instance.connection_error</c>,
+    /// when the client that connected to it has already left (<see cref="IsClientGone"/>). The instance is then unusable.
+    /// Any other failure is thrown.
+    /// </summary>
+    /// <remarks>
+    /// On Windows a client can connect to an instance as soon as it exists, before <c>ConnectNamedPipe</c> is issued
+    /// (documented). Every instance has that window: the first one until the listener task runs, an armed one until the
+    /// hand-off is done, and longer while both handler slots are busy. If that client closes first,
+    /// <c>ConnectNamedPipe</c> fails with <c>ERROR_NO_DATA</c> (documented).
+    /// .NET cannot read from such an instance and cannot disconnect it, because it was never marked connected, so the
+    /// instance is discarded. A client that connected and is still there gives <c>ERROR_PIPE_CONNECTED</c>, which .NET
+    /// already reports as success (verified in the net10.0 Windows <c>System.IO.Pipes</c>). On Unix, accept returns a
+    /// connection whose client has left like any other, and the handler reads end of stream.
+    /// </remarks>
+    private async Task<bool> TryAcceptAsync(NamedPipeServerStream server, CancellationToken token)
+    {
+        try
+        {
+            await server.WaitForConnectionAsync(token).ConfigureAwait(false);
+            return true;
+        }
+        catch (IOException ex) when (IsClientGone(ex))
+        {
+            log.Warn("single_instance.connection_error", "A client disconnected before its connection was accepted; the listener continues.", ex);
+            return false;
+        }
+    }
+
+    // HRESULT_FROM_WIN32 of ERROR_BROKEN_PIPE (109), ERROR_NO_DATA (232) and ERROR_PIPE_NOT_CONNECTED (233): the codes
+    // that .NET's Windows pipe reads treat as "the other end is gone". A failed accept carries them in IOException.HResult.
+    private const int HResultBrokenPipe = unchecked((int)0x8007006D);
+    private const int HResultNoData = unchecked((int)0x800700E8);
+    private const int HResultPipeNotConnected = unchecked((int)0x800700E9);
+
+    private static bool IsClientGone(IOException ex) =>
+        ex.HResult is HResultBrokenPipe or HResultNoData or HResultPipeNotConnected;
 
     /// <summary>Handles one connection, then always releases its server instance and its handler slot.</summary>
     private async Task ServeConnectionAsync(NamedPipeServerStream server, SemaphoreSlim slots, CancellationToken token)
