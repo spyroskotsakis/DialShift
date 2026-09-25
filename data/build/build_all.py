@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the full radio catalog: canonical CSVs + the multi-tab XLSX.
+"""Build the full radio catalog: canonical CSVs, the app catalog JSON and the multi-tab XLSX.
 
 Usage:
     .venv/bin/python build/build_all.py [--refresh]
@@ -7,8 +7,11 @@ Usage:
     --refresh   re-download raw sources (Wikipedia + radio-browser) for all countries
 
 Outputs:
-    canonical/greece-stations.csv   canonical/france-stations.csv   canonical/germany-stations.csv
+    canonical/<country>-stations.csv   canonical/collection-<code>.csv
+    output/app-catalog.json            (the Add-station picker's catalog; validated, see app_catalog.py)
     output/dialshift-radio-catalog.xlsx
+
+A failed app-catalog validation exits non-zero before the JSON and the XLSX are written.
 
 The XLSX is deliberately plain (openpyxl basics only: freeze panes, auto-filter,
 column widths) so it opens cleanly in macOS Numbers.
@@ -20,14 +23,16 @@ import sys
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from app_catalog import build_app_catalog, validate_app_catalog, write_app_catalog
 from build_stations import all_collections, all_countries, build_collection, build_country
+from common import app_tag
 
 DATA_DIR = Path(__file__).resolve().parent.parent
 CANONICAL = DATA_DIR / 'canonical'
@@ -44,14 +49,6 @@ IMPORT_COLS = ['Station Name', 'Description / Genre', 'Stream URL', 'Country', '
 
 HEADER_FILL = PatternFill('solid', fgColor='2F5B8C')
 HEADER_FONT = Font(bold=True, color='FFFFFF')
-
-
-def app_tag(row):
-    """The 'Description / genre' text the DialShift Add-station dialog wants."""
-    t, g = row['type'], row['genre']
-    parts = [p for p in (t, g) if p and p not in ('Other',) and p != t] or ([t] if t else [])
-    parts = list(dict.fromkeys([t] + parts))
-    return ' · '.join(parts)
 
 
 def write_sheet(wb, title, header, rows, widths=None, tab_color=None):
@@ -168,6 +165,26 @@ def main():
                 wr.writerow({k: r.get(k, '') for k in CANON_COLS})
         print(f"[collection] {cfg['name']}: {len(rows)} rows -> {csv_path.name}")
 
+    # ---------------------------------------------------------------- app catalog (JSON)
+    sources = [(cfg, per_country[cfg['code']]) for cfg in countries] + \
+              [(cfg, per_collection[cfg['name']]) for cfg in collections]
+    app_doc, app_stats = build_app_catalog(
+        sources, datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+    app_json = OUTPUT / 'app-catalog.json'
+    app_json_rel = app_json.relative_to(DATA_DIR.parent)
+    print(f"app-catalog: working={app_stats['working']} url_excluded={app_stats['url_excluded']} "
+          f"duplicates_removed={app_stats['duplicates_removed']} exported={app_stats['exported']} "
+          f"-> {app_json_rel}")
+    problems = validate_app_catalog(app_doc, [r for _, rows in sources for r in rows])
+    if problems:
+        print(f'app-catalog: validation failed with {len(problems)} problem(s); {app_json_rel} is unchanged '
+              f'(fix the YAML, not the script):', file=sys.stderr)
+        for problem in problems:
+            print(f'  - {problem}', file=sys.stderr)
+        sys.exit(1)
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    write_app_catalog(app_doc, app_json)
+
     all_rows = [r for rows in per_country.values() for r in rows]
     working = [r for r in all_rows if r['stream_status'] == 'Working' and r['stream_url']]
 
@@ -201,18 +218,28 @@ def main():
     line('')
 
     section_row('How to add a station to the DialShift app')
+    line('The app has this catalog built in: every station with a working stream, all countries and '
+         f'collections ({app_stats["exported"]} stations in this build).')
     line('1.  Open the app → Stations → Add a frequency.')
-    line('2.  Open the "Import Ready" tab and copy the three fields:')
+    line('2.  Type in the search box: a station name, a city or an FM frequency (1015 or 101.5). '
+         'Narrow the list with the Country, City, Type, Genre and Language filters if you like.')
+    line('3.  Pick a result (click it, or Down and Enter). It fills Station name, Description / genre '
+         'and Stream URL, and shows the station notes. Change any field if you want, then Save.')
+    line('Fallback — manual entry, for a station that is not in the catalog or when the app shows '
+         '"Catalog unavailable": open the "Import Ready" tab and copy the three fields into the form under '
+         '"Or enter stream details manually":')
     line('       Station name        ←  "Station Name" column')
     line('       Description / genre ←  "Description / Genre" column')
     line('       Stream URL          ←  "Stream URL" column')
-    line('3.  Save. The app plays MP3, AAC and HLS streams. Webpage URLs do not play.')
+    line('The app plays MP3, AAC and HLS streams. Webpage URLs do not play.')
     line('')
 
     section_row('Tabs in this workbook')
     tab_descs = [
-        ('Import Ready', 'every station with a working stream, all countries — the tab to pick stations from'),
-        ('Greece / France / Germany', 'full per-country lists, including stations without a working stream'),
+        ('Import Ready', 'every station with a working stream, all countries — copy from here when '
+                         'you enter a station by hand'),
+        (' / '.join(cfg['name'] for cfg in countries),
+         'full per-country lists, including stations without a working stream'),
     ]
     for cfg in countries:
         for farea in cfg.get('focus_areas', []):
@@ -229,6 +256,7 @@ def main():
     section_row('Stream status & how to refresh the data')
     line('  stream_status comes from radio-browser.info checks (Working / Down / No stream found).')
     line('  To refresh everything:  data/.venv/bin/python data/build/build_all.py --refresh')
+    line('  The same run regenerates the app\'s catalog (data/output/app-catalog.json) and this workbook.')
     line('')
 
     # glossary table
@@ -286,10 +314,11 @@ def main():
     write_sheet(wb, 'Summary', ['Item', 'Count'], summary, widths=[40, 18], tab_color='FFE699')
 
     # ---- Import Ready tab ----
+    country_names = {cfg['code']: cfg['name'] for cfg in countries}
     imp = []
     for r in sorted(working, key=lambda x: (x['country'], -(x['votes'] or 0))):
         imp.append([r['name'], app_tag(r), r['stream_url'],
-                    {'GR': 'Greece', 'FR': 'France', 'DE': 'Germany'}.get(r['country'], r['country']),
+                    country_names.get(r['country'], r['country']),
                     r['city'], r['type'], r['language'], r['political_leaning'],
                     r['internet_only'], r['frequency_fm'], r['votes'] or '', r['notes'][:180],
                     r.get('logo', '')])
@@ -297,7 +326,6 @@ def main():
                 widths=[34, 30, 58, 10, 20, 14, 12, 16, 12, 10, 9, 40, 40], tab_color='90EE90')
 
     # ---- per-country tabs ----
-    COUNTRY_TITLES = {'GR': 'Greece', 'FR': 'France', 'DE': 'Germany'}
     XLS_COLS = ['Name', 'Name (local)', 'City', 'Region', 'Frequency FM', 'Type', 'Genre', 'Language',
                 'Political Leaning', 'Internet Only', 'Stream URL', 'Codec', 'Bitrate', 'Stream Status',
                 'Votes', 'Notes', 'Source', 'Logo URL']
@@ -308,7 +336,7 @@ def main():
                  r['codec'], r['bitrate'], r['stream_status'], r['votes'] or '', r['notes'][:200],
                  r['source'], r.get('logo', '')]
                 for r in rows]
-        write_sheet(wb, COUNTRY_TITLES[cfg['code']], XLS_COLS, data,
+        write_sheet(wb, cfg['name'], XLS_COLS, data,
                     widths=[32, 24, 20, 16, 10, 13, 20, 11, 16, 11, 55, 7, 8, 13, 8, 40, 16, 40],
                     tab_color='9DC3E6')
 

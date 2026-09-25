@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 from common import (DATA_DIR, classify, clean_name, dedupe_rb, fetch_radio_browser,
-                    fetch_text, norm, norm_city, norm_freq, url_norm)
+                    fetch_text, norm, norm_city, norm_freq, row_score, url_norm)
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
 COLLECTIONS_DIR = DATA_DIR / 'collections'
@@ -356,17 +356,11 @@ def build_country(cfg, force_refresh=False):
     for r in rows:
         key = (norm(r['name']).replace(' ', ''), norm_city(r['city'], code), url_norm(r['stream_url']))
         prev = best.get(key)
-        if prev is None or _row_score(r) > _row_score(prev):
+        if prev is None or row_score(r) > row_score(prev):
             best[key] = r
     rows = list(best.values())
     rows.sort(key=lambda r: (r['city'] == '—', r['city'], r['name'].lower()))
     return rows, {'extras': extras}
-
-
-def _row_score(r):
-    """Prefer rows with a frequency, a curated source, then more votes."""
-    return (bool(r.get('frequency_fm')), str(r.get('source', '')).startswith('curated'),
-            r.get('votes') or 0)
 
 
 # ---------------------------------------------------------------- collections
