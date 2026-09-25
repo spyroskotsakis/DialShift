@@ -63,6 +63,14 @@
 //   gate by whichever drainer acquires it first, then validated as above. They never block the engine's thread.
 // • SnapshotChanged is raised after the gate is released, only when the immutable snapshot value changed, and in
 //   sequence order (an older snapshot is never delivered after a newer one). Handlers must not block.
+// • Session ids are committed atomically (CR-01): Open builds and validates everything that can fail first, then
+//   enqueues the Start and assigns its id in one step, so nothing can throw between the two.
+// • Fault rule (CR-01): a transition that throws never strands the coordinator. After the throw (gate still held) the
+//   coordinator checks that play intent has exactly one live driver of the current generation: an accepted engine
+//   session (Connecting/Reconnecting/Playing), an armed retry (Failed) or an armed settle timer (Suspended). If not, the
+//   attempt becomes an ordinary failure (Failed, retry on the normal backoff), or Stopped without a station. Side effects
+//   captured before the throw are still performed, and the exception is logged (playback.internal_error) and rethrown
+//   to the caller (engine-event path: logged only).
 //
 // ─── Threading contract for hosts ─────────────────────────────────────────────────────────────────────────────────────
 // Settings is plain mutable data. The host mutates it and calls the commands and OnTickAsync from one logical thread (the
@@ -258,6 +266,12 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
     private void UserStop()
     {
         scheduleSession.HoldCurrent(settings, LocalNow());
+        Halt();
+    }
+
+    /// <summary>Ends play intent: retires the session and every timer. No schedule hold, so it cannot throw on schedule data.</summary>
+    private void Halt()
+    {
         if (!isActive) return;
         isActive = false;
         RetireSession();
@@ -301,22 +315,34 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         status = attemptStatus;
         statusText = fallback ? "Connecting to fallback…" : "Connecting…";
         trackText = "Opening the live stream";
-        if (!SettingsStore.ValidUrl(station.Url))
+        // The URL is read once, so validation and the Uri the engine receives always agree.
+        var url = station.Url;
+        if (!SettingsStore.ValidUrl(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             Warn("playback.invalid_url", $"Station '{station.Name}' has no valid http(s) stream URL.");
             Fail(PlaybackFailureKind.InvalidUrl, now);
             return;
         }
-        currentSessionId = ++startsIssued;
+        // Build the command first; then enqueue and commit its id together, so the N-th Start stays session N (D16).
+        var sessionId = startsIssued + 1;
+        var volume = settings.Volume;
+        var start = EngineCommand.Start(sessionId, new StreamSource(uri, station.Name), volume / 100.0, operationCts.Token);
+        engineCommands.Enqueue(start);
+        startsIssued = sessionId;
+        currentSessionId = sessionId;
         sessionGeneration = operationGeneration;
         engineSessionLive = true;
-        lastSentVolume = settings.Volume;
-        engineCommands.Enqueue(EngineCommand.Start(currentSessionId, new StreamSource(new Uri(station.Url), station.Name), settings.Volume / 100.0, operationCts.Token));
+        lastSentVolume = volume;
     }
 
     private void Fail(PlaybackFailureKind kind, long now, string? diagnostic = null)
     {
         if (!isActive || status is not (PlaybackStatus.Connecting or PlaybackStatus.Reconnecting or PlaybackStatus.Playing)) return;
+        EnterFailed(kind, now, diagnostic);
+    }
+
+    private void EnterFailed(PlaybackFailureKind kind, long now, string? diagnostic)
+    {
         var session = currentSessionId;
         failures++;
         RetireSession();
@@ -475,6 +501,28 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         }
     }
 
+    /// <summary>
+    /// The fault rule (see the source header). Runs with the gate held after a transition threw. Play intent must have one
+    /// live driver of the current generation, or neither engine events nor any timer would ever move the coordinator on
+    /// (for example, NewOperation() ran but no Start was enqueued, so currentSessionId is 0 and the stall watchdog skips it).
+    /// Without one, the attempt becomes an ordinary failure with a retry (a stop when there is no desired station to retry).
+    /// Both outcomes only write fields, replace the operation CTS and enqueue a Stop, so this does not throw in practice.
+    /// </summary>
+    private void RecoverFromFault(long now)
+    {
+        var driven = status switch
+        {
+            PlaybackStatus.Connecting or PlaybackStatus.Reconnecting or PlaybackStatus.Playing =>
+                currentSessionId != 0 && sessionGeneration == operationGeneration,
+            PlaybackStatus.Failed => retryStartedAt != null && retryGeneration == operationGeneration,
+            PlaybackStatus.SuspendedBySystem => settleStartedAt != null && settleGeneration == operationGeneration,
+            _ => false
+        };
+        if (!isActive || driven) return;
+        if (desired is null) Halt();
+        else EnterFailed(PlaybackFailureKind.Unknown, now, "internal error");
+    }
+
     // ─── Helpers (gate held) ───
 
     private void NewOperation()
@@ -555,15 +603,14 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         Volume: settings.Volume);
 
     /// <summary>Ends a transition: publishes the snapshot if it changed and hands the captured side effects to <see cref="Complete"/>.</summary>
-    private Exit Leave(bool refreshSchedule)
+    private Exit Leave()
     {
-        if (refreshSchedule) RefreshUpcoming();
         var built = BuildSnapshot();
         PlaybackSnapshot? changed = null;
         if (!built.Equals(snapshot))
         {
             if (built.Status != snapshot.Status)
-                Info("playback.state", $"{snapshot.Status} -> {built.Status}; station='{built.CurrentStationName}'; session={startsIssued}");
+                Info("playback.state", $"{snapshot.Status} -> {built.Status}; station='{built.CurrentStationName}'; session={currentSessionId}");
             snapshot = built;
             changed = built;
             snapshotSequence++;
@@ -585,16 +632,19 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         try
         {
             if (disposed) return;
+            var now = monotonicClock.GetTimestamp();
             try
             {
-                transition(monotonicClock.GetTimestamp());
+                transition(now);
+                if (refreshSchedule) RefreshUpcoming();
             }
             catch (Exception ex)
             {
                 failure = ex;
                 pendingLogs.Add(new(LogLevel.Error, "playback.internal_error", "A coordinator transition failed.", ex));
+                RecoverFromFault(now);
             }
-            exit = Leave(refreshSchedule && failure is null);
+            exit = Leave();
         }
         finally
         {
@@ -722,8 +772,20 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
             {
                 var now = monotonicClock.GetTimestamp();
                 while (engineSignals.TryDequeue(out var signal))
-                    if (!disposed) ApplySignal(signal, now);
-                if (!disposed) exit = Leave(refreshSchedule: false);
+                {
+                    if (disposed) continue;
+                    try
+                    {
+                        ApplySignal(signal, now);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Same fault rule as RunAsync; the remaining signals are still applied.
+                        pendingLogs.Add(new(LogLevel.Error, "playback.internal_error", "Engine event handling failed.", ex));
+                        RecoverFromFault(now);
+                    }
+                }
+                if (!disposed) exit = Leave();
             }
             finally
             {
@@ -755,7 +817,7 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
             ClearRecovery();
             status = PlaybackStatus.Disposing;
             engineCommands.Enqueue(stop);
-            exit = Leave(refreshSchedule: false);
+            exit = Leave();
         }
         finally
         {
