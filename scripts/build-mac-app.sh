@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.dotnet:$PATH"
 
 echo "== Publishing self-contained osx-x64 build =="
-dotnet publish DialShift.Mac/DialShift.Mac.csproj -c Release -r osx-x64 --self-contained -o publish/osx-x64
+dotnet publish DialShift.App/DialShift.App.csproj -c Release -r osx-x64 --self-contained -o publish/osx-x64
 
 APP="dist/DialShift.app"
 rm -rf "$APP"

@@ -115,7 +115,7 @@ Writes `results.json` and UI renders, then exits. Live-stream checks require net
 
 - `DialShift.Core`: station/settings models, local persistence, weekly schedule evaluation and occurrence tracking.
 - `DialShift`: Windows WPF interface, native notification icon, LibVLC playback, retry/fallback and Windows startup/resume integration.
-- `DialShift.Mac`: macOS Avalonia interface, menu-bar tray icon, LibVLC playback, retry/fallback and optional LaunchAgent startup. Reuses `DialShift.Core` unchanged.
+- `DialShift.App`: the Avalonia interface. It currently ships as the macOS app: a transitional `osx-x64` build that runs under Rosetta on Apple Silicon (decision D2). It provides the menu-bar tray icon, LibVLC playback, retry/fallback and optional LaunchAgent startup, and uses `DialShift.Core` unchanged. It becomes the single Windows + macOS front-end as [docs/single-codebase-refactor.md](docs/single-codebase-refactor.md) is carried out.
 - `DialShift.Tests`: deterministic scheduling, persistence and validation checks.
 
 Starter stations use SomaFM's published direct stream links: [Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html), [Drone Zone](https://somafm.com/dronezone/directstreamlinks.html), [Secret Agent](https://somafm.com/secretagent/directstreamlinks.html). Streams can change; edit a station to update its URL. Station names belong to their respective owners; DialShift is unaffiliated.
