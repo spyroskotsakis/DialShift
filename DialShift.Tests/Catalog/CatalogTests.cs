@@ -7,7 +7,8 @@ namespace DialShift.Tests.Catalog;
 
 /// <summary>
 /// The <c>Catalog</c> suite (brief 3; docs/catalog-contracts.md §8). Check names start with their CAT row id, so the
-/// acceptance matrix §11 can cite them. Covered here: the Core half of CAT-06..09 (<see cref="CatalogQueryTests"/>).
+/// acceptance matrix §11 can cite them. Covered here: the Core half of CAT-06..09 (<see cref="CatalogQueryTests"/>) and
+/// CAT-15 (<see cref="CatalogSettingsTests"/>).
 /// </summary>
 /// <remarks>
 /// <b>Machine-independent by construction:</b> every catalog is an inline fixture (never <c>data/output/app-catalog.json</c>),
@@ -25,6 +26,7 @@ public static class CatalogTests
         CatalogQueryTests.Run("");
         RunUnderTurkish();
         CrossCultureResults();
+        CatalogSettingsTests.Run();
     }
 
     private static void RunUnderTurkish()
