@@ -4,36 +4,264 @@
         x:Class="DialShift.App.Views.Dialogs.StationEditorDialog"
         x:DataType="vm:StationEditorViewModel"
         Title="{Binding Title, StringFormat='{}{0} · DialShift'}"
-        Width="580" MinWidth="510" SizeToContent="Height" CanResize="False"
+        Width="680" MinWidth="620" SizeToContent="Height" CanResize="False"
         ShowInTaskbar="False">
-  <DockPanel Margin="26">
-    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,20">
+  <!--
+    Station editor (BHV-52/53). Add mode adds the station catalog (brief 3, docs/catalog-contracts.md §5.5): the search box,
+    five filters and the status line on top; below them the manual form on the left and the detail pane on the right. The
+    results overlay floats over the form column only, so the detail pane stays visible while the pointer or the arrow keys
+    walk the results, and opening or closing it never changes the window's height. Edit mode is the plain form.
+  -->
+  <Window.Styles>
+    <Style Selector="TextBlock.filterLabel">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
+    <Style Selector="ComboBox.filter">
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="MaxDropDownHeight" Value="280"/>
+    </Style>
+    <!-- A filter picker is about 100 px wide, so its drop-down may grow to 280 px to show a city or genre name; longer
+         names still end in an ellipsis (D44). -->
+    <Style Selector="ComboBox.filter /template/ Popup#PART_Popup">
+      <Setter Property="MaxWidth" Value="280"/>
+    </Style>
+
+    <!-- The results overlay: a raised card over the form column. -->
+    <Style Selector="Border.catalogOverlay">
+      <Setter Property="Background" Value="{StaticResource DsCardBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource DsInputBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="4"/>
+      <Setter Property="BoxShadow" Value="0 10 28 0 #99000000"/>
+    </Style>
+    <Style Selector="ListBox#ResultsList">
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <!-- Rows never take focus: typing stays in the search box while the arrow keys or the pointer walk the list. -->
+    <Style Selector="ListBox#ResultsList ListBoxItem" x:DataType="vm:CatalogResultRow">
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}"/>
+    </Style>
+    <Style Selector="TextBlock.resultTitle">
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+    <Style Selector="TextBlock.resultKind">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{StaticResource DsSubtleBrush}"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+      <Setter Property="Margin" Value="0,2,0,0"/>
+    </Style>
+    <Style Selector="Border.tile.small">
+      <Setter Property="Width" Value="32"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="CornerRadius" Value="8"/>
+    </Style>
+    <Style Selector="Border.tile.small TextBlock">
+      <Setter Property="FontSize" Value="16"/>
+    </Style>
+
+    <!-- Detail pane -->
+    <Style Selector="Border.detail">
+      <Setter Property="Background" Value="{StaticResource DsCardBrush}"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="14"/>
+    </Style>
+    <!-- Catalog names reach 399 characters: three lines, then an ellipsis (the tooltip has the whole name). -->
+    <Style Selector="TextBlock.detailName">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="MaxLines" Value="3"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+    <Style Selector="Border.chip">
+      <Setter Property="Background" Value="{StaticResource DsTileBrush}"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="7,2"/>
+      <Setter Property="Margin" Value="0,0,6,6"/>
+    </Style>
+    <Style Selector="Border.chip TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+  </Window.Styles>
+
+  <Window.Resources>
+    <!-- Logo, else the monogram (the station tiles' rule, D66). -->
+    <DataTemplate x:Key="CatalogResult" x:DataType="vm:CatalogResultRow">
+      <DockPanel>
+        <Border DockPanel.Dock="Left" Classes="tile small" ClipToBounds="True" Margin="0,0,10,0" VerticalAlignment="Center">
+          <Panel>
+            <TextBlock Text="{Binding Monogram}" />
+            <Image Source="{Binding Logo}" IsVisible="{Binding Logo, Converter={x:Static ObjectConverters.IsNotNull}}" Stretch="Uniform" />
+          </Panel>
+        </Border>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Classes="resultTitle">
+            <Run Text="{Binding Name}" FontWeight="SemiBold" />
+            <Run Text=" · " Foreground="{StaticResource DsSubtleBrush}" />
+            <Run Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource DsSecondaryBrush}" />
+          </TextBlock>
+          <TextBlock Classes="resultKind" Text="{Binding Kind}"
+                     IsVisible="{Binding Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </DockPanel>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid Margin="26,24" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+    <StackPanel Grid.Row="0" Margin="0,0,0,18">
       <TextBlock Classes="pageTitle" Text="{Binding Title}" />
       <TextBlock Classes="muted" Text="{Binding Description}" Margin="0,8,0,0" />
     </StackPanel>
 
-    <DockPanel DockPanel.Dock="Bottom" Margin="0,18,0,0" LastChildFill="False">
-      <Button DockPanel.Dock="Left" Classes="danger" MinWidth="144" Content="{Binding DeleteLabel}"
-              Command="{Binding DeleteCommand}" IsVisible="{Binding CanDelete}" />
-      <Button DockPanel.Dock="Right" Classes="accent" Content="Save" IsDefault="True" MinWidth="88"
-              Command="{Binding SaveCommand}" />
-      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" MinWidth="88" Margin="0,0,8,0"
-              Command="{Binding CancelCommand}" />
-    </DockPanel>
-
-    <TextBlock DockPanel.Dock="Bottom" Classes="error" Text="{Binding Error}" IsVisible="{Binding HasError}" Margin="0,4,0,0" />
-
-    <StackPanel>
-      <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.NameLabel}" />
-      <TextBox x:Name="NameField" Text="{Binding Name}" MaxLength="{x:Static vm:StationEditorViewModel.NameMaxLength}"
-               AutomationProperties.Name="{x:Static vm:StationEditorViewModel.NameLabel}" />
-      <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.TagLabel}" />
-      <TextBox x:Name="TagField" Text="{Binding Tag}" MaxLength="{x:Static vm:StationEditorViewModel.TagMaxLength}" PlaceholderText="Internet radio"
-               AutomationProperties.Name="{x:Static vm:StationEditorViewModel.TagLabel}" />
-      <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.UrlLabel}" />
-      <TextBox x:Name="UrlField" Text="{Binding Url}" MaxLength="{x:Static vm:StationEditorViewModel.UrlMaxLength}"
-               AutomationProperties.Name="{x:Static vm:StationEditorViewModel.UrlLabel}" />
-      <TextBlock Classes="muted" FontSize="12" Text="{Binding Hint}" />
+    <!-- Catalog: search, filters, status (Add mode only). -->
+    <StackPanel Grid.Row="1" IsVisible="{Binding IsAddMode}" Margin="0,0,0,14">
+      <TextBox x:Name="SearchBox" Text="{Binding SearchText}" TabIndex="0" Margin="0,0,0,10"
+               PlaceholderText="{x:Static vm:UiText.SearchPlaceholder}"
+               AutomationProperties.Name="Search stations">
+        <TextBox.IsEnabled>
+          <MultiBinding Converter="{x:Static BoolConverters.Or}">
+            <Binding Path="IsCatalogLoading" />
+            <Binding Path="IsCatalogAvailable" />
+          </MultiBinding>
+        </TextBox.IsEnabled>
+      </TextBox>
+      <Grid x:Name="FilterRow" ColumnDefinitions="*,*,*,*,*,Auto" ColumnSpacing="8" IsEnabled="{Binding IsCatalogAvailable}">
+        <StackPanel Grid.Column="0">
+          <TextBlock Classes="filterLabel" Text="Country" />
+          <ComboBox Classes="filter" TabIndex="1" ItemsSource="{Binding CountryOptions}" SelectedItem="{Binding SelectedCountry}"
+                    AutomationProperties.Name="Country filter" />
+        </StackPanel>
+        <StackPanel Grid.Column="1">
+          <TextBlock Classes="filterLabel" Text="City" />
+          <ComboBox Classes="filter" TabIndex="2" ItemsSource="{Binding CityOptions}" SelectedItem="{Binding SelectedCity}"
+                    AutomationProperties.Name="City filter" />
+        </StackPanel>
+        <StackPanel Grid.Column="2">
+          <TextBlock Classes="filterLabel" Text="Type" />
+          <ComboBox Classes="filter" TabIndex="3" ItemsSource="{Binding TypeOptions}" SelectedItem="{Binding SelectedType}"
+                    AutomationProperties.Name="Type filter" />
+        </StackPanel>
+        <StackPanel Grid.Column="3">
+          <TextBlock Classes="filterLabel" Text="Genre" />
+          <ComboBox Classes="filter" TabIndex="4" ItemsSource="{Binding GenreOptions}" SelectedItem="{Binding SelectedGenre}"
+                    AutomationProperties.Name="Genre filter" />
+        </StackPanel>
+        <StackPanel Grid.Column="4">
+          <TextBlock Classes="filterLabel" Text="Language" />
+          <ComboBox Classes="filter" TabIndex="5" ItemsSource="{Binding LanguageOptions}" SelectedItem="{Binding SelectedLanguage}"
+                    AutomationProperties.Name="Language filter" />
+        </StackPanel>
+        <Button Grid.Column="5" Content="Clear" TabIndex="6" MinWidth="76" Padding="14,8" VerticalAlignment="Bottom"
+                Command="{Binding ClearFiltersCommand}"
+                AutomationProperties.Name="Clear search and filters" ToolTip.Tip="Clear search and filters" />
+      </Grid>
+      <TextBlock Classes="hint" Text="{Binding CatalogStatusText}" Margin="0,8,0,0"
+                 AutomationProperties.Name="Catalog status" />
     </StackPanel>
-  </DockPanel>
+
+    <!-- The form column (separator, fields, hint) and, in Add mode, the detail pane beside it; the results overlay covers
+         the form column. -->
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+      <StackPanel x:Name="FormColumn" Grid.Column="0">
+        <Grid ColumnDefinitions="*,Auto,*" Margin="0,2,0,12" IsVisible="{Binding IsAddMode}">
+          <Border Height="1" Background="{StaticResource DsDialRingBrush}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="hint" Text="{x:Static vm:UiText.ManualEntrySeparator}" Margin="10,0" />
+          <Border Grid.Column="2" Height="1" Background="{StaticResource DsDialRingBrush}" VerticalAlignment="Center" />
+        </Grid>
+        <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.NameLabel}" />
+        <TextBox x:Name="NameField" Text="{Binding Name}" TabIndex="7" MaxLength="{x:Static vm:StationEditorViewModel.NameMaxLength}"
+                 AutomationProperties.Name="{x:Static vm:StationEditorViewModel.NameLabel}" />
+        <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.TagLabel}" />
+        <TextBox x:Name="TagField" Text="{Binding Tag}" TabIndex="8" MaxLength="{x:Static vm:StationEditorViewModel.TagMaxLength}" PlaceholderText="Internet radio"
+                 AutomationProperties.Name="{x:Static vm:StationEditorViewModel.TagLabel}" />
+        <TextBlock Classes="fieldLabel" Text="{x:Static vm:StationEditorViewModel.UrlLabel}" />
+        <TextBox x:Name="UrlField" Text="{Binding Url}" TabIndex="9" MaxLength="{x:Static vm:StationEditorViewModel.UrlMaxLength}"
+                 AutomationProperties.Name="{x:Static vm:StationEditorViewModel.UrlLabel}" />
+        <TextBlock Classes="muted" FontSize="12" Text="{Binding Hint}" />
+      </StackPanel>
+
+      <!-- Detail pane: exactly as tall as the form column, long notes (or a long name) scroll instead of growing the window. -->
+      <Border Grid.Column="1" Classes="detail" Width="236" Margin="16,0,0,0" VerticalAlignment="Top" ClipToBounds="True"
+              Height="{Binding #FormColumn.Bounds.Height}"
+              AutomationProperties.Name="Station details">
+        <Border.IsVisible>
+          <MultiBinding Converter="{x:Static BoolConverters.Or}">
+            <Binding Path="IsCatalogLoading" />
+            <Binding Path="IsCatalogAvailable" />
+          </MultiBinding>
+        </Border.IsVisible>
+        <Panel>
+          <TextBlock Classes="hint" Text="{x:Static vm:UiText.CatalogDetailPlaceholder}" VerticalAlignment="Center" TextAlignment="Center"
+                     IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNull}}" />
+          <ScrollViewer Focusable="False" IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <StackPanel>
+              <DockPanel Margin="0,0,0,10">
+                <Border DockPanel.Dock="Left" Classes="tile" ClipToBounds="True" Margin="0,0,12,0" VerticalAlignment="Top">
+                  <Panel>
+                    <TextBlock Text="{Binding DetailRow.Monogram}" />
+                    <Image Source="{Binding DetailLogo}" IsVisible="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNotNull}}" Stretch="Uniform" />
+                  </Panel>
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Classes="detailName" Text="{Binding DetailRow.Name}" ToolTip.Tip="{Binding DetailRow.Name}" />
+                  <TextBlock Classes="secondary" Text="{Binding DetailRow.Location}" Margin="0,2,0,0"
+                             IsVisible="{Binding DetailRow.Location, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+              </DockPanel>
+              <WrapPanel Margin="0,0,0,4">
+                <Border Classes="chip" IsVisible="{Binding DetailRow.FrequencyText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding DetailRow.FrequencyText}" />
+                </Border>
+                <Border Classes="chip" IsVisible="{Binding DetailRow.Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding DetailRow.Kind}" />
+                </Border>
+                <Border Classes="chip" IsVisible="{Binding DetailRow.LanguageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding DetailRow.LanguageText}" />
+                </Border>
+                <Border Classes="chip" IsVisible="{Binding DetailRow.VotesText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding DetailRow.VotesText}" />
+                </Border>
+              </WrapPanel>
+              <TextBlock Classes="muted" FontSize="12" Text="{Binding DetailRow.Notes}" />
+            </StackPanel>
+          </ScrollViewer>
+        </Panel>
+      </Border>
+
+      <!-- Results overlay (D63): over the form column, under the status line. Never taller than that column, so opening
+           it never resizes the window (§5.5); the list gives up height before the footer does. -->
+      <Border x:Name="ResultsOverlay" Grid.Column="0" Classes="catalogOverlay" VerticalAlignment="Top" ZIndex="1"
+              MaxHeight="{Binding #FormColumn.Bounds.Height}" IsVisible="{Binding IsResultsOpen}">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Bottom" Classes="hint" Text="{Binding TotalCountText}" Margin="10,4,10,6"
+                     IsVisible="{Binding TotalCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <TextBlock DockPanel.Dock="Top" Classes="muted" Text="{x:Static vm:UiText.CatalogNoMatch}" Margin="12,10" IsVisible="{Binding HasNoMatches}" />
+          <ListBox x:Name="ResultsList" ItemsSource="{Binding Results}" SelectedItem="{Binding HighlightedResult}"
+                   ItemTemplate="{StaticResource CatalogResult}" MaxHeight="230" Focusable="False"
+                   IsVisible="{Binding !HasNoMatches}"
+                   AutomationProperties.Name="Station catalog results" />
+        </DockPanel>
+      </Border>
+    </Grid>
+
+    <TextBlock Grid.Row="3" Classes="error" Text="{Binding Error}" IsVisible="{Binding HasError}" Margin="0,4,0,0" />
+
+    <DockPanel Grid.Row="4" Margin="0,18,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Right" Classes="accent" Content="Save" IsDefault="True" MinWidth="88" TabIndex="10"
+              Command="{Binding SaveCommand}" />
+      <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" MinWidth="88" Margin="0,0,8,0" TabIndex="11"
+              Command="{Binding CancelCommand}" />
+      <Button DockPanel.Dock="Left" Classes="danger" MinWidth="144" Content="{Binding DeleteLabel}" TabIndex="12"
+              Command="{Binding DeleteCommand}" IsVisible="{Binding CanDelete}" />
+    </DockPanel>
+  </Grid>
 </Window>
