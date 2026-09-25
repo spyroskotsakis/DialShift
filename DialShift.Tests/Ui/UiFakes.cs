@@ -1,11 +1,13 @@
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media.Imaging;
 using DialShift.App.Platform;
 using DialShift.App.Services;
 using DialShift.App.SingleInstance;
 using DialShift.App.ViewModels;
 using DialShift.Core;
+using DialShift.Core.Catalog;
 using DialShift.Core.Playback;
 
 namespace DialShift.Tests.Ui;
@@ -206,6 +208,20 @@ public sealed class FakeShell(Journal journal) : IAppShell
     public void ShowMainWindow() => journal.Add("shell.ShowMainWindow");
     public void HideMainWindow() => journal.Add("shell.HideMainWindow");
     public void Quit() => journal.Add("shell.Quit");
+}
+
+/// <summary>The Add dialog's station catalog: answers every load with <see cref="Result"/> (default: loaded, no stations).</summary>
+public sealed class FakeCatalogProvider : ICatalogProvider
+{
+    public CatalogLoadResult Result { get; set; } = new(CatalogLoadState.Loaded, StationCatalogIndex.Empty, null, null);
+
+    public Task<CatalogLoadResult> GetCatalogAsync(CancellationToken cancellationToken = default) => Task.FromResult(Result);
+}
+
+/// <summary>Catalog logos without a network: every logo fails, so the dialog shows monograms.</summary>
+public sealed class FakeLogoLoader : ICatalogLogoLoader
+{
+    public Task<Bitmap?> LoadAsync(string url, CancellationToken cancellationToken) => Task.FromResult<Bitmap?>(null);
 }
 
 /// <summary>A dispatcher for view-model tests without a UI loop: posts run inline, in order.</summary>

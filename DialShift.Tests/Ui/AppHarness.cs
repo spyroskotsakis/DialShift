@@ -77,7 +77,8 @@ public sealed class AppHarness : IAsyncDisposable
                 sp.GetRequiredService<IPlaybackCoordinator>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<IDialogService>(),
                 sp.GetRequiredService<IEditorDialogService>(), sp.GetRequiredService<IStartupRegistration>(), sp.GetRequiredService<IFileRevealService>(),
                 sp.GetRequiredService<IUiDispatcher>(), sp.GetRequiredService<IAppShell>(), sp.GetRequiredService<IAppLog>(), sp.GetRequiredService<IClock>(),
-                TimeZoneInfo.Utc, new AppInfo(UiRig.Version, Paths.DataDirectory)));
+                TimeZoneInfo.Utc, new AppInfo(UiRig.Version, Paths.DataDirectory), sp.GetRequiredService<ICatalogProvider>(),
+                sp.GetRequiredService<ICatalogLogoLoader>()));
         });
         App = (DialShift.App.App)Application.Current!;
     }

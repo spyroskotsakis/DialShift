@@ -13,7 +13,7 @@ public sealed class StationRowViewModel : ObservableObject
     {
         Station = station;
         Name = station.Name;
-        Initial = station.Name.Length > 0 ? station.Name[..1].ToUpperInvariant() : "?";
+        Initial = UiText.Initial(station.Name);
         Subtitle = station.Tag + (isFallback ? " · Fallback" : "");
         ListenCommand = new AsyncRelayCommand(() => listen(station), onError);
         EditCommand = new AsyncRelayCommand(() => edit(station), onError);
@@ -93,7 +93,8 @@ public sealed class StationsPageViewModel : PageViewModel
 
     private async Task EditAsync(Station? station)
     {
-        var editor = new StationEditorViewModel(Services.Settings.Settings, station, Services.Dialogs, Services.ReportError);
+        var editor = new StationEditorViewModel(Services.Settings.Settings, station, Services.Dialogs, Services.ReportError,
+            Services.Catalog, Services.Logos, Services.Dispatcher, Services.CatalogSearchDelay);
         switch (await Services.Editors.ShowStationEditorAsync(editor))
         {
             case EditorResult.Saved:

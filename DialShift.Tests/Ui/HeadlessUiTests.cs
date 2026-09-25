@@ -481,8 +481,9 @@ public static class HeadlessUiTests
         var tag = ByName<TextBox>(editor, StationEditorViewModel.TagLabel);
         var url = ByName<TextBox>(editor, StationEditorViewModel.UrlLabel);
         Check("HS-02 BHV-64 the editor is owned by the main window, never by itself", editor.Owner == window && editor.Owner != editor);
-        Check("HS-02 BHV-52 the add dialog: \"Add a frequency · DialShift\", no delete button, name field focused",
-            editor.Title == "Add a frequency · DialShift" && !Find<Button>(editor).Any(b => b.IsEffectivelyVisible && b.Content as string == "Delete station") && Focused(editor) == name);
+        Check("HS-02 BHV-52 D68 the add dialog: \"Add a frequency · DialShift\", no delete button, \"Search stations\" focused",
+            editor.Title == "Add a frequency · DialShift" && !Find<Button>(editor).Any(b => b.IsEffectivelyVisible && b.Content as string == "Delete station")
+            && Focused(editor) == ByName<TextBox>(editor, "Search stations"));
         Check("HS-02 BHV-52 the fields enforce 100 / 160 / 2048 characters", name.MaxLength == 100 && tag.MaxLength == 160 && url.MaxLength == 2048);
         Check("HS-02 BHV-65 Save is the default button and Cancel the cancel button",
             ButtonWithText(editor, "Save").IsDefault && ButtonWithText(editor, "Cancel").IsCancel);
@@ -531,6 +532,7 @@ public static class HeadlessUiTests
         Check("HS-02 BHV-52 the edit dialog is prefilled and offers \"Delete station\"",
             editor.Title == "Edit station · DialShift" && name.Text == "Kosmos" && ByName<TextBox>(editor, StationEditorViewModel.UrlLabel).Text == "https://radio.example.org/kosmos"
             && ButtonWithText(editor, "Delete station").IsEffectivelyVisible);
+        Check("HS-02 BHV-52 D68 the edit dialog focuses the name field", Focused(editor) == name);
         await TypeAsync(name, "Kosmos 93.6");
         await ClickAsync(ButtonWithText(editor, "Save"));
         Check("HS-02 BHV-52 MX-01 Save renames it on screen and on disk",
