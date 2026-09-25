@@ -1,6 +1,12 @@
 using DialShift.Tests;
+using DialShift.Tests.App;
 using DialShift.Tests.Core;
 using DialShift.Tests.Fakes;
+using DialShift.Tests.Platform;
+
+// Child-process modes used by the process-level single-instance checks (CT-SI-03); never part of a normal run.
+if (args.Length > 0 && args[0].StartsWith("--si-", StringComparison.Ordinal))
+    return await SingleInstanceTests.RunChildAsync(args);
 
 // Deterministic console checks (no test framework). Usage: dotnet run --project DialShift.Tests -- [--filter Scheduler]
 return await TestHarness.RunAsync(args,
@@ -12,4 +18,11 @@ return await TestHarness.RunAsync(args,
     new TestSuite("PlaybackStateMachine", PlaybackStateMachineTests.RunAsync),
     new TestSuite("PlaybackProperty", PlaybackStateMachineTests.PropertyAsync),
     new TestSuite("PlaybackRace", PlaybackStateMachineTests.RacesAsync),
-    new TestSuite("Fakes", FakeSelfTests.RunAsync));
+    new TestSuite("Fakes", FakeSelfTests.RunAsync),
+    new TestSuite("SingleInstance", SingleInstanceTests.RunAsync),
+    new TestSuite("FileAppLog", FileAppLogTests.Run),
+    new TestSuite("AppPaths", AppPathsTests.Run),
+    new TestSuite("StartupRegistration", StartupRegistrationTests.RunAsync),
+    new TestSuite("FileReveal", FileRevealTests.RunAsync),
+    new TestSuite("MonotonicClock", MonotonicClockTests.Run),
+    new TestSuite("PowerEvents", PowerEventsTests.Run));

@@ -66,10 +66,4 @@ public static class RetryPolicyTests
         settings.FallbackStationId = null;
         Check("CT-PB-08 no fallback configured: always the desired station", RetryPolicy.SelectRetryTarget(settings, a, 5, onFallback: false) == (a, false));
     }
-
-    private static bool Throws<T>(Action action) where T : Exception
-    {
-        try { action(); return false; }
-        catch (T) { return true; }
-    }
 }
