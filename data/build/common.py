@@ -83,6 +83,19 @@ def norm_city(city, country):
     c = city.strip().strip('.').title()
     return CITY_ALIASES.get(country, {}).get(norm(city), c)
 
+# ---------------------------------------------------------------- row helpers
+def row_score(r):
+    """Which of two duplicate rows to keep: prefer a frequency, a curated source, then more votes."""
+    return (bool(r.get('frequency_fm')), str(r.get('source', '')).startswith('curated'),
+            r.get('votes') or 0)
+
+def app_tag(row):
+    """The 'Description / genre' text the DialShift Add-station dialog wants."""
+    t, g = row['type'], row['genre']
+    parts = [p for p in (t, g) if p and p not in ('Other',) and p != t] or ([t] if t else [])
+    parts = list(dict.fromkeys([t] + parts))
+    return ' · '.join(parts)
+
 # ---------------------------------------------------------------- classification
 def classify(desc, tags, country='GR'):
     """Return (type, genre) from description + tag keywords. Country-tuned."""
