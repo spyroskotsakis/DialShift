@@ -9,7 +9,9 @@ namespace DialShift.App.Tray;
 /// <param name="OpenWindowOnClick">Wires <c>TrayIcon.Clicked</c> to show the main window.</param>
 public sealed record TrayIconOptions(Uri IconUri, bool IsTemplateIcon, bool OpenWindowOnClick)
 {
-    /// <summary>macOS menu-bar template image: alpha-only artwork, tinted by the system for light and dark menu bars.</summary>
+    /// <summary>macOS menu-bar template image: alpha-only artwork, tinted by the system for light and dark menu bars.
+    /// Avalonia hands the status item a single bitmap and resizes it to <c>floor(menu font size × 4/3)</c> points
+    /// (17 pt at the 13 pt default), so one 44 px asset gives the Retina backing; an <c>@2x</c> variant would never be read.</summary>
     public static readonly Uri MacTemplateIcon = new("avares://DialShift/Assets/tray.png");
 
     /// <summary>Windows tray icon: the application <c>.ico</c>, whose small frames are drawn for the notification area (PK-04).</summary>
