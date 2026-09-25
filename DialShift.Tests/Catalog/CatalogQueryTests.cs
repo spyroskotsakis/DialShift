@@ -133,6 +133,16 @@ internal static class CatalogQueryTests
             F("\uD83D\uDCFB") == "\uD83D\uDCFB" && F("Radio 😀") == "radio 😀" && F("😀") == "😀" && F("😀").Length == 2);
         Check($"CAT-06 D77 a valid pair after an unpaired surrogate survives: \\uD800📻 → \\uFFFD📻, \\uDC00x📻 → \\uFFFDx📻{c}",
             F("\uD800\uD83D\uDCFB") == "\uFFFD\uD83D\uDCFB" && F("\uDC00x\uD83D\uDCFB") == "\uFFFDx\uD83D\uDCFB");
+        Check($"CAT-06 D77 U+FFFE folds to U+FFFD like an unpaired surrogate: \\uFFFE, a\\uFFFEb, \\uFFFE\\uD800, \\uD800\\uFFFE{c}",
+            F("\uFFFE") == "\uFFFD" && F("a\uFFFEb") == "a\uFFFDb" && F("\uFFFE\uD800") == "\uFFFD\uFFFD" && F("\uD800\uFFFE") == "\uFFFD\uFFFD");
+        CatalogSearchResult? onEmptyFffe = null;
+        Check($"CAT-06 D77 Search(StationCatalogIndex.Empty, \"\\uFFFE\", CatalogFilters.None) returns an empty result instead of throwing{c}",
+            NoThrow(() => onEmptyFffe = Search(StationCatalogIndex.Empty, "\uFFFE")) && onEmptyFffe is { TotalCount: 0, Items.Count: 0 });
+        StationCatalogIndex? withFffe = null;
+        Check($"CAT-06 D77 an index over a Name with U+FFFE (Radio\\uFFFE) builds{c}",
+            NoThrow(() => withFffe = Index(E("Radio\uFFFE", votes: 1), E("Plain", votes: 2))));
+        CheckQueries($"CAT-06 D77 Radio\\uFFFE is found by radio, and by \\uFFFE and \\uFFFD (both fold to U+FFFD){c}", withFffe!, null,
+            ("radio", ["Radio\uFFFE"]), ("\uFFFE", ["Radio\uFFFE"]), ("\uFFFD", ["Radio\uFFFE"]), ("plain", ["Plain"]));
         var onEmpty = Search(StationCatalogIndex.Empty, "\uD800");
         Check($"CAT-06 D77 Search(StationCatalogIndex.Empty, \"\\uD800\", CatalogFilters.None) returns an empty result instead of throwing{c}",
             onEmpty.Items.Count == 0 && onEmpty.TotalCount == 0);
