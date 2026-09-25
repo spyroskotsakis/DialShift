@@ -56,6 +56,8 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 
 Writes are atomic. An unreadable settings file is copied to `settings.json.unreadable-<timestamp>` (with `-2`, `-3`, … if that name is taken; an earlier copy is never overwritten) before defaults are used, and a dialog names the copy. If no copy can be made (for example a full disk or a read-only folder), DialShift runs on defaults but won't replace the original: saving shows "Save failed" until a copy can be made. Back up the settings folder to move stations and schedules. Settings move between Windows and macOS: slot time zones are saved as IANA names (such as `Europe/Athens`), which both systems understand. If this computer doesn't recognize a saved zone, the slot runs on local time and shows `(unknown zone)` in the warning color. Editing the slot keeps the saved zone unless you pick another one. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
+**Reading the log:** on macOS, an `app.render_timer_fallback` line means that no display was active when DialShift started, for example because the screens were asleep. It is harmless: the tray, the schedule and playback work as usual, and the window draws normally once a display wakes.
+
 ## Radio station catalog
 
 A curated catalog of **8,700+ radio stations** (Greece, France, Germany — Munich included) lives in [`data/`](data/):
