@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verifies an assembled DialShift.app, or the release zip, against the macOS packaging rules
-# (brief 1 §8; decisions D2 as amended by D13, D4, D7, D60; acceptance rows PK-02, PK-03, PK-04,
+# (brief 1 §8; decisions D2 as amended by D13, D4, D7, D60, D80, D81; acceptance rows PK-02, PK-03, PK-04,
 # HS-15, SR-03, CAT-03).
 #
 # Usage: scripts/verify-mac-app.sh path/to/DialShift.app
@@ -11,7 +11,8 @@
 # attributes), and verifies each extracted bundle, so the checks cover what a user downloads.
 # scripts/build-mac-app.sh runs both modes; CI runs the --zip mode again on the uploaded zip.
 # macOS built-in tools only (lipo, codesign, plutil, PlistBuddy, ditto, unzip, zipinfo), plus
-# /usr/bin/python3 (Xcode Command Line Tools) for the station catalog JSON.
+# /usr/bin/python3 (Xcode Command Line Tools) for the station catalog JSON. Without the Command Line Tools
+# that path is only a stub that offers to install them, so the script fails there (D80).
 set -euo pipefail
 
 fail() { echo "error: $*" >&2; exit 1; }
@@ -84,16 +85,19 @@ expect_plist LSMinimumSystemVersion 14.0
 [ -s "$APP/Contents/Resources/THIRD-PARTY-NOTICES.md" ] || fail "missing Contents/Resources/THIRD-PARTY-NOTICES.md"
 [ -s "$APP/Contents/Resources/licenses/Avalonia-LICENSE.txt" ] || fail "missing third-party license texts in Contents/Resources/licenses"
 
-# Brief 3 (D59, D60; CAT-03): the station catalog is a loose file in Contents/Resources/app, the folder
+# Brief 3 (D59, D60, D81; CAT-03): the station catalog is a loose file in Contents/Resources/app, the folder
 # AppContext.BaseDirectory points at in this layout. python3 parses it because plutil rejects the JSON null
-# the catalog uses for an unknown bitrate or vote count.
+# the catalog uses for an unknown bitrate or vote count. Like the app's parse, it skips a UTF-8 byte order mark
+# and rejects NaN and Infinity, which Python's json module would otherwise accept.
 CATALOG="$APP/Contents/Resources/app/app-catalog.json"
 [ -f "$CATALOG" ] && [ ! -L "$CATALOG" ] || fail "missing $CATALOG (the station catalog must be a regular file there, D60)"
 catalog_stations="$(/usr/bin/python3 -c '
 import json, sys
+def not_json(constant):
+    raise ValueError("%s is not JSON" % constant)
 try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        doc = json.load(f)
+    with open(sys.argv[1], encoding="utf-8-sig") as f:
+        doc = json.load(f, parse_constant=not_json)
 except (OSError, ValueError) as e:
     sys.exit("does not parse as JSON: %s" % e)
 version = doc.get("schema_version") if isinstance(doc, dict) else None
@@ -102,6 +106,9 @@ if type(version) is not int or version != 1:
 stations = doc.get("stations")
 if not isinstance(stations, list) or not stations:
     sys.exit("stations is not a non-empty array")
+others = [i for i, station in enumerate(stations) if not isinstance(station, dict)]
+if others:
+    sys.exit("%d of the %d stations are not JSON objects (the first is element %d: %.60r)" % (len(others), len(stations), others[0], stations[others[0]]))
 print(len(stations))
 ' "$CATALOG" 2>&1)" || fail "$CATALOG: $catalog_stations"
 
