@@ -28,4 +28,5 @@ return await TestHarness.RunAsync(args,
     new TestSuite("StartupRegistration", StartupRegistrationTests.RunAsync),
     new TestSuite("FileReveal", FileRevealTests.RunAsync),
     new TestSuite("MonotonicClock", MonotonicClockTests.Run),
-    new TestSuite("PowerEvents", PowerEventsTests.Run));
+    new TestSuite("PowerEvents", PowerEventsTests.Run),
+    new TestSuite("LibVlcEngine", LibVlcEngineTests.RunAsync));

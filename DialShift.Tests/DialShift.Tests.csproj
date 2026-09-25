@@ -6,4 +6,16 @@
          OS-specific types are reached only behind OperatingSystem guards. -->
     <ProjectReference Include="..\DialShift.App\DialShift.App.csproj"/>
   </ItemGroup>
+
+  <!-- The real-LibVLC checks (LibVlcEngineTests, HS-17) need the native runtime next to the test binary. Conditioned on
+       the build host, not the RID, so the plain `dotnet run` CI uses on windows-latest copies it to libvlc/win-x64,
+       where LibVLCSharp's Core.Initialize() looks. macOS test builds never get it. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
+  </ItemGroup>
 </Project>

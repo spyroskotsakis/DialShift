@@ -2,13 +2,18 @@
 // (the VideoLAN.LibVLC.Windows native package ships only in the win-x64 artifact); it compiles in every build.
 //
 // Carried over from the pre-refactor playback controller: LibVLC is created off the UI thread at construction with
-// "--no-video --no-osd --network-caching=1500 --http-reconnect"; media gets ":no-video"; one MediaPlayer per session;
+// "--no-video --no-osd --network-caching=1500 --http-reconnect" (plus "--aout=<module>" when LibVlcEngineOptions names an
+// audio output: the engine tests, CI and smoke runs use "adummy" because hosted runners have no audio device); media gets
+// ":no-video"; one MediaPlayer per session;
 // Mute when the volume is 0; "now playing" from Media.Meta(NowPlaying), polled once a second while the input plays (as
 // the legacy tick did); the previous player is stopped and disposed on a pool thread, and the next player is created
 // only after that finished (never two audible players).
 // Media.MetaChanged is not subscribed: the poll alone delivered ICY titles in the harness, and it keeps one fewer
-// native callback path alive across rapid session churn. ICY titles need http:// (LibVLC 3's https:// access module
-// does not request Icy-MetaData), so https stations show the station tag instead.
+// native callback path alive across rapid session churn. ICY titles come only through LibVLC 3's legacy HTTP access
+// module, the only one that requests Icy-MetaData. LibVLC opens http:// and https:// with its newer module and falls back
+// to the legacy one when a server answers with the Shoutcast v1 status line "ICY 200 OK". Measured with LibVLC 3.0.4
+// against the engine tests' local server: an "HTTP/1.0 200" stream was requested without Icy-MetaData, while "ICY 200 OK"
+// was retried with it and delivered the title. Stations without a title show the station tag instead.
 //
 // ─── Threading ────────────────────────────────────────────────────────────────────────────────────────────────────────
 // • Public members may be called from any thread; `gate` guards the session bookkeeping and is never held across an
@@ -75,15 +80,19 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
     private string? title;
 
     /// <summary>Creates the engine and starts LibVLC initialization on a pool thread (it can take a moment on first run).</summary>
-    public LibVlcPlaybackEngine(IAppLog log)
+    /// <param name="log">Receives engine errors; diagnostics are redacted.</param>
+    /// <param name="options">LibVLC instance settings: <see cref="LibVlcEngineOptions.Default"/> in the app.</param>
+    public LibVlcPlaybackEngine(IAppLog log, LibVlcEngineOptions options)
     {
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(options);
         this.log = log;
         events = new SerialEventQueue(log);
+        string[] instanceOptions = options.AudioOutput is { } aout ? [.. LibVlcOptions, "--aout=" + aout] : LibVlcOptions;
         libVlc = Task.Run(() =>
         {
             LibVLCSharp.Shared.Core.Initialize();
-            var instance = new LibVLC(LibVlcOptions);
+            var instance = new LibVLC(instanceOptions);
             instance.Log += OnLibVlcLog;
             return instance;
         });
@@ -623,4 +632,33 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         public long? LastProgressAt { get; set; }
         public PlaybackEngineState Reported { get; set; } = PlaybackEngineState.Idle;
     }
+}
+
+/// <summary>LibVLC instance settings that differ between the app and test or smoke runs.</summary>
+/// <remarks>
+/// <see cref="AudioOutput"/> names a LibVLC audio output module, passed as <c>--aout=&lt;module&gt;</c>; null keeps LibVLC's
+/// default (the system output device). <see cref="Dummy"/> selects <c>adummy</c>, which discards decoded audio while
+/// playback still advances, so the engine tests, CI and smoke runs work on machines without an audio device. The app
+/// selects it only through <see cref="PlaybackEngineOptions"/> (<c>DIALSHIFT_AUDIO_OUTPUT=dummy</c>).
+/// </remarks>
+public sealed partial record LibVlcEngineOptions
+{
+    /// <summary>LibVLC's default audio output: what the app uses.</summary>
+    public static LibVlcEngineOptions Default { get; } = new();
+
+    /// <summary>LibVLC's <c>adummy</c> audio output: no audio device needed, nothing is audible.</summary>
+    public static LibVlcEngineOptions Dummy { get; } = new() { AudioOutput = "adummy" };
+
+    /// <summary>LibVLC audio output module name (letters, digits, '_' or '-'), or null for LibVLC's default.</summary>
+    /// <exception cref="ArgumentException">Anything else: the name becomes a LibVLC command-line option.</exception>
+    public string? AudioOutput
+    {
+        get;
+        init => field = value is null || ModuleNamePattern().IsMatch(value)
+            ? value
+            : throw new ArgumentException($"'{value}' is not a LibVLC audio output module name.", nameof(AudioOutput));
+    }
+
+    [GeneratedRegex("^[A-Za-z0-9_-]+$")]
+    private static partial Regex ModuleNamePattern();
 }

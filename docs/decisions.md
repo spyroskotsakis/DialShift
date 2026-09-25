@@ -32,12 +32,14 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D26 | 2026-09-25 | No track metadata on macOS; LibVLC titles on Windows only for `http://` streams | brief 1 §4.3 step 7, §7.8 |
 | D27 | 2026-09-25 | Objective-C interop lives only in `DialShift.App/Interop/` | brief 1 §6, §7.8 |
 | D28 | 2026-09-25 | SIGTERM/SIGINT use the normal quit path; an OS-initiated shutdown is never vetoed, and settings are saved synchronously | brief 1 §4.1, BHV-11 |
-| D29 | 2026-09-25 | Process exit codes: 0 ok, 1 startup failure, 2 second launch couldn't activate, 3 single-instance channel failure | brief 1 §7.5; matrix §8.2.4 |
+| D29 | 2026-09-25 | Process exit codes: 0 ok, 1 startup failure, 2 second launch couldn't activate, 3 single-instance channel failure, 4 smoke test failed | brief 1 §7.5; matrix §8.2.4 |
 | D30 | 2026-09-25 | `ISystemPowerEvents.Resumed` on macOS is raised on the posting thread (the main thread for real wakes) | brief 1 §4.4; matrix §8.2.2 |
 | D31 | 2026-09-25 | The single-instance concurrency limit stays at 2 | brief 1 §7.5 |
 | D32 | 2026-09-25 | ATS: only `NSAllowsArbitraryLoadsForMedia`, never blanket `NSAllowsArbitraryLoads` | brief 1 §8; spikes finding 2 |
 | D33 | 2026-09-25 | CI uses the v5/v6 action majors | brief 1 §4.5, §8 |
 | D34 | 2026-09-25 | The macOS tray keeps one 44×44 alpha-only `tray.png`; the unused `tray@2x.png` is deleted | brief 1 §7.2, §7.6; D4 |
+| D35 | 2026-09-25 | `DIALSHIFT_AUDIO_OUTPUT=dummy` is a CI/headless seam, read once in the composition layer and honoured on Windows only | brief 1 §4.5, §7.7; D21, D23 |
+| D36 | 2026-09-25 | The macOS artifact label is `native-avplayer`; the build is still ad-hoc signed and not clean-machine tested | brief 1 §4.3, §8; D2, D7, D13 |
 
 ---
 
@@ -108,6 +110,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   Native Windows UI smoke stays open as a listed native check. It is not faked.
 - **Rationale:** Keeping WPF alive for a release cycle would mean maintaining two UIs, which is what the refactor removes. The tag keeps a known-good rollback point.
 - **Brief ref:** brief 1 §12 steps 9–11, §4.5, §11 ("legacy WPF/WinForms app is removed only after equivalent checks pass").
+- **Status (2026-09-25):** the retirement was executed in `0d0e524`: `DialShift/` deleted, `DialShift.slnx` = Core, Tests, App (DOD-01, DOD-10). The gate was met by CI run `36100367406` at `4f22dd0`: compile, test and publish green on both runners, and the app's native smoke (`--smoke-test --recovery-test`) 34/34 on `windows-latest` and `macos-latest`, which covered every legacy `SmokeChecks` check (matrix §4). That smoke stood in for the "headless smokes" condition; the headless UI suites (HS-01..08, HS-13, HS-14) are still in progress and tracked on their own rows. "Native Windows UI smoke stays open" is **superseded** by the 34/34 CI smoke on `windows-latest`: it ran the real window, tray and LibVLC playback in the runner's desktop session. What stays open as native checks (matrix §9) is what a hosted runner cannot do: real-hardware sleep/wake and `SystemEvents` delivery (NC-02, NC-08), the tray at a real login (NC-04, NC-10), a real click on the tray and focus rules (NC-01, NC-06), and audible output (NC-01, NC-03).
 
 ## D9 — Spikes run concurrently with the inventory
 
@@ -245,6 +248,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Decision:** `MacAvPlayerPlaybackEngine` does **not** implement `ITrackMetadataProvider`, so macOS always shows the station tag (BHV-32). `LibVlcPlaybackEngine` implements it by polling `Meta(NowPlaying)`, but titles only arrive for **`http://`** streams.
 - **Rationale:** In the adapter harness, `AVPlayerItemMetadataOutput` delivered `icy`/`StreamTitle` reliably only for a Shoutcast v2 server, and never for Icecast MP3/AAC or HLS. A title that appears on a few stations and silently goes missing on most would be worse UX than a consistent tag. LibVLC 3's `https://` access module does not send `Icy-MetaData`, so an https station shows its tag.
 - **Consequence:** The README and release notes must state both limits (PK-07, owned by the release lane). The contract remark is on `ITrackMetadataProvider`. CT-PB-37 already covers "no provider → tag".
+- **Finding (HS-17 harness, `docs/spikes.md`):** even over `http://`, LibVLC 3.0.4 requested a plain `HTTP/1.0 200` stream without `Icy-MetaData`, so no title arrived. Only a Shoutcast v1 `ICY 200 OK` reply made LibVLC retry through its legacy HTTP module, which sent `Icy-MetaData: 1` and delivered the `StreamTitle`. On Windows, titles therefore arrive only from servers that answer `ICY 200 OK`; other stations show the tag. The README says so. The decision itself is unchanged. HS-17 LV-04 checks the `ICY 200 OK` path on `windows-latest`, and NC-03 records the behavior of public Icecast stations on LibVLC 3.0.23.1.
 - **Brief ref:** brief 1 §4.3 step 7, §7.8; `docs/spikes.md` capability differences.
 
 ## D27 — One home for Objective-C interop
@@ -275,8 +279,9 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   | 1 | `StartupFailed` | Startup failed and the startup-failure dialog was shown (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
   | 2 | `ActivationFailed` | A second launch whose activation was rejected or not answered |
   | 3 | `SingleInstanceFailed` | The lock was acquired but the activation channel could not start |
+  | 4 | `SmokeTestFailed` | A `--smoke-test` run in which at least one check failed, or the smoke watchdog fired (`results.json` says which) |
 
-- **Rationale:** Scripts, CT-SI-03 and the smoke harness need distinct, stable outcomes. Verified against the source at `82a9900`.
+- **Rationale:** Scripts, CT-SI-03 and the smoke harness need distinct, stable outcomes. Codes 0–3 were verified against the source at `82a9900`. Code 4 was added with the native smoke runner (`4f22dd0`); CI fails the smoke step on any non-zero exit.
 - **Brief ref:** brief 1 §7.5; matrix §8.2.4 (the exit-code table there is updated to match).
 
 ## D30 — Thread of `Resumed`
@@ -309,3 +314,21 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Rationale:** The release lane disassembled `AvnTrayIcon::SetIcon` in `libAvaloniaNative` 12.1.2. Avalonia takes one PNG, sizes it to `floor(menuFont.pointSize × 1.3333)` pt (17 pt, which is 34 px on a Retina display here), and marks it as a template. An `@2x` file is never used. Downscaling a 44 px source to 34 px stays sharp, while a 22 px source would be upscaled and blurry.
 - **Consequence:** Menu-bar rendering in light and dark is still verified natively (NC-12). The icon asset assertion in HS-15 is still open (PK-04).
 - **Brief ref:** brief 1 §7.2, §7.6; D4.
+
+## D35 — `DIALSHIFT_AUDIO_OUTPUT=dummy` is a CI/headless seam
+
+- **Decision:** `DIALSHIFT_AUDIO_OUTPUT` is read **once**, in the composition layer: `AddDialShiftPlayback` builds `PlaybackEngineOptions.FromEnvironment` when the `PlaybackEngineFactory` is first resolved (`DialShift.App/Services/PlaybackServices.cs`). The engines never read the environment.
+  - Only `dummy` (trimmed, any case) has an effect, and **only on Windows**. `PlaybackEngineFactory.Create()` then gives `LibVlcPlaybackEngine` the `adummy` audio output (`--aout=adummy`), which decodes and discards audio, and logs `playback.audio_output` at info level.
+  - On macOS the value is ignored and logged at info level: AVPlayer always uses the system output.
+  - Any other value is ignored and logged as a `playback.audio_output` warning. The module name is never taken from the variable, so it can't inject LibVLC options.
+  - It is for developer, CI and smoke runs only, and is documented in the README developer section, like `DIALSHIFT_DATA_DIR` (D21).
+- **Rationale:** A hosted Windows runner is not guaranteed to have a working audio device, and LibVLC's playback depends on its audio output opening. The seam makes HS-17 LV-01..LV-11 and the Windows native smoke independent of the runner's audio hardware, without a test-only branch in the engine. Nothing is audible on `adummy`, and the native volume can't be read back, so audible output and mute at volume 0 stay native checks (NC-01, NC-03).
+- **Consequence:** CI sets the variable for the Windows smoke step (`.github/workflows/ci.yml`), and `LibVlcEngineTests` uses the same factory path (LV-01 asserts the `playback.audio_output` line). The Windows smoke at `4f22dd0` passed before the seam existed, so its playback ran on the runner's default output; later runs use `adummy`.
+- **Brief ref:** brief 1 §4.5, §7.7; D21, D23.
+
+## D36 — The macOS artifact label is `native-avplayer`
+
+- **Decision:** `MACOS_LABEL` is `native-avplayer` in `.github/workflows/ci.yml`, and it is the default in `scripts/build-mac-app.sh`. The macOS artifact is `DialShift-osx-arm64-native-avplayer.zip`, replacing the earlier `preview` label. The README names the build "Native `osx-arm64` (AVPlayer)".
+- **Basis:** SP-01 is green (the production-adapter corpus on macOS 26.5 arm64), SP-02 checkpoint B passed, and the native smoke passed 34/34 on `macos-latest` with `rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine` (CI `36100367406`).
+- **Limits:** the label says what the build **is**: native arm64 with AVPlayer and no LibVLC. It does not say the build is release-ready. The build is still ad-hoc signed and not notarized (D7, NC-09), and it has not been tested on a clean machine (NC-07). The README says both. It changes when NC-07 passes, and again when the first release is signed.
+- **Brief ref:** brief 1 §4.3 (honest labeling), §8; D2, D7, D13; DOD-08.

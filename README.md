@@ -39,7 +39,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 
 ### Differences between the two players
 
-- **Track titles:** Windows shows the current song title for `http://` streams that send one; `https://` stations show the station description instead. macOS always shows the station description (decision D26).
+- **Track titles:** Windows shows the current song title for `http://` streams that send one; `https://` stations show the station description instead. In testing, LibVLC received titles only from servers that answer in the older Shoutcast style (`ICY 200 OK`), so many other `http://` stations show the station description too. macOS always shows the station description (decision D26).
 - **Streams at a `.pls` or `.m3u` path:** a raw audio stream served at a URL ending in `.pls` or `.m3u` may fail on macOS, because AVPlayer treats it as a playlist. Use the server's direct stream path instead (often `/;` or `/stream`). Real playlist files are fine.
 - **Formats:** beyond MP3, AAC and HLS, macOS 26.5 also played Ogg Vorbis, Opus and FLAC-in-Ogg in testing. Older macOS versions have not been tested with those formats.
 
@@ -112,6 +112,8 @@ dotnet run --project DialShift.Tests/DialShift.Tests.csproj
 
 The tests are deterministic console checks (no test framework); a non-zero exit code means a failure. A handful of platform checks are skipped on the other OS.
 
+On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS the suite reports `SKIP (Windows only)`.
+
 Publish per runtime identifier. `DialShift.App` has exactly two, `win-x64` and `osx-arm64`:
 
 ```bash
@@ -130,7 +132,7 @@ The release scripts wrap that publish and are the single source of the package l
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every branch push, on `windows-latest` and `macos-latest` (Apple Silicon): build the solution with warnings as errors, run the tests, run the native UI smoke, build the package with the script above, extract the zip a user would download and verify it again, then upload the zip (7-day retention) and the smoke results.
+`.github/workflows/ci.yml` runs on every branch push, on `windows-latest` and `macos-latest` (Apple Silicon): build the solution with warnings as errors, run the tests, run the native UI smoke (with `DIALSHIFT_AUDIO_OUTPUT=dummy` on Windows, so playback does not depend on the runner's audio device), build the package with the script above, extract the zip a user would download and verify it again, then upload the zip (7-day retention) and the smoke results.
 
 ### Developer runs
 
@@ -139,6 +141,8 @@ The release scripts wrap that publish and are the single source of the package l
 ```bash
 DIALSHIFT_DATA_DIR=/tmp/dialshift-dev dotnet run --project DialShift.App -- --tray
 ```
+
+`DIALSHIFT_AUDIO_OUTPUT=dummy` (developer and CI use only) makes the Windows build play through LibVLC's silent `adummy` output, so playback advances on machines without an audio device, such as hosted CI runners. Other values are ignored with a `playback.audio_output` warning in the log. macOS ignores the variable, because AVPlayer always uses the system output.
 
 `--tray` starts with the window hidden. A second launch with the same data folder brings the running window to the front. SIGTERM and Ctrl+C quit through the same clean path as **Quit DialShift**.
 
