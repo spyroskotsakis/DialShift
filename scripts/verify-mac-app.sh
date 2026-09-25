@@ -70,7 +70,12 @@ expect_plist LSUIElement true
 expect_plist NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia true
 [ -z "$(plist_value NSAppTransportSecurity:NSAllowsArbitraryLoads)" ] \
     || fail "Info.plist must not set NSAppTransportSecurity:NSAllowsArbitraryLoads (only the media exception)"
-[ -n "$(plist_value CFBundleShortVersionString)" ] || fail "Info.plist CFBundleShortVersionString is missing"
+# Apple's version keys take integers only (D53): MAJOR.MINOR.PATCH and a build number of one to
+# three integers. A SemVer pre-release suffix belongs in the assembly InformationalVersion.
+[[ "$(plist_value CFBundleShortVersionString)" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail "Info.plist CFBundleShortVersionString is '$(plist_value CFBundleShortVersionString)', expected MAJOR.MINOR.PATCH"
+[[ "$(plist_value CFBundleVersion)" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] \
+    || fail "Info.plist CFBundleVersion is '$(plist_value CFBundleVersion)', expected one to three dot-separated integers"
 # Decision D22: macOS 14.0 minimum (AVPlayer corpus not verified on older versions).
 expect_plist LSMinimumSystemVersion 14.0
 
