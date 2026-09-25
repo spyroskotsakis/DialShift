@@ -64,6 +64,8 @@ public sealed class StationEditorViewModel : EditorViewModel
     private string totalCountText = "";
     private bool hasNoMatches;
     private bool isResultsOpen;
+    private bool searchInFlight;
+    private bool openOnApply;
     private CatalogResultRow? highlighted;
     private StationCatalogEntry? selectedEntry;
     private CatalogResultRow? selectedRow;
@@ -193,18 +195,23 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>
     /// The results overlay is showing. A search or filter change that matches something opens it; one that matches nothing,
-    /// or a pick, closes it (D87); the view may open or close it.
+    /// or a pick, closes it (D87); the view may open or close it. It is never open without rows: setting it while
+    /// <see cref="Results"/> is empty leaves it closed (D87 9(a)).
     /// Opening it highlights the first row when nothing is highlighted, so typing then Enter picks the top match; closing
-    /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85).
+    /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85). Any close (Escape,
+    /// focus into a form field, a press outside) also keeps a search already in flight from reopening it: that search's
+    /// rows still apply, with the overlay closed (D87 items 8, 9(b)).
     /// </summary>
     public bool IsResultsOpen
     {
         get => isResultsOpen;
         set
         {
+            if (value && results.Count == 0) return;
+            if (!value) openOnApply = false;
             if (!SetProperty(ref isResultsOpen, value)) return;
             if (!value) HighlightedResult = null;
-            else if (highlighted == null && results.Count > 0) HighlightedResult = results[0];
+            else if (highlighted == null) HighlightedResult = results[0];
         }
     }
 
@@ -218,7 +225,10 @@ public sealed class StationEditorViewModel : EditorViewModel
         }
     }
 
-    /// <summary>Picks <see cref="HighlightedResult"/>: fills Name, Description and Stream URL. Does nothing without a highlight.</summary>
+    /// <summary>
+    /// Picks <see cref="HighlightedResult"/>: fills Name, Description and Stream URL. Does nothing without a highlight. A
+    /// pick cancels a search still in flight, so a late result never reopens the results over the filled fields.
+    /// </summary>
     public RelayCommand SelectEntryCommand { get; }
 
     /// <summary>The last picked entry; its notes are saved with the station while its URL is kept (D73).</summary>
@@ -246,6 +256,30 @@ public sealed class StationEditorViewModel : EditorViewModel
             return;
         }
         HighlightedResult = results[Math.Clamp(current + delta, 0, results.Count - 1)];
+    }
+
+    /// <summary>
+    /// Enter in the search box; returns whether Enter is handled (when not, it goes on to the default button, Save).
+    /// While a search is pending (scheduled, not yet applied) it runs at once on the current text and filters, without the
+    /// rest of its delay, and its first row is picked; with no match nothing is picked, the overlay stays closed and the
+    /// status line says so. Enter is handled either way, so a half-typed form is never saved while a search is pending
+    /// (D87 item 6). With no search pending, it picks the highlighted row of the open results (D85).
+    /// </summary>
+    public bool PickOnEnter()
+    {
+        if (searchInFlight)
+        {
+            RunPendingSearchNow();
+            if (results.Count > 0)
+            {
+                HighlightedResult = results[0];
+                SelectHighlighted();
+            }
+            return true;
+        }
+        if (!isResultsOpen || highlighted == null) return false;
+        SelectHighlighted();
+        return true;
     }
 
     protected override void Save()
@@ -360,8 +394,45 @@ public sealed class StationEditorViewModel : EditorViewModel
         var cts = searchCts = new CancellationTokenSource();
         if (pendingSearch == null || pendingSearch.Task.IsCompleted)
             pendingSearch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var filters = new CatalogFilters(selectedCountry.Value, selectedCity.Value, selectedType.Value, selectedGenre.Value, selectedLanguage.Value);
-        _ = RunSearchAsync(new SearchRequest(generation, index, searchText, filters, delay, open), cts.Token);
+        searchInFlight = true;
+        openOnApply = open;
+        _ = RunSearchAsync(new SearchRequest(generation, index, searchText, CurrentFilters(), delay), cts.Token);
+    }
+
+    private CatalogFilters CurrentFilters() =>
+        new(selectedCountry.Value, selectedCity.Value, selectedType.Value, selectedGenre.Value, selectedLanguage.Value);
+
+    /// <summary>
+    /// Replaces the search in flight with one run here, on the UI thread, and applies it: a search is budgeted under 10 ms
+    /// on the full catalog (D69), and Enter needs the rows of the text as typed now.
+    /// </summary>
+    private void RunPendingSearchNow()
+    {
+        var generation = ++searchGeneration;
+        CancelAndDispose(ref searchCts);
+        var request = new SearchRequest(generation, index, searchText, CurrentFilters(), TimeSpan.Zero);
+        CatalogSearchResult result;
+        try
+        {
+            result = StationCatalogQuery.Search(request.Catalog, request.Text, request.Filters);
+        }
+        catch (Exception ex)
+        {
+            FailSearch(generation, ex);
+            return;
+        }
+        ApplySearch(new SearchOutcome(request, result));
+    }
+
+    /// <summary>Drops the search in flight like a superseded one: its result, when it lands, is ignored, the results stay as
+    /// they were, and PendingSearch settles now (D87 item 7).</summary>
+    private void CancelSearch()
+    {
+        if (!searchInFlight) return;
+        searchInFlight = false;
+        ++searchGeneration;
+        CancelAndDispose(ref searchCts);
+        pendingSearch?.TrySetResult();
     }
 
     private async Task RunSearchAsync(SearchRequest request, CancellationToken token)
@@ -396,6 +467,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     private void FailSearch(int generation, Exception error)
     {
         if (closed || generation != searchGeneration) return;
+        searchInFlight = false;
         pendingSearch?.TrySetResult();
         onError(error);
     }
@@ -403,6 +475,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     private void ApplySearch(SearchOutcome outcome)
     {
         if (closed || outcome.Request.Generation != searchGeneration) return;
+        searchInFlight = false;
         var rows = outcome.Result.Items.Select(e => new CatalogResultRow(e)).ToList();
         Results = rows;
         TotalCount = outcome.Result.TotalCount;
@@ -411,9 +484,10 @@ public sealed class StationEditorViewModel : EditorViewModel
             ? UiText.BrowseCount(rows.Count, outcome.Result.TotalCount)
             : UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
         HasNoMatches = outcome.Result.TotalCount == 0;
-        // D87: no match closes the overlay, so the form the status line's message points to stays in view.
+        // D87: no match closes the overlay, so the form the status line's message points to stays in view. A search the
+        // user asked for opens it, unless the user closed the results (Escape, the form, a press outside) while it was in flight.
         if (outcome.Result.TotalCount == 0) IsResultsOpen = false;
-        else if (outcome.Request.Open) IsResultsOpen = true;
+        else if (openOnApply) IsResultsOpen = true;
         // D85: new rows in an open overlay highlight the top match again, so typing then Enter picks it; closed, none.
         HighlightedResult = isResultsOpen && rows.Count > 0 ? rows[0] : null;
         LoadRowLogos(rows);
@@ -425,6 +499,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     private void SelectHighlighted()
     {
         if (highlighted is not { } row) return;
+        CancelSearch();
         var entry = row.Entry;
         Name = Truncate(entry.Name, NameMaxLength).TrimEnd();
         Tag = Truncate(entry.Tag, TagMaxLength);
@@ -508,7 +583,7 @@ public sealed class StationEditorViewModel : EditorViewModel
         return -1;
     }
 
-    private sealed record SearchRequest(int Generation, StationCatalogIndex Catalog, string Text, CatalogFilters Filters, TimeSpan Delay, bool Open);
+    private sealed record SearchRequest(int Generation, StationCatalogIndex Catalog, string Text, CatalogFilters Filters, TimeSpan Delay);
 
     private sealed record SearchOutcome(SearchRequest Request, CatalogSearchResult Result);
 

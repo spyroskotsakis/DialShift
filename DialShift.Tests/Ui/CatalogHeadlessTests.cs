@@ -41,6 +41,7 @@ internal static class CatalogHeadlessTests
         await Headless.RunAsync(KeyboardPickAndSave);
         await Headless.RunAsync(PointerLogosAndMonograms);
         await Headless.RunAsync(EnterAndEscape);
+        await Headless.RunAsync(EnterAndEscapeBeforeTheDebounce);
         await Headless.RunAsync(LoadingAndNoCatalog);
         await Headless.RunAsync(EditModeIsThePlainForm);
         await Headless.RunAsync(() => NothingClipped(780, 650));
@@ -334,6 +335,132 @@ internal static class CatalogHeadlessTests
         await PressAsync(dialog, Key.Escape);
         Check("CAT-12 §5.5 Escape with the results closed cancels the dialog: nothing added",
             await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Cancelled && rig.Settings.Stations.Count == saved);
+    }
+
+    /// <summary>
+    /// D87 items 6–9 against the app's real 200 ms debounce (QA M1, m2): Enter while a search is pending runs it at once and
+    /// picks its first row, or nothing on no match, and never saves; a pick cancels a pending search; any close other than a
+    /// pick (Escape, focus into a form field, a press outside) lets a search in flight apply without reopening the results;
+    /// the overlay never opens without rows.
+    /// </summary>
+    private static async Task EnterAndEscapeBeforeTheDebounce()
+    {
+        await using var rig = await UiRig.CreateHeadlessAsync();
+        rig.Catalog.Result = Loaded(Small);
+        var (dialog, editor) = await OpenAddAsync(rig);
+        var search = ByName<TextBox>(dialog, "Search stations");
+        var name = Field(dialog, StationEditorViewModel.NameLabel);
+        var debounce = StationEditorViewModel.DefaultSearchDelay;
+        var stations = rig.Settings.Stations.Count;
+        Check($"CAT-12 D87 fixture: the dialog searches after a non-zero delay ({debounce.TotalMilliseconds:F0} ms)", debounce > TimeSpan.Zero);
+        string State() =>
+            $"name \"{name.Text}\", picked {editor.SelectedEntry?.Name ?? "none"}, open {editor.IsResultsOpen}, overlay {Overlay(dialog).IsVisible}, " +
+            $"status \"{StatusLine(dialog).Text}\", error \"{VisibleError(dialog)?.Text}\", focus {FocusedName(dialog)}, pending {!editor.PendingSearch.IsCompleted}, " +
+            $"rows {editor.Results.Count}, highlight {editor.HighlightedResult?.Entry.Name ?? "none"}";
+        void Report(string step) => Console.WriteLine($"  {step}: {State()}");
+        // Long enough for any search still in flight to land (or to show that it never will).
+        async Task PastTheDelayAsync()
+        {
+            await Task.Delay(debounce * 3);
+            await PumpAsync();
+            Layout(dialog);
+        }
+        async Task ClearFormAsync()
+        {
+            await TypeAsync(name, "");
+            await TypeAsync(Field(dialog, StationEditorViewModel.TagLabel), "");
+            await TypeAsync(Field(dialog, StationEditorViewModel.UrlLabel), "");
+        }
+
+        // Item 6, no search pending: Enter after the results arrived picks their top match (D85, unchanged).
+        await SearchAsync(dialog, editor, "thessaloniki");
+        await PressAsync(dialog, Key.Enter);
+        Report("Enter after the results arrived");
+        Check("CAT-12 D85 D87 Enter after the results arrived (no search pending) picks the top match: Radio Thessaloniki, the results closed",
+            name.Text == "Radio Thessaloniki" && editor.SelectedEntry == Thessaloniki && !Overlay(dialog).IsVisible && dialog.IsVisible);
+        await ClearFormAsync();
+
+        // Item 6, pending, no match: the stale row is not picked, Enter is handled and nothing is saved.
+        await SearchAsync(dialog, editor, "melodia");
+        await TypeAsync(search, "melodia xyz");
+        var raced = !editor.PendingSearch.IsCompleted && editor.HighlightedResult?.Entry == Melodia && Overlay(dialog).IsVisible;
+        await PressAsync(dialog, Key.Enter);
+        Layout(dialog);
+        Report("Enter at once after \"melodia xyz\"");
+        Check("CAT-12 D87 fixture: Enter lands while the search for \"melodia xyz\" is pending, the stale Melodia 99.2 row highlighted", raced);
+        Check("CAT-12 D87 item 6 Enter at once after typing \"melodia xyz\" runs the search now and picks nothing (not the stale Melodia 99.2; the earlier pick stays the selected entry): " +
+              "the results closed, the status line says the no-match message, and Enter is handled: nothing saved, no name error, the focus stays in the search box",
+            name.Text == "" && editor.SelectedEntry == Thessaloniki && !Overlay(dialog).IsVisible && editor.PendingSearch.IsCompleted && editor.HasNoMatches
+            && StatusLine(dialog).Text == UiText.CatalogNoMatch && VisibleError(dialog) == null && Focused(dialog) == search
+            && dialog.IsVisible && rig.Settings.Stations.Count == stations);
+        await PastTheDelayAsync();
+        Check("CAT-12 D87 item 6 past the delay nothing reopens the results or fills the fields", !Overlay(dialog).IsVisible && name.Text == "" && editor.SelectedEntry == Thessaloniki);
+        await PressAsync(dialog, Key.Enter);
+        Check("CAT-12 D87 item 4 Enter again, with no search pending and the overlay closed, is Save: the missing-name message in the name field",
+            VisibleError(dialog)?.Text == "Give this station a name." && Focused(dialog) == name && dialog.IsVisible && rig.Settings.Stations.Count == stations);
+
+        // Item 9(a): the overlay never opens without rows.
+        editor.IsResultsOpen = true;
+        Layout(dialog);
+        Check("CAT-12 D87 item 9(a) asking to open the results with no rows leaves them closed", !editor.IsResultsOpen && !Overlay(dialog).IsVisible);
+
+        // Item 6, pending, a match: the new text's first row, not the stale one.
+        await SearchAsync(dialog, editor, "radio");
+        await TypeAsync(search, "kosmos");
+        raced = !editor.PendingSearch.IsCompleted && editor.HighlightedResult is { } stale && stale.Entry != Kosmos;
+        await PressAsync(dialog, Key.Enter);
+        Layout(dialog);
+        Report("Enter at once after \"kosmos\"");
+        Check("CAT-12 D87 fixture: Enter lands while the search for \"kosmos\" is pending, a stale \"radio\" row highlighted", raced);
+        Check("CAT-12 D87 item 6 Enter at once after typing \"kosmos\" runs the search now and picks its first row, Kosmos 93.6; the results closed",
+            name.Text == "Kosmos 93.6" && editor.SelectedEntry == Kosmos && !Overlay(dialog).IsVisible && dialog.IsVisible && editor.PendingSearch.IsCompleted);
+        await PastTheDelayAsync();
+        Check("CAT-12 D87 item 6 past the delay the pick stays and the results stay closed", !Overlay(dialog).IsVisible && name.Text == "Kosmos 93.6");
+
+        // Item 7: a pointer pick cancels a pending search; the results stay as they were.
+        await SearchAsync(dialog, editor, "radio");
+        var radioRows = editor.Results;
+        await TypeAsync(search, "melodia");
+        raced = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
+        await ClickAsync(ItemOf(dialog, KolnAm));
+        Report("pointer pick while \"melodia\" is pending");
+        Check("CAT-10 D87 fixture: the row is clicked while the search for \"melodia\" is pending", raced);
+        Check("CAT-10 D87 item 7 a pointer pick while a search is pending picks the clicked row (Radio Köln AM) and cancels the search at once",
+            name.Text == "Radio Köln AM" && editor.SelectedEntry == KolnAm && !Overlay(dialog).IsVisible && editor.PendingSearch.IsCompleted);
+        await PastTheDelayAsync();
+        Check("CAT-10 D87 item 7 past the delay the cancelled search never lands: the results stay as they were and closed",
+            ReferenceEquals(editor.Results, radioRows) && !Overlay(dialog).IsVisible && name.Text == "Radio Köln AM");
+
+        // Items 8 and 9(b): Escape, focus into a form field and a press outside each let the search in flight apply, closed.
+        async Task CloseWhilePendingAsync(string how, Func<Task> close)
+        {
+            await SearchAsync(dialog, editor, "radio");
+            await TypeAsync(search, "kosmos");
+            var inFlight = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
+            await close();
+            Layout(dialog);
+            Check($"CAT-12 D87 fixture: {how} lands while the search for \"kosmos\" is pending, with the results open", inFlight);
+            Check($"CAT-12 D87 {how} closes the results; the dialog stays open", !Overlay(dialog).IsVisible && dialog.IsVisible);
+            var landed = await CompletesAsync(editor.PendingSearch);
+            await PastTheDelayAsync();
+            Report($"after {how}, past the delay");
+            Check($"CAT-12 D87 after {how} the search in flight still lands (Kosmos 93.6 its only row, the footer \"1 match\") without reopening the results, nothing highlighted",
+                landed && editor.Results.Single().Entry == Kosmos && editor.TotalCountText == "1 match" && !editor.IsResultsOpen && !Overlay(dialog).IsVisible
+                && editor.HighlightedResult == null);
+        }
+        await CloseWhilePendingAsync("item 8 Escape", () => PressAsync(dialog, Key.Escape));
+        search.Focus();
+        await PressAsync(dialog, Key.Down);
+        Layout(dialog);
+        Check("CAT-12 D87 item 8 Down then opens the typed text's rows on Kosmos 93.6", Overlay(dialog).IsVisible && editor.HighlightedResult?.Entry == Kosmos);
+        await CloseWhilePendingAsync("item 9(b) focus moving into the Description field", async () =>
+        {
+            Field(dialog, StationEditorViewModel.TagLabel).Focus();
+            await PumpAsync();
+        });
+        await CloseWhilePendingAsync("item 9(b) a press outside (on the detail pane)", () => ClickAsync(Detail(dialog)));
+        dialog.Close();
+        await PumpAsync();
     }
 
     // ─── CAT-13: loading, no catalog ───

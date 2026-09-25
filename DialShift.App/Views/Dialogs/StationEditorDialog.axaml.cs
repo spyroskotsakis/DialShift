@@ -89,9 +89,9 @@ public partial class StationEditorDialog : Window
                 editor.MoveHighlight(-1);
                 e.Handled = true;
                 break;
-            case Key.Enter when editor.IsResultsOpen && editor.HighlightedResult != null:
-                editor.SelectEntryCommand.Execute(null);
-                e.Handled = true;
+            case Key.Enter:
+                // Picks the top match of the text as typed (D87 item 6); when not handled, Enter goes on to Save.
+                e.Handled = editor.PickOnEnter();
                 break;
             case Key.PageDown:
                 DetailScroll.PageDown();

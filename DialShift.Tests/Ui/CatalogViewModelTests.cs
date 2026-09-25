@@ -249,6 +249,8 @@ internal static class CatalogViewModelTests
         Check("CAT-13 D87 no match: the status line reads \"No stations match — adjust filters or enter the stream manually\" and announces the change",
             vm.StatusLineText == UiText.CatalogNoMatch && vm.CatalogStatusText == "60 stations · catalog updated 2026-09-25"
             && sixty.Changes.Skip(noMatchMark).Contains(nameof(StationEditorViewModel.StatusLineText)));
+        vm.IsResultsOpen = true;
+        Check("CAT-13 D87 item 9(a) the overlay is never open without rows: IsResultsOpen = true with no results leaves it false", !vm.IsResultsOpen);
         vm.SearchText = "Station 42";
         await sixty.Settled();
         Check("CAT-13 D87 typing a matching word after no match opens the results again and the status line returns to the catalog status",
