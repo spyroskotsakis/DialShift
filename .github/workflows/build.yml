@@ -158,15 +158,20 @@ jobs:
 
       # Install.ps1 (SW-N4, D56) from the folder extracted above, run as "Run with PowerShell" runs it (Windows
       # PowerShell 5.1), with LOCALAPPDATA in a temp folder, -NoLaunch (no DialShift is started) and -NonInteractive
-      # (it never waits for Enter): (a) a fresh install; (b) an upgrade over it, which leaves no file of the old build,
-      # removes a stale DialShift.new-*/DialShift.old-* folder of an earlier run and leaves none of its own, and moves
-      # an existing HKCU Run value to the installed copy; (e) an upgrade while a file of the install is open without
-      # delete sharing fails after its rename retries, non-zero, with the install unchanged; (c) a copy extracted inside
-      # the install folder, (f) the installed copy's own Install.ps1 and (d) an install folder inside the source are
-      # refused with a non-zero exit and their message, changing nothing. The HKCU Run value is restored and the Start
-      # menu shortcut removed afterwards.
+      # (it never waits for Enter):
+      # (a) a fresh install;
+      # (b) an upgrade over it: no file of the old build is left, stale DialShift.new-<8 hex>/DialShift.old-<8 hex>
+      #     folders of an earlier run are removed and none of its own is left, a DialShift.old-backup folder and a
+      #     junction named like a leftover (with its target) are kept, and an existing HKCU Run value is moved;
+      # (e) an upgrade while a file of the install is open without delete sharing fails after its rename retries;
+      # (g) a run while another holds the install lock (Local\DialShift.Install) stops with "Another DialShift install
+      #     is running";
+      # (c) a copy extracted inside the install folder, (f) the installed copy's own Install.ps1 and (d) an install
+      #     folder inside the source are refused.
+      # (e), (g), (c), (f) and (d) exit non-zero with their message and change nothing. The HKCU Run value is restored and
+      # the Start menu shortcut removed afterwards.
       # Six copies of the package and one ~4 s rename retry take a minute or two; the timeout leaves room for a slow disk.
-      - name: Install.ps1 (fresh install, upgrade, locked file, refusals)
+      - name: Install.ps1 (fresh install, upgrade, locked file, install lock, refusals)
         if: runner.os == 'Windows'
         shell: pwsh
         timeout-minutes: 8
@@ -192,7 +197,10 @@ jobs:
           # Whitespace is ignored, so Windows PowerShell's line wrapping cannot split the expected text.
           function Assert-Failed([string]$case, $result, [string]$expected) {
             if ($result.Code -eq 0) { throw "($case) Install.ps1 exited with 0; expected it to stop." }
-            if (-not ($result.Text -replace '\s', '').Contains($expected -replace '\s', '')) { throw "($case) The output does not say '$expected'." }
+            # Precomputed: inside .Contains(...) the comma of -replace would be read as a second method argument.
+            $text = $result.Text -replace '\s', ''
+            $needle = $expected -replace '\s', ''
+            if (-not $text.Contains($needle)) { throw "($case) The output does not say '$expected'." }
           }
           function Get-Listing([string]$folder) {
             Get-ChildItem -LiteralPath $folder -Recurse -Force -File |
@@ -216,12 +224,22 @@ jobs:
             Write-Host '(a) Fresh install: passed.'
 
             Set-Content -LiteralPath (Join-Path $installed 'only-in-old-build.txt') -Value 'old'
-            New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.new-stale'), (Join-Path $programs 'DialShift.old-stale') | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.new-0123abcd'), (Join-Path $programs 'DialShift.old-0123abcd') | Out-Null
+            $backup = New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.old-backup')
+            Set-Content -LiteralPath (Join-Path $backup 'keep.txt') -Value 'keep'
+            $junctionTarget = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'install-check-junction-target')
+            Set-Content -LiteralPath (Join-Path $junctionTarget 'keep.txt') -Value 'keep'
+            $junction = Join-Path $programs 'DialShift.new-0badf00d'
+            New-Item -ItemType Junction -Path $junction -Target $junctionTarget | Out-Null
             Set-ItemProperty -Path $runKey -Name DialShift -Value '"C:\Old\DialShift\DialShift.exe" --tray'
             $result = Invoke-Install $package $root
             if ($result.Code -ne 0) { throw "(b) Upgrade: Install.ps1 exited with $($result.Code)." }
             if (-not (Test-Path -LiteralPath $installedExe)) { throw "(b) Upgrade: $installedExe is missing." }
             if (Test-Path -LiteralPath (Join-Path $installed 'only-in-old-build.txt')) { throw '(b) Upgrade: a file of the old build is still there.' }
+            if (-not (Test-Path -LiteralPath (Join-Path $backup 'keep.txt'))) { throw '(b) Upgrade: DialShift.old-backup (not a name Install.ps1 generates) was removed.' }
+            if (-not (Test-Path -LiteralPath (Join-Path $junction 'keep.txt'))) { throw '(b) Upgrade: the junction DialShift.new-0badf00d or its target was removed.' }
+            Remove-Item -LiteralPath $backup -Recurse -Force
+            [IO.Directory]::Delete($junction)   # the link only, not its target
             Assert-OnlyInstall 'b'
             $run = (Get-ItemProperty -Path $runKey -Name DialShift).DialShift
             if ($run -ne "`"$installedExe`" --tray") { throw "(b) Upgrade: the Run value is '$run', expected `"$installedExe`" --tray." }
@@ -235,6 +253,13 @@ jobs:
             Assert-Failed 'e' $result 'Could not move the new build into'
             Assert-Unchanged 'e' $before
             Write-Host "(e) Upgrade with a locked file: failed with exit code $($result.Code), install unchanged."
+
+            $lock = [Threading.Mutex]::new($false, 'Local\DialShift.Install')
+            if (-not $lock.WaitOne(0)) { throw '(g) The install lock is already held.' }
+            try { $result = Invoke-Install $package $root } finally { $lock.ReleaseMutex(); $lock.Dispose() }
+            Assert-Failed 'g' $result 'Another DialShift install is running'
+            Assert-Unchanged 'g' $before
+            Write-Host "(g) Install lock held by another run: stopped with exit code $($result.Code), install unchanged."
 
             $nested = Join-Path $installed 'extracted'
             Copy-Item -LiteralPath $package -Destination $nested -Recurse

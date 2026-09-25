@@ -41,54 +41,77 @@ try {
     }
     $running = Get-Process DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $executable }
     if ($running) { throw 'Quit DialShift from its tray menu before installing an update.' }
-    # Stage beside the install, in the same folder, so the swap below is two renames on one volume.
-    $parent = Split-Path -Parent $destination
-    # Best effort: remove what an earlier run left behind. A DialShift.old-* folder is kept while there is no install,
-    # because it is then the only copy of the previous install.
-    $installed = Test-Path -LiteralPath $destination
-    Get-ChildItem -LiteralPath $parent -Directory -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like 'DialShift.new-*' -or ($installed -and $_.Name -like 'DialShift.old-*') } |
-        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-    $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
-    $staging = Join-Path $parent "DialShift.new-$suffix"
-    $previous = Join-Path $parent "DialShift.old-$suffix"
-    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    # One install at a time: a second run (a double-click) must not clean up or swap while this one is between renames.
+    # Held until the shortcut and Run value are written, and released before any wait for Enter.
+    $lock = [Threading.Mutex]::new($false, 'Local\DialShift.Install')
+    $held = $false
     try {
-        Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $staging -Recurse -Force
-    } catch {
-        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-        throw "Could not copy the new build: $($_.Exception.Message) Nothing was changed."
-    }
-    # Swap: move the previous install aside and the new build in; on failure, put the previous install back.
-    try {
-        if ($installed) { Rename-WithRetry $destination (Split-Path -Leaf $previous) }
-        Rename-WithRetry $staging (Split-Path -Leaf $destination)
-    } catch {
-        $reason = $_.Exception.Message
-        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-        if ($installed -and -not (Test-Path -LiteralPath $destination)) {
-            try { Rename-WithRetry $previous (Split-Path -Leaf $destination) }
-            catch { throw "Could not replace $destination ($reason), and could not move the previous install back. Rename $previous to DialShift to restore it." }
+        try { $held = $lock.WaitOne(5000) }
+        catch {
+            # An install that ended without releasing the lock leaves it abandoned; the wait still acquired it.
+            if ($_.Exception.GetBaseException() -is [Threading.AbandonedMutexException]) { $held = $true } else { throw }
         }
-        throw "Could not move the new build into $destination ($reason). Any previous install is unchanged; quit programs using files in it and run Install.ps1 again."
-    }
-    # The new build is in place; an old copy that cannot be deleted (a file still locked) is only a warning.
-    if ($installed) {
-        try { Remove-Item -LiteralPath $previous -Recurse -Force }
-        catch { Write-Warning "DialShift is installed, but the previous copy could not be deleted ($($_.Exception.Message)). Delete $previous yourself." }
-    }
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcutPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'DialShift.lnk'
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $executable
-    $shortcut.WorkingDirectory = $destination
-    $shortcut.IconLocation = "$executable,0"
-    $shortcut.Description = 'Your radio, on time.'
-    $shortcut.Save()
-    # Preserve the user's existing startup choice while relocating the executable.
-    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    if (Get-ItemProperty -Path $runKey -Name DialShift -ErrorAction SilentlyContinue) {
-        Set-ItemProperty -Path $runKey -Name DialShift -Value "`"$executable`" --tray"
+        if (-not $held) { throw 'Another DialShift install is running. Wait for it to finish, then run Install.ps1 again.' }
+        # Stage beside the install, in the same folder, so the swap below is two renames on one volume.
+        $parent = Split-Path -Parent $destination
+        # Best effort: remove what an earlier run left behind, only under the exact names this script generates and never
+        # through a junction or symbolic link. A DialShift.old-* folder is kept while there is no install, because it is
+        # then the only copy of the previous install.
+        $installed = Test-Path -LiteralPath $destination
+        Get-ChildItem -LiteralPath $parent -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object {
+                -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                $_.Name -cmatch '^DialShift\.(new|old)-[0-9a-f]{8}$' -and ($installed -or $_.Name -clike 'DialShift.new-*')
+            } |
+            ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath $_.FullName) { Write-Host "Could not remove $($_.FullName), left by an earlier install." }
+                else { Write-Host "Removed $($_.FullName), left by an earlier install." }
+            }
+        $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $staging = Join-Path $parent "DialShift.new-$suffix"
+        $previous = Join-Path $parent "DialShift.old-$suffix"
+        New-Item -ItemType Directory -Path $staging -Force | Out-Null
+        try {
+            Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $staging -Recurse -Force
+        } catch {
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+            throw "Could not copy the new build: $($_.Exception.Message) Nothing was changed."
+        }
+        # Swap: move the previous install aside and the new build in; on failure, put the previous install back.
+        try {
+            if ($installed) { Rename-WithRetry $destination (Split-Path -Leaf $previous) }
+            Rename-WithRetry $staging (Split-Path -Leaf $destination)
+        } catch {
+            $reason = $_.Exception.Message
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+            if ($installed -and -not (Test-Path -LiteralPath $destination)) {
+                try { Rename-WithRetry $previous (Split-Path -Leaf $destination) }
+                catch { throw "Could not replace $destination ($reason), and could not move the previous install back. Rename $previous to DialShift to restore it." }
+            }
+            throw "Could not move the new build into $destination ($reason). Any previous install is unchanged; quit programs using files in it and run Install.ps1 again."
+        }
+        # The new build is in place; an old copy that cannot be deleted (a file still locked) is only a warning.
+        if ($installed) {
+            try { Remove-Item -LiteralPath $previous -Recurse -Force }
+            catch { Write-Warning "DialShift is installed, but the previous copy could not be deleted ($($_.Exception.Message)). Delete $previous yourself." }
+        }
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcutPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'DialShift.lnk'
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $executable
+        $shortcut.WorkingDirectory = $destination
+        $shortcut.IconLocation = "$executable,0"
+        $shortcut.Description = 'Your radio, on time.'
+        $shortcut.Save()
+        # Preserve the user's existing startup choice while relocating the executable.
+        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        if (Get-ItemProperty -Path $runKey -Name DialShift -ErrorAction SilentlyContinue) {
+            Set-ItemProperty -Path $runKey -Name DialShift -Value "`"$executable`" --tray"
+        }
+    } finally {
+        if ($held) { $lock.ReleaseMutex() }
+        $lock.Dispose()
     }
     Write-Host "Installed DialShift to $destination. Find it in your Start menu."
     if (-not $NoLaunch) { Start-Process -FilePath $executable -WindowStyle Hidden }
