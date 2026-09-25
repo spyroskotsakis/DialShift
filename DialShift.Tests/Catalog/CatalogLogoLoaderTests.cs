@@ -486,14 +486,14 @@ internal static class CatalogLogoLoaderTests
         }
 
         var first = await Load("logo.png");
-        Check("CAT-10 a 128 × 96 PNG decodes to DecodeWidth (64) pixels wide, aspect kept (64 × 48)",
-            first is { PixelSize.Width: CatalogLogoLoader.DecodeWidth, PixelSize.Height: 48 });
+        Check("CAT-10 a 128 × 96 PNG decodes to DecodeSize (64) pixels wide, aspect kept (64 × 48)",
+            first is { PixelSize.Width: CatalogLogoLoader.DecodeSize, PixelSize.Height: 48 });
         var hit = loader.LoadAsync(Url("logo.png"), CancellationToken.None);
         Check("CAT-10 a decoded logo is cached: the next call returns a completed task with the same Bitmap, without a request",
             hit.IsCompletedSuccessfully && ReferenceEquals(hit.Result, first) && handler.Count(Url("logo.png")) == 1);
         Check($"CAT-10 the size cap is inclusive: a valid PNG of exactly MaxBytes ({CatalogLogoLoader.MaxBytes} bytes) decodes; one byte more gives null",
             exact.Length == CatalogLogoLoader.MaxBytes && over.Length == CatalogLogoLoader.MaxBytes + 1
-            && await Load("exact.png") is { PixelSize.Width: CatalogLogoLoader.DecodeWidth } && await Load("over.png") is null);
+            && await Load("exact.png") is { PixelSize.Width: CatalogLogoLoader.DecodeSize } && await Load("over.png") is null);
         Check("CAT-10 bytes Skia cannot decode (an SVG; a PNG signature followed by garbage) give null, never an exception",
             await Load("logo.svg") is null && await Load("corrupt.png") is null);
     }

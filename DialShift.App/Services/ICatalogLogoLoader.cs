@@ -6,7 +6,8 @@ namespace DialShift.App.Services;
 /// Many catalog logos are dead or missing; the caller shows the monogram whenever the result is null.</summary>
 public interface ICatalogLogoLoader
 {
-    /// <summary>The decoded logo, or null on any failure (not http/https, timeout, too large, not an image,
-    /// cancelled). Never throws; never runs network or decoding work on the calling thread.</summary>
+    /// <summary>The decoded logo, at most 64 × 64, or null on any failure (not http/https, a refused host or redirect,
+    /// timeout, too many bytes or pixels, not an image, cancelled). Never throws; never runs network or decoding work
+    /// on the calling thread.</summary>
     Task<Bitmap?> LoadAsync(string url, CancellationToken cancellationToken);
 }

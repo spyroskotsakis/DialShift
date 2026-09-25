@@ -76,7 +76,9 @@ public static class AppComposition
         services.AddSingleton<ICatalogProvider>(sp => new CatalogProvider(
             CatalogProvider.ResolveLocation(Environment.GetEnvironmentVariable, AppContext.BaseDirectory),
             sp.GetRequiredService<IAppLog>()));
-        services.AddSingleton<ICatalogLogoLoader>(_ => new CatalogLogoLoader(new SocketsHttpHandler { ConnectTimeout = CatalogLogoLoader.Timeout }));
+        // The loader follows redirects itself, checking every target's host (D81), so the handler must not.
+        services.AddSingleton<ICatalogLogoLoader>(_ => new CatalogLogoLoader(
+            new SocketsHttpHandler { ConnectTimeout = CatalogLogoLoader.Timeout, AllowAutoRedirect = false }));
 
         services.AddSingleton<ViewModelServices>();
         services.AddSingleton(sp => new MainWindowViewModel(
