@@ -84,7 +84,9 @@ internal static class CatalogFixtures
     private static readonly string[] Frequencies = ["101.5", "101.7", "98.4", "1593", "", "88.0", "104.3", "1017", "10", "101.0", "108.5", "149", "Shortwave"];
     private static readonly string[] Types = ["Music", "News", "", "Talk"];
     private static readonly string[] Genres = ["Pop", "Schlager", "Jazz", "", "News"];
-    private static readonly string[] Languages = ["German", "Greek", "French", "Turkish", ""];
+    /// <summary>Single names, joined lists (D84: the Language filter matches any one name) and one comma without a space
+    /// (a single name to Core).</summary>
+    private static readonly string[] Languages = ["German", "Greek", "French", "Turkish", "", "German, Greek", "Greek, French, German", "Turkish,German"];
     private static readonly int?[] Votes = [null, 0, 1, 5, 5, 42, 100, 1000];
 
     /// <summary>
@@ -128,12 +130,18 @@ internal static class CatalogFixtures
          "FM 101.5", "101.50", "101.7", "1017", "AM 1017", "1017 kHz", "101.", "FM 101", "101.0", "101.00", "108", "108.5", "149", "AM 101.7",
          "UKW 101.5", "fm", "1017 \u212Ahz"];
 
-    /// <summary>Filter combinations for the same checks: none, each field alone, several ANDed, and a value nothing has.</summary>
+    /// <summary>Filter combinations for the same checks: none, each field alone, several ANDed, a value nothing has, and
+    /// the Language values D84 changes: a name inside lists, a joined list (matches nothing) and the comma-without-space name.</summary>
     public static readonly CatalogFilters[] FilterSets =
         [CatalogFilters.None, new(Country: "DE"), new(City: "München"), new(Type: "Music"), new(Genre: "Pop"), new(Language: "Greek"),
-         new(Country: "GR", Type: "Music"), new(Country: "DE", City: "Munchen", Type: "News", Genre: "News", Language: "German"), new(Country: "XX")];
+         new(Country: "GR", Type: "Music"), new(Country: "DE", City: "Munchen", Type: "News", Genre: "News", Language: "German"), new(Country: "XX"),
+         new(Language: "French"), new(Language: "German, Greek"), new(Language: "Turkish,German"), new(Language: "")];
 
     // ─── Reference implementation of §3.3 (the oracle) ───
+
+    /// <summary>The separator of an entry's language names (§2.1, §3.3, D84), written out from the contract; CAT-08 pins
+    /// Core's <c>LanguageSeparator</c> to it.</summary>
+    public const string LanguageSeparator = ", ";
 
     /// <summary>§3.3's frequency-query pattern (D79), written out again from the contract rather than taken from Core.
     /// Groups: 1 the leading band token L, 2 the integer digits I, 3 the separator S, 4 the decimals R, 5 the trailing token T.</summary>
@@ -187,11 +195,13 @@ internal static class CatalogFixtures
         }
 
         static bool Is(string? filter, string value) => filter is null || string.Equals(filter, value, StringComparison.Ordinal);
+        // §3.3 Filters (D84): Language equals any one of the entry's names, Language.Split(", "), ordinal, nothing trimmed.
+        static bool HasName(string? filter, string language) => filter is null || language.Split(LanguageSeparator).Contains(filter, StringComparer.Ordinal);
 
         return entries
             .Select((e, position) => (e, position, tier: Tier(e)))
             .Where(x => x.tier is not null && Is(filters.Country, x.e.Country) && Is(filters.City, x.e.City) && Is(filters.Type, x.e.Type)
-                        && Is(filters.Genre, x.e.Genre) && Is(filters.Language, x.e.Language))
+                        && Is(filters.Genre, x.e.Genre) && HasName(filters.Language, x.e.Language))
             .OrderBy(x => x.tier)
             .ThenByDescending(x => x.e.Votes ?? 0)
             .ThenBy(x => StationCatalogQuery.Fold(x.e.Name), StringComparer.Ordinal)

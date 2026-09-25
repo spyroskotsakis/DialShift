@@ -328,10 +328,8 @@ internal static partial class CatalogLogoLoaderTests
              "http://169.255.0.1/logo.png", "http://9.255.255.255/logo.png", "http://11.0.0.0/logo.png", "http://126.255.255.255/logo.png",
              "http://128.0.0.0/logo.png", "http://1.0.0.1/logo.png", "http://[fbff::1]/logo.png", "http://[fe7f::1]/logo.png",
              "http://[::1:0:0:1]/logo.png", "http://[2001:db8::1]/logo.png", "http://[::ffff:8.8.8.8]/logo.png"]);
-        // The code at f3a9567 judges ::a.b.c.d by its IPv4 part; contracts §4.3, §8 CAT-10 (c) and D82 (b) say it is
-        // refused whatever that part is. Pinned as implemented, per this lane's brief; the divergence is reported.
-        await Requested("an IPv4-compatible address with a public IPv4 part (::8.8.8.8) is requested: judged by that IPv4 part like " +
-                        "::ffff:8.8.8.8, as implemented at f3a9567 (contracts §4.3 and D82 (b) say refused whatever the IPv4 part)",
+        await Requested("the IPv4-compatible neighbour ::8.8.8.8 is requested: judged by its embedded public IPv4 like ::ffff:8.8.8.8 " +
+                        "(contracts §4.3, D82 (b)), so the IPv4-compatible rule refuses only what its IPv4 part refuses",
             ["http://[::8.8.8.8]/logo.png"]);
         await Requested("public hosts that are IDNs or map to a public name or address (bücher.example, ｅｘａｍｐｌｅ.org, ８.８.８.８, " +
                         "example。org) are requested: the mapping refuses only what maps to a refused host",

@@ -19,6 +19,7 @@ internal static class CatalogQueryTests
         FrequencyQueries(c);
         Filters(c);
         AvailableValues(c);
+        LanguageLists(c);
         Tiers(c);
         TieBreaks(c);
         CapAndTotal(c);
@@ -377,6 +378,82 @@ internal static class CatalogQueryTests
             Throws<ArgumentNullException>(() => StationCatalogQuery.AvailableValues(null!, CatalogField.City))
             && Throws<ArgumentNullException>(() => StationCatalogQuery.AvailableValues([E("a"), null!], CatalogField.City))
             && Throws<ArgumentOutOfRangeException>(() => StationCatalogQuery.AvailableValues(FilterEntries, (CatalogField)99)));
+    }
+
+    // ─── CAT-08: Language is multi-valued (D84) ───
+
+    /// <summary>
+    /// The §8 D84 fixture with synthetic names (no language fact in C#, CAT-17): single names, a name in the first and in
+    /// the second position of a list, a comma without a space (one name to Core), no language, a trailing separator
+    /// (the names Alpha and ""), a two-word name and an accented one (Ëta folds to eta), and one entry whose City, Type and
+    /// Genre hold ", " to show those fields are not split. Station names share no word with the language names.
+    /// </summary>
+    private static readonly StationCatalogEntry[] LanguageEntries =
+    [
+        E("One", language: "Alpha", votes: 90),
+        E("Two", language: "Alpha, Beta", votes: 80),
+        E("Three", "FR", language: "Beta, Alpha", votes: 70),
+        E("Four", language: "Gamma", votes: 60),
+        E("Five", language: "Alpha,Beta", votes: 50),
+        E("Six", language: "", votes: 40),
+        E("Seven", language: "Alpha, ", votes: 30),
+        E("Eight", language: "Low Alpha, Ëta", votes: 20),
+        E("Nine", city: "Paris, Texas", type: "Talk, News", genre: "Pop, Rock", language: "Beta", votes: 10),
+    ];
+
+    private static void LanguageLists(string c)
+    {
+        var index = new StationCatalogIndex(LanguageEntries);
+        CheckQueries($"CAT-08 Language (D84): a name matches in any position of a list: Alpha → One, Two (first), Three (second), Seven (before a trailing separator); " +
+                     $"not Five (Alpha,Beta is one name) or Eight (Low Alpha is another name){c}", index, new CatalogFilters(Language: "Alpha"),
+            (null, ["One", "Two", "Three", "Seven"]));
+        CheckQueries($"CAT-08 Language (D84): Beta → Two, Three (both lists) and Nine; Ëta → Eight (the second name of a list){c}", index, new CatalogFilters(Language: "Beta"),
+            (null, ["Two", "Three", "Nine"]));
+        CheckQueries($"CAT-08 Language (D84): Ëta → Eight{c}", index, new CatalogFilters(Language: "Ëta"), (null, ["Eight"]));
+        var nothing = new[] { "Alpha, Beta", "Beta, Alpha", "Low Alpha, Ëta", "Alpha, ", "alpha", "ALPHA", "Alpha ", " Beta", "Eta", "eta", "Low", "Alpha,", "," };
+        var matched = nothing.Where(v => Search(index, null, new CatalogFilters(Language: v)).TotalCount != 0).ToList();
+        if (matched.Count > 0) Console.WriteLine("  matched some entry: " + string.Join(", ", matched.Select(Show)));
+        Check($"CAT-08 Language (D84): a joined combination (Alpha, Beta; Beta, Alpha; Low Alpha, Ëta; \"Alpha, \") matches nothing, and the match is " +
+              $"ordinal and exact (alpha, ALPHA, 'Alpha ', ' Beta', Eta, eta, Low, 'Alpha,', ',' match nothing){c}", matched.Count == 0);
+        CheckQueries($"CAT-08 Language (D84): Alpha,Beta (no space) is one name and matches only Five{c}", index, new CatalogFilters(Language: "Alpha,Beta"),
+            (null, ["Five"]));
+        CheckQueries($"CAT-08 Language (D84): \"\" matches the entry without a language and the trailing-separator list (its empty second name), nothing else{c}",
+            index, new CatalogFilters(Language: ""), (null, ["Six", "Seven"]));
+        CheckQueries($"CAT-08 Language (D84) ANDs with the other filters and the text: Alpha + FR → Three; with the text three → Three, with two → none{c}",
+            index, new CatalogFilters(Country: "FR", Language: "Alpha"), (null, ["Three"]), ("three", ["Three"]), ("two", []));
+        CheckQueries($"CAT-08 Language (D84): Alpha with the text \"two\" → Two, with \"four\" → none (Four is Gamma){c}", index, new CatalogFilters(Language: "Alpha"),
+            ("two", ["Two"]), ("four", []));
+        CheckQueries($"CAT-08 the text never matches a language name (alpha, beta, gamma, eta, low → no entry){c}", index, null,
+            ("alpha", []), ("beta", []), ("gamma", []), ("eta", []), ("low", []));
+
+        var values = StationCatalogQuery.AvailableValues(LanguageEntries, CatalogField.Language);
+        CheckSequence($"CAT-08 AvailableValues Language (D84): single names only, distinct across entries, no empty name, folded order " +
+                      $"(Alpha, Alpha,Beta, Beta, Ëta, Gamma, Low Alpha){c}", values.Select(v => v.Value),
+            ["Alpha", "Alpha,Beta", "Beta", "Ëta", "Gamma", "Low Alpha"]);
+        Check($"CAT-08 AvailableValues Language (D84): no value contains the separator \", \" or is empty, and every Label equals its Value{c}",
+            values.All(v => v.Value.Length > 0 && !v.Value.Contains(LanguageSeparator, StringComparison.Ordinal) && v.Label == v.Value));
+        var mismatched = values.Where(v =>
+        {
+            var expected = LanguageEntries.Where(e => e.Language.Split(LanguageSeparator).Contains(v.Value, StringComparer.Ordinal)).OrderByDescending(e => e.Votes).ToList();
+            var result = Search(index, null, new CatalogFilters(Language: v.Value));
+            return expected.Count == 0 || result.TotalCount != expected.Count || !result.Items.SequenceEqual(expected);
+        }).ToList();
+        if (mismatched.Count > 0) Console.WriteLine("  values whose filter is empty or not exactly the entries listing them: " + string.Join(", ", mismatched.Select(v => Show(v.Value))));
+        Check($"CAT-08 AvailableValues Language (D84): every value, used as the filter, matches at least one entry, and exactly the entries whose list names it{c}",
+            mismatched.Count == 0);
+        Check($"CAT-08 AvailableValues Language (D84) is the same for the reversed entry list{c}",
+            values.SequenceEqual(StationCatalogQuery.AvailableValues(LanguageEntries.Reverse().ToArray(), CatalogField.Language)));
+        Check($"CAT-08 Core's LanguageSeparator is exactly \", \" (comma, one space; §2.1, D84){c}", StationCatalogQuery.LanguageSeparator == LanguageSeparator);
+
+        CheckSequence($"CAT-08 the other fields are not split (D84 changes Language only): City, Type and Genre list \"Paris, Texas\", \"Talk, News\", \"Pop, Rock\" as one value each{c}",
+            new[] { CatalogField.City, CatalogField.Type, CatalogField.Genre }.SelectMany(f => StationCatalogQuery.AvailableValues(LanguageEntries, f)).Select(v => v.Value),
+            ["Paris, Texas", "Talk, News", "Pop, Rock"]);
+        CheckQueries($"CAT-08 the other fields are not split: Genre \"Pop, Rock\", City \"Paris, Texas\" and Type \"Talk, News\" match Nine{c}", index,
+            new CatalogFilters(City: "Paris, Texas", Type: "Talk, News", Genre: "Pop, Rock"), (null, ["Nine"]));
+        var parts = new[] { new CatalogFilters(Genre: "Pop"), new CatalogFilters(Genre: "Rock"), new CatalogFilters(City: "Paris"), new CatalogFilters(City: "Texas"),
+            new CatalogFilters(Type: "Talk"), new CatalogFilters(Type: "News") };
+        Check($"CAT-08 the other fields are not split: Genre Pop or Rock, City Paris or Texas, Type Talk or News match nothing{c}",
+            parts.All(f => Search(index, null, f).TotalCount == 0));
     }
 
     // ─── CAT-09: ranking ───

@@ -13,11 +13,13 @@ namespace DialShift.Tests.Catalog;
 /// The checked-in catalog as the app sees it (docs/catalog-contracts.md §2, §4.4, §8): CAT-02's test-output half (the
 /// Content item copies <c>app-catalog.json</c> next to the test binary through the project reference), CAT-04's "the
 /// default location in the test process loads the real file", and CAT-01's export contract, read independently of the
-/// provider and compared with it and with <c>data/canonical/*.csv</c>.
+/// provider and compared with it and with <c>data/canonical/*.csv</c>, including the D84 shape of <c>language</c> (a
+/// normalized list of single names) and CAT-08's Language filter over the real entries.
 /// </summary>
 /// <remarks>
 /// These are the only catalog checks that read the real file. They assert its contract, never its contents: the station
-/// count is whatever the JSON says. The repository checks (byte equality with <c>data/output/</c>, the canonical CSVs)
+/// count is whatever the JSON says, and the language checks are shape checks that hold no language name (D84, CAT-17: the
+/// names and their mapping are <c>data/languages.yaml</c>'s and the pipeline self-test's). The repository checks (byte equality with <c>data/output/</c>, the canonical CSVs)
 /// SKIP with a reason when the repository root (the folder with <c>DialShift.slnx</c>) is not above the test binary.
 /// </remarks>
 internal static class CatalogExportContractTests
@@ -32,6 +34,14 @@ internal static class CatalogExportContractTests
     private const string CollectionCountry = "Internet";
     private const string CollectionLabel = "Internet (collections)";
     private const int MaxUrlLength = 2_048;
+
+    /// <summary>A generous ceiling on the distinct language names (D84: 42 at e7e86d7, the spec lane's simulation 43, from
+    /// 170 raw combinations before). A value far above it means the lists are no longer split or mapped.</summary>
+    private const int MaxLanguageNames = 60;
+
+    /// <summary>One language name (§2.1, §2.3 rule 7): non-white-space runs joined by single spaces (so trimmed, no doubled
+    /// or other white space), and no ',' or ';'.</summary>
+    private static readonly Regex LanguageName = new(@"^[^\s,;]+(?: [^\s,;]+)*$", RegexOptions.CultureInvariant);
 
     public static async Task RunAsync()
     {
@@ -62,6 +72,8 @@ internal static class CatalogExportContractTests
         var stations = Document(document.RootElement, result);
         Entries(stations, result.Catalog.Entries);
         Order(result.Catalog.Entries);
+        Languages(result.Catalog.Entries);
+        LanguageFilter(result.Catalog.Entries);
         Canonical(root, result.Catalog.Entries);
     }
 
@@ -217,6 +229,71 @@ internal static class CatalogExportContractTests
             outOfOrder.Count == 0);
     }
 
+    /// <summary>
+    /// §2.1 <c>language</c> and §2.3 rule 7 (D84), by shape only: <c>""</c> or names joined by exactly <c>", "</c>, each
+    /// name one <see cref="LanguageName"/>, none twice in an entry; across the file no two distinct names fold alike (a
+    /// case or accent variant the table missed); and the list of distinct names stays small.
+    /// </summary>
+    private static void Languages(IReadOnlyList<StationCatalogEntry> entries)
+    {
+        var bad = new List<string>();
+        var names = new Dictionary<string, int>(StringComparer.Ordinal);
+        var lists = 0;
+        foreach (var e in entries)
+        {
+            if (e.Language.Length == 0) continue;
+            var parts = e.Language.Split(CatalogFixtures.LanguageSeparator);
+            if (parts.Length > 1) lists++;
+            if (!parts.All(LanguageName.IsMatch) || parts.Distinct(StringComparer.Ordinal).Count() != parts.Length) bad.Add(e.Language);
+            foreach (var part in parts) names[part] = names.GetValueOrDefault(part) + 1;
+        }
+        foreach (var value in bad.Distinct().Take(10)) Console.WriteLine($"  language {CatalogFixtures.Show(value)}");
+        Check("CAT-01 language (D84): every value is \"\" or names joined by exactly \", \"; each name non-empty, trimmed, single-spaced, " +
+              "free of ',' and ';', and no name twice in one entry", bad.Count == 0);
+
+        var variants = names.Keys.GroupBy(StationCatalogQuery.Fold, StringComparer.Ordinal).Where(g => g.Count() > 1).ToList();
+        foreach (var g in variants.Take(10)) Console.WriteLine($"  names folding to {CatalogFixtures.Show(g.Key)}: {string.Join(" | ", g.Select(CatalogFixtures.Show))}");
+        Check("CAT-01 language (D84): no two distinct names in the file have the same Fold (no case or accent duplicate the table missed)", variants.Count == 0);
+
+        Console.WriteLine($"  language: {names.Count} distinct names, {lists} entries with two or more, {entries.Count(e => e.Language.Length == 0)} without");
+        Check($"CAT-01 language (D84): the distinct names are few (actual {names.Count}, at most {MaxLanguageNames}) and none contains \", \"",
+            names.Count is > 0 and <= MaxLanguageNames && !names.Keys.Any(n => n.Contains(CatalogFixtures.LanguageSeparator, StringComparison.Ordinal)));
+    }
+
+    /// <summary>CAT-08 over the real entries (D84): the Language list holds single names in the §3.3 order, exactly the
+    /// file's distinct names, and each one, as the filter, returns exactly the entries whose list names it.</summary>
+    private static void LanguageFilter(IReadOnlyList<StationCatalogEntry> entries)
+    {
+        var values = StationCatalogQuery.AvailableValues(entries, CatalogField.Language);
+        var names = entries.Where(e => e.Language.Length > 0).SelectMany(e => e.Language.Split(CatalogFixtures.LanguageSeparator)).ToHashSet(StringComparer.Ordinal);
+        static int Compare(CatalogFilterValue a, CatalogFilterValue b)
+        {
+            var c = string.CompareOrdinal(StationCatalogQuery.Fold(a.Label), StationCatalogQuery.Fold(b.Label));
+            if (c == 0) c = string.CompareOrdinal(a.Label, b.Label);
+            return c != 0 ? c : string.CompareOrdinal(a.Value, b.Value);
+        }
+        var unordered = Enumerable.Range(1, Math.Max(0, values.Count - 1)).Where(i => Compare(values[i - 1], values[i]) >= 0).ToList();
+        foreach (var i in unordered.Take(5)) Console.WriteLine($"  not strictly ordered: {CatalogFixtures.Show(values[i - 1].Value)} before {CatalogFixtures.Show(values[i].Value)}");
+        var joined = values.Where(v => v.Value.Length == 0 || v.Value.IndexOfAny([',', ';']) >= 0 || v.Label != v.Value).ToList();
+        foreach (var v in joined.Take(5)) Console.WriteLine($"  value {CatalogFixtures.Show(v.Value)} label {CatalogFixtures.Show(v.Label)}");
+        Check($"CAT-08 the real catalog's Language list (D84): {values.Count} single names, none empty or containing ',' or ';', Label = Value, " +
+              "strictly ordered by Fold(Label), Label, Value, and exactly the file's distinct names",
+            values.Count > 0 && joined.Count == 0 && unordered.Count == 0 && names.SetEquals(values.Select(v => v.Value)) && names.Count == values.Count);
+
+        var index = new StationCatalogIndex(entries);
+        var wrong = new List<string>();
+        foreach (var v in values)
+        {
+            var expected = entries.Where(e => e.Language.Split(CatalogFixtures.LanguageSeparator).Contains(v.Value, StringComparer.Ordinal)).ToHashSet();
+            var result = StationCatalogQuery.Search(index, null, new CatalogFilters(Language: v.Value), entries.Count);
+            if (expected.Count == 0 || result.TotalCount != expected.Count || !expected.SetEquals(result.Items))
+                wrong.Add($"{CatalogFixtures.Show(v.Value)}: expected {expected.Count}, actual {result.TotalCount}");
+        }
+        foreach (var w in wrong.Take(10)) Console.WriteLine("  " + w);
+        Check("CAT-08 over the real catalog (D84): each Language value, as the filter, returns at least one entry and exactly the entries whose language lists that name",
+            wrong.Count == 0);
+    }
+
     /// <summary>§2.3 rule 5: the exported (country, name, stream_url) set equals the Working canonical rows that pass the URL rule.</summary>
     private static void Canonical(string? root, IReadOnlyList<StationCatalogEntry> entries)
     {
@@ -229,6 +306,7 @@ internal static class CatalogExportContractTests
             return;
         }
         var expected = new HashSet<(string, string, string)>();
+        var rawLanguages = new Dictionary<(string, string, string), List<string>>();
         var rows = 0;
         foreach (var file in files)
         {
@@ -236,14 +314,18 @@ internal static class CatalogExportContractTests
             var header = table[0];
             var ragged = table.Skip(1).Count(r => r.Count != header.Count);
             Check($"CAT-01 {Path.GetFileName(file)} parses as RFC 4180 with every row as wide as its header ({header.Count} columns)",
-                ragged == 0 && new[] { "country", "name", "stream_url", "stream_status" }.All(header.Contains));
+                ragged == 0 && new[] { "country", "name", "stream_url", "stream_status", "language" }.All(header.Contains));
             int Col(string column) => header.IndexOf(column);
-            int country = Col("country"), station = Col("name"), url = Col("stream_url"), status = Col("stream_status");
+            int country = Col("country"), station = Col("name"), url = Col("stream_url"), status = Col("stream_status"), language = Col("language");
             foreach (var row in table.Skip(1))
             {
                 rows++;
                 var stream = row[url].Trim();
-                if (row[status].Trim() == "Working" && UrlRule(stream)) expected.Add((row[country].Trim(), row[station].Trim(), stream));
+                if (row[status].Trim() != "Working" || !UrlRule(stream)) continue;
+                var key = (row[country].Trim(), row[station].Trim(), stream);
+                expected.Add(key);
+                if (!rawLanguages.TryGetValue(key, out var raw)) rawLanguages[key] = raw = [];
+                raw.Add(row[language].Trim());
             }
         }
         var actual = entries.Select(e => (e.Country, e.Name, e.StreamUrl)).ToHashSet();
@@ -253,6 +335,13 @@ internal static class CatalogExportContractTests
         foreach (var x in extra.Take(5)) Console.WriteLine($"  exported but not a Working canonical row: {x}");
         Console.WriteLine($"  canonical: {files.Length} files, {rows} rows, {expected.Count} Working (country, name, stream_url) passing the URL rule");
         Check(name, missing.Count == 0 && extra.Count == 0 && expected.Count == entries.Count);
+
+        // D84: the export maps and drops language tokens, but never invents one for a row whose raw language is empty.
+        var invented = entries.Where(e => e.Language.Length > 0 && rawLanguages.TryGetValue((e.Country, e.Name, e.StreamUrl), out var raw)
+                                          && raw.All(r => r.Length == 0)).ToList();
+        foreach (var e in invented.Take(5)) Console.WriteLine($"  {e.Name} ({e.Country}): language {CatalogFixtures.Show(e.Language)} from an empty raw language");
+        Check("CAT-01 language (D84): an entry's language is \"\" whenever its canonical row's raw language is empty (the export invents nothing)",
+            invented.Count == 0);
     }
 
     /// <summary>A small RFC 4180 reader: comma-separated, double-quoted fields with "" escapes and embedded line breaks,
