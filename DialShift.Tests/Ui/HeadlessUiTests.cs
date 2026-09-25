@@ -138,7 +138,7 @@ public static class HeadlessUiTests
 
         await ShowPage(rig, "Settings");
         Check("HS-01 BHV-59 BHV-60 BHV-61 BHV-62 Settings page: both checkboxes, fallback picker, About version, \"Open settings folder ↗\"",
-            Shows(window, "Set it. Forget it.") && Find<CheckBox>(window).Any(c => c.Content as string == "Launch DialShift in the tray when I sign in")
+            Shows(window, "Set it. Forget it.") && Find<CheckBox>(window).Any(c => c.Content as string == LaunchAtLoginLabel)
             && Find<CheckBox>(window).Any(c => c.Content as string == "Start in the tray when opened normally")
             && ByName<ComboBox>(window, "Fallback station").SelectedItem is FallbackOption { Id: null }
             && Shows(window, "DialShift  /  " + UiRig.Version) && Shows(window, "Open settings folder ↗"));
@@ -706,13 +706,17 @@ public static class HeadlessUiTests
 
     // ─── Settings page controls (BHV-59 inline diagnostic, BHV-60, BHV-61) ───
 
+    /// <summary>The launch-at-login checkbox as this OS words it ("sign in" on Windows, "log in" on macOS).</summary>
+    private static string LaunchAtLoginLabel =>
+        OperatingSystem.IsWindows() ? "Launch DialShift in the tray when I sign in" : "Launch DialShift in the tray when I log in";
+
     private static async Task SettingsPageControls()
     {
         await using var rig = await UiRig.CreateHeadlessAsync();
         var window = rig.Window!;
         await rig.ViewModel.InitializeAsync();
         await ShowPage(rig, "Settings");
-        var login = Find<CheckBox>(window).Single(c => c.Content as string == "Launch DialShift in the tray when I sign in");
+        var login = Find<CheckBox>(window).Single(c => c.Content as string == LaunchAtLoginLabel);
         var inTray = Find<CheckBox>(window).Single(c => c.Content as string == "Start in the tray when opened normally");
 
         rig.Startup.Hold = new TaskCompletionSource();

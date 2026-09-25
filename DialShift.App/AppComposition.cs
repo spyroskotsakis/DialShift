@@ -84,7 +84,7 @@ public static class AppComposition
             sp.GetRequiredService<IAppLog>(),
             sp.GetRequiredService<IClock>(),
             TimeZoneInfo.Local,
-            new AppInfo(typeof(AppComposition).Assembly.GetName().Version?.ToString(3) ?? "unknown", paths.DataDirectory)));
+            new AppInfo(AppInfo.DisplayVersion(typeof(AppComposition).Assembly), paths.DataDirectory)));
 
         configure?.Invoke(services);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
