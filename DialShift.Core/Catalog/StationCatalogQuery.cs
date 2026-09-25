@@ -22,16 +22,23 @@ public enum CatalogField { Country, City, Type, Genre, Language }
 /// <summary>One distinct filter value. Label is what the user sees: the country label for Country, else Value.</summary>
 public sealed record CatalogFilterValue(string Value, string Label);
 
+/// <summary>How a FrequencyFm value reads (§3.3, §5.4, D79): FM MHz, AM kHz, or neither.</summary>
+public enum FrequencyBand { None, Fm, Kilohertz }
+
 /// <summary>Pure filter-and-rank engine over a <see cref="StationCatalogIndex"/> (§3.3). No I/O.</summary>
 /// <remarks>
 /// <para><b>Matching (D70).</b> Text matches ordinally on keys folded by <see cref="Fold"/>, which ignores case,
 /// diacritics and compatibility forms without consulting any culture. Only Name, NameLocal, City and the FrequencyFm
 /// digits are searched; genre, notes and tags are not. Filters compare ordinally and AND with each other and the text.</para>
+/// <para><b>Frequency (D79).</b> A query such as <c>101.5</c>, <c>FM 101,50</c>, <c>1017 kHz</c> or bare <c>1017</c>
+/// matches entries whose FrequencyFm digits start with the query's digits, restricted to the band the query implies
+/// (<see cref="BandOf"/>): FM for a decimal separator, <c>fm</c> or <c>mhz</c>; kHz for <c>am</c> or <c>khz</c>; any band
+/// for bare digits.</para>
 /// <para><b>Ranking.</b> Name prefix, then name substring, then NameLocal or City, then frequency; within a tier by votes
 /// descending (null as 0), folded name, name, country, stream URL and catalog position, all ordinal, so the order is the
 /// same on every OS and culture.</para>
 /// <para><b>Cost.</b> One O(n) scan over the precomputed keys with a bounded top-<c>cap</c> selection: a search allocates
-/// its query key, the selection and the result, never anything per entry.</para>
+/// its query key and frequency digits, the selection and the result, never anything per entry.</para>
 /// </remarks>
 public static partial class StationCatalogQuery
 {
@@ -57,7 +64,7 @@ public static partial class StationCatalogQuery
         ArgumentOutOfRangeException.ThrowIfLessThan(cap, 1);
 
         var query = Fold(text ?? "");
-        var frequency = FrequencyQueryDigits(text);
+        var frequency = ParseFrequencyQuery(text);
         var entries = catalog.Items;
         var keys = catalog.Keys;
         var capacity = Math.Min(cap, entries.Length);
@@ -127,6 +134,22 @@ public static partial class StationCatalogQuery
             return order != 0 ? order : string.CompareOrdinal(x.Value.Value, y.Value.Value);
         });
         return Array.ConvertAll(sorted, static s => s.Value);
+    }
+
+    /// <summary>
+    /// The §3.3 band of a FrequencyFm value, the one classification behind both the frequency query and the §5.4 label:
+    /// <see cref="FrequencyBand.Fm"/> for an invariant decimal from 64 to 108 (<c>"101.5"</c>, <c>"87"</c>),
+    /// <see cref="FrequencyBand.Kilohertz"/> for an integer of at least 150 (<c>"1593"</c>, <c>"8500"</c>), otherwise
+    /// <see cref="FrequencyBand.None"/> (<c>""</c>, <c>"Shortwave"</c>, <c>"108.5"</c>, <c>"149"</c>, <c>"1593.0"</c>, and any
+    /// value with a sign, white space or a thousands separator). The same on every culture.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="frequencyFm"/> is null. Never throws on content (D79).</exception>
+    public static FrequencyBand BandOf(string frequencyFm)
+    {
+        ArgumentNullException.ThrowIfNull(frequencyFm);
+        if (!decimal.TryParse(frequencyFm, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value)) return FrequencyBand.None;
+        if (value is >= 64 and <= 108) return FrequencyBand.Fm;
+        return value >= 150 && !frequencyFm.Contains('.') ? FrequencyBand.Kilohertz : FrequencyBand.None;
     }
 
     /// <summary>The §3.3 normalization. Internal: used by the index and the query; the tests see it through InternalsVisibleTo.</summary>
@@ -222,19 +245,40 @@ public static partial class StationCatalogQuery
     }
 
     /// <summary>
-    /// The digits a frequency query matches against the start of an entry's frequency digits, or null when
-    /// <paramref name="text"/> is not a frequency query: 2–4 digits, an optional <c>.</c>/<c>,</c> with up to 2
-    /// decimals, and an optional <c>fm</c>/<c>mhz</c>/<c>khz</c> (<c>"101,5 FM"</c> → <c>"1015"</c>).
+    /// The §3.3 frequency query of <paramref name="text"/> (D79), or null when it is not one: the digits that must start
+    /// an entry's frequency digits and the band the entry must have, where <see cref="FrequencyBand.None"/> means any band.
+    /// <c>"FM 101,50"</c> → (<c>"1015"</c>, Fm); <c>"1017 kHz"</c> → (<c>"1017"</c>, Kilohertz); <c>"1017"</c> →
+    /// (<c>"1017"</c>, any); <c>"AM 101.7"</c> → null, because it implies both bands.
     /// </summary>
-    private static string? FrequencyQueryDigits(string? text)
+    private static FrequencyQuery? ParseFrequencyQuery(string? text)
     {
         if (text is null) return null;
-        var match = FrequencyQuery().Match(text.Trim());
-        return match.Success ? string.Concat(match.Groups[1].ValueSpan, match.Groups[2].ValueSpan) : null;
+        var match = FrequencyQueryPattern().Match(text.Trim());
+        if (!match.Success) return null;
+        FrequencyBand leading = TokenBand(match.Groups["L"]), trailing = TokenBand(match.Groups["T"]);
+        var fm = match.Groups["S"].Success || leading == FrequencyBand.Fm || trailing == FrequencyBand.Fm;
+        var kilohertz = leading == FrequencyBand.Kilohertz || trailing == FrequencyBand.Kilohertz;
+        if (fm && kilohertz) return null;
+        var decimals = match.Groups["R"].ValueSpan;
+        // The catalog writes FM with one decimal, so a second decimal 0 adds nothing: 101.50 → 1015, while 101.0 stays 1010.
+        if (decimals is [_, '0']) decimals = decimals[..1];
+        var band = fm ? FrequencyBand.Fm : kilohertz ? FrequencyBand.Kilohertz : FrequencyBand.None;
+        return new FrequencyQuery(string.Concat(match.Groups["I"].ValueSpan, decimals), band);
     }
 
-    [GeneratedRegex(@"^([0-9]{2,4})(?:[.,]([0-9]{0,2}))?(?:\s*(?:fm|mhz|khz))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex FrequencyQuery();
+    /// <summary>The band a matched <c>fm</c>/<c>mhz</c>/<c>am</c>/<c>khz</c> token implies, or None when the group did not
+    /// match. Read from the first character, so every spelling the case-insensitive pattern accepts (including the Kelvin
+    /// sign it equates with <c>k</c>) is classified without an allocation.</summary>
+    private static FrequencyBand TokenBand(Group token) =>
+        !token.Success ? FrequencyBand.None
+        : token.ValueSpan[0] is 'f' or 'F' or 'm' or 'M' ? FrequencyBand.Fm
+        : FrequencyBand.Kilohertz;
+
+    /// <summary>§3.3: an optional leading band word L, the integer digits I, an optional separator S with decimals R, and
+    /// an optional trailing band word or unit T. ASCII digits only; <c>\s</c> includes the no-break space.</summary>
+    [GeneratedRegex(@"^(?:(?<L>fm|am)\s*)?(?<I>[0-9]{2,4})(?:(?<S>[.,])(?<R>[0-9]{0,2}))?(?:\s*(?<T>fm|mhz|am|khz))?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex FrequencyQueryPattern();
 
     private static bool Passes(CatalogFilters filters, StationCatalogEntry entry) =>
         (filters.Country is null || string.Equals(filters.Country, entry.Country, StringComparison.Ordinal)) &&
@@ -244,15 +288,16 @@ public static partial class StationCatalogQuery
         (filters.Language is null || string.Equals(filters.Language, entry.Language, StringComparison.Ordinal));
 
     /// <summary>The lowest §3.3 tier the entry satisfies, or <see cref="NoMatch"/>. An empty query puts every entry in tier 0.</summary>
-    /// <param name="frequency">The query's frequency digits, never empty; null when the text is not a frequency query.
-    /// An entry without frequency digits therefore never matches it.</param>
-    private static int Tier(in StationCatalogIndex.SearchKeys keys, string query, string? frequency)
+    /// <param name="frequency">The frequency query, whose digits are never empty; null when the text is not one. An entry
+    /// without frequency digits therefore never matches it, and an entry of band None matches only an any-band query.</param>
+    private static int Tier(in StationCatalogIndex.SearchKeys keys, string query, FrequencyQuery? frequency)
     {
         if (query.Length == 0) return 0;
         var at = keys.Name.IndexOf(query, StringComparison.Ordinal);
         if (at >= 0) return at == 0 ? 0 : 1;
         if (keys.NameLocal.Contains(query, StringComparison.Ordinal) || keys.City.Contains(query, StringComparison.Ordinal)) return 2;
-        return frequency is not null && keys.FrequencyDigits.StartsWith(frequency, StringComparison.Ordinal) ? 3 : NoMatch;
+        return frequency is { } f && (f.Band == FrequencyBand.None || f.Band == keys.Band) &&
+               keys.FrequencyDigits.StartsWith(f.Digits, StringComparison.Ordinal) ? 3 : NoMatch;
     }
 
     /// <summary>The §3.3 total order: negative when <paramref name="x"/> ranks before <paramref name="y"/>. Never 0 for
@@ -273,6 +318,10 @@ public static partial class StationCatalogQuery
         order = string.CompareOrdinal(a.StreamUrl, b.StreamUrl);
         return order != 0 ? order : x.Position.CompareTo(y.Position);
     }
+
+    /// <summary>A parsed §3.3 frequency query: the digits an entry's frequency digits must start with, and the band the
+    /// entry must have (<see cref="FrequencyBand.None"/> for any band).</summary>
+    private readonly record struct FrequencyQuery(string Digits, FrequencyBand Band);
 
     /// <summary>A match's cheap sort keys; <see cref="Position"/> is its index in <see cref="StationCatalogIndex.Entries"/>.</summary>
     private readonly record struct Ranked(int Tier, int Votes, int Position);
