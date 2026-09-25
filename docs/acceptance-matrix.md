@@ -24,6 +24,8 @@
 > - **Remaining work and blockers:** [docs/open-items.md](open-items.md). It lists every open §9 check by the resource it waits for, with an order of execution, how to record results, and the closure criteria.
 > - **NATIVE-PENDING:** every such row names its §9 check. The native checks in §9 are all open: NC-01..13 and NC-15..17 (NC-05 and NC-09, signing and notarization, are release-only and not performed; NC-14 is N/A). NC-07, NC-13 and NC-17 carry "Results so far". What needs the user is listed in [§9.1](#91-native-checks-that-require-the-user).
 
+> **Brief 3 (add-station catalog search, `docs/add-station-catalog-search.md`), 2026-09-25: Phase 0 done, nothing implemented yet.** The contracts are frozen in [`docs/catalog-contracts.md`](catalog-contracts.md), the decisions are D59–D76, and [§11](#11-add-station-catalog-search-brief-3) holds CAT-01..18, **18 TODO**. While the private repository's Actions are refused for billing, the evidence gate is the local macOS build plus tests; a row that then only lacks Windows evidence is `WINDOWS-PENDING` (D75). Baseline on this Mac at `78b122e`: `dotnet build DialShift.slnx -c Release -warnaserror` clean, tests **1771 passed / 5 skipped, 24/24 suites**. The §3 counts above do not include §11.
+
 > **Living document.** This is the behavior inventory required by brief 1 §12 step 1. It is also the acceptance matrix of brief 1 §11 and the timezone QA tracker of brief 2 §9.
 >
 > - **Every lane updates the rows it touches in the same change as its code** (quality gate: docs always current).
@@ -43,6 +45,7 @@
 8. [Contracts](#8-contracts)
 9. [Remaining native checks](#9-remaining-native-checks)
 10. [Open questions](#10-open-questions-recommended-defaults)
+11. [Add-station catalog search (brief 3)](#11-add-station-catalog-search-brief-3)
 - [Appendix A: Instruction-file updates (applied)](#appendix-a-instruction-file-updates-applied)
 
 ---
@@ -56,10 +59,11 @@
 | `TODO` | Not yet verified. |
 | `GREEN` | Every non-N/A column for the row passes, with evidence: a test ID in green CI, or a signed-off manual checklist run. |
 | `NATIVE-PENDING` | Every automatable column is green. Only a hardware or native-desktop check is outstanding, and it is listed in §9. |
+| `WINDOWS-PENDING` | Brief 3 only (D75): every check that runs on macOS is green locally, and only a `windows-latest` CI run (refused for billing) or a Windows machine is outstanding; the note names it. |
 
 A status cell may carry a short note: the evidence for `GREEN`/`NATIVE-PENDING`, or what is still missing for `TODO` ("TODO: HS-04, then SMK"). **`SMK` cells count as automatable.** The app's own `--smoke-test` harness (BHV-66) runs in CI on both hosted runners, which give it a desktop session with a tray, and on Windows a silent audio output (`DIALSHIFT_AUDIO_OUTPUT=dummy`, D35). A passing CI smoke makes an `SMK` cell green on that OS. What the smoke cannot show (audible output, a real click on the tray, focus rules, sleep, a real sign-in) stays in `MAN` cells and §9. A cell is green only with evidence from this environment: a green CI run, a local run, or a recorded harness run in `docs/spikes.md`. Code inspection alone never makes a cell green.
 
-**Owner lanes:** `core` · `playback` · `platform` · `ui` · `release` · `test` · `spec`. These match the subagents in `.claude/agents/`.
+**Owner lanes:** `core` · `playback` · `platform` · `ui` · `release` · `test` · `spec`, and for brief 3 also `data` · `integration` · `docs` · `qa` · `design` · `perf`. These match the subagents in `.claude/agents/` (`integration` is `app-integration-engineer`, `qa` is `qa-auditor`, `design` is `design-reviewer`, `perf` is `perf-auditor`).
 
 **Test ID prefixes**
 
@@ -175,7 +179,7 @@ A status cell may carry a short note: the evidence for `GREEN`/`NATIVE-PENDING`,
 | ID | Behavior (current) | Evidence | Differences / notes | Target |
 |---|---|---|---|---|
 | BHV-51 | **Stations page.** Shows "NN  SAVED FREQUENCIES" and "+  Add station". Each row has an initial-letter tile, the name, the tag (plus " · Fallback" for the fallback station), "▶  Listen" (`Play` + `Save`) and "Edit". The empty-state text is "Start with a station you love…", followed by the SomaFM credit line. | W/M:`MainWindow.ShowStations` | Same. | Identical (HS-01 screenshots). |
-| BHV-52 | **Add/edit station dialog.** Fields: name (≤100 characters, required: "Give this station a name."), description (≤160, defaults to "Internet radio"), URL (≤2048, must be http/https with a host: "Enter a valid HTTP or HTTPS stream URL."). Values are trimmed. Cancel/Save; Save is the default button, Cancel the cancel button. The name field is focused on open. If the URL of the active desired station changes, it plays again as a manual play. | W/M:`StationDialog` | **[DIFF]** WPF sets `AutomationProperties.Name` on fields. Mac does not, and the headless field lookup needs it. | Identical. Automation names on every field. HS-02. |
+| BHV-52 | **Add/edit station dialog.** Fields: name (≤100 characters, required: "Give this station a name."), description (≤160, defaults to "Internet radio"), URL (≤2048, must be http/https with a host: "Enter a valid HTTP or HTTPS stream URL."). Values are trimmed. Cancel/Save; Save is the default button, Cancel the cancel button. The name field is focused on open. If the URL of the active desired station changes, it plays again as a manual play. | W/M:`StationDialog` | **[DIFF]** WPF sets `AutomationProperties.Name` on fields. Mac does not, and the headless field lookup needs it. | Identical. Automation names on every field. HS-02. **Amended by brief 3 (D68), not yet implemented:** in Add mode the "Search stations" box is focused on open, because typing now starts with a catalog search; Edit mode keeps the name field. The row and the HS-02 check change in the same commit as the dialog ([§11.2](#112-bhv-52-amendment)). |
 | BHV-53 | **Delete station.** A confirm dialog asks "Delete {name}[ and its N schedule slot(s)]?". If the station is desired or current, the app pauses. The station and its slots are removed, fallback and last-station references are cleared, then `ForgetStation` and a forced `RefreshSchedule` run, which may start the current slot. | W:`StationDialog` delete lambda; M:`StationDialog.DeleteStation` | **[DIFF]** `MessageBox` vs `Message.Confirm`. | `IDialogService.ConfirmAsync`, then `ForgetStationAsync`, then `RefreshScheduleAsync`. HS-02. |
 | BHV-54 | **Settings import/export.** **Not present in either local front-end.** Upstream v0.2.0 has it (`App.ImportSettings`/`ExportSettings`, `.before-import-*` backup). | `upstream/main:DialShift.Desktop/App.cs` | — | Out of scope for this refactor; see OQ-2. |
 | BHV-55 | **Schedule page.** Contains "Follow my schedule" and "+  Add time slot" (disabled when there are no stations). Mon–Sun day tabs default to today (local). The selected day's slots are ordered by `Time`. Each row shows the time (accent color if enabled), the station name (or "Missing station"), and the label (or "Scheduled switch" / "Disabled") · days. The empty state reads "No switches on <Day>…". Helper text follows. | W/M:`MainWindow.ShowSchedule` | **[DIFF]** Helper text: "…your Windows time zone" vs "…your local time zone". | Helper text reworded for zones; zone and next local fire time on each row (QA-N6, D12). |
@@ -261,7 +265,7 @@ Every row started as `TODO`. The status column was last reviewed in the final st
 | BHV-49 | DST, computer-local | core | existing DST checks, CT-SES-07 | — | — | — | GREEN (legacy DST checks and CT-SES-07, unmodified, on the UTC CI runners and the CEST dev box; TZ-01; CI `36111775825`) |
 | BHV-50 | Follow-schedule toggle (page + tray in sync) | ui | — | HS-03, HS-04 | MAN | MAN | NATIVE-PENDING (NC-01, NC-17; HS-03/HS-04 on both OSes: the page toggle and the tray item stay in sync; SMK both toggles) |
 | BHV-51 | Stations page | ui | — | HS-01 | MAN | MAN | NATIVE-PENDING (NC-01, NC-17 visual pass; HS-01 on both OSes) |
-| BHV-52 | Station add/edit validation | ui | — | HS-02 | — | — | GREEN (HS-02 on both OSes: cancel, missing name, invalid URL, add, edit, trimming, automation names; SMK rejects an empty name and an invalid URL) |
+| BHV-52 | Station add/edit validation | ui | — | HS-02 | — | — | GREEN (HS-02 on both OSes: cancel, missing name, invalid URL, add, edit, trimming, automation names; SMK rejects an empty name and an invalid URL). Brief 3 amends the Add-mode focus rule (D68); the amended check lands with the dialog and is tracked by CAT-11/CAT-12 ([§11.2](#112-bhv-52-amendment)) |
 | BHV-53 | Station delete (confirm, cleanup, forget) | ui, core | CT-PB-26 | HS-02, HS-03 | — | — | GREEN (CT-PB-26; HS-02, HS-03 on both OSes: confirm text, cleanup of slots, fallback and last station, tray identity) |
 | BHV-54 | Settings import/export (absent; OQ-2) | spec | — | — | — | — | GREEN (spec: absent in both front-ends and in `DialShift.App` at `39f5c8a` (no `ImportSettings`, `ExportSettings` or `before-import` in `DialShift.App` or `DialShift.Core`); out of scope per OQ-2) |
 | BHV-55 | Schedule page | ui | — | HS-01 | MAN | MAN | NATIVE-PENDING (NC-01, NC-17 visual pass; HS-01 on both OSes (tabs, rows, empty state, the reworded helper text); zone tag and next local start per row in `UiTimeZone` (QA-N6)) |
@@ -1089,6 +1093,55 @@ Unless the orchestrator overrides one, each lane proceeds on the default. Any ov
 | OQ-9 | Avalonia 12.1.3 is also on NuGet. | Pin 12.1.2 per D6 unless a lane shows a needed 12.1.3 fix. Record any change in `docs/decisions.md`. Any bump must also pass the D52 re-verification of the no-display render-timer fallback, which uses Avalonia private APIs. |
 | OQ-10 | Delete slot has no confirmation, while station delete does. | Add a confirmation (UX gate: no destructive action without confirmation). Record the behavior change in BHV-58. |
 | OQ-11 | Tray "Play / Pause" and "Next station" do not save. | Save after every tray command, as the window buttons do. |
+
+---
+
+## 11. Add-station catalog search (brief 3)
+
+Brief: `docs/add-station-catalog-search.md` (§ numbers below are the brief's). Frozen contracts, the file-ownership map and the per-row test plan: [`docs/catalog-contracts.md`](catalog-contracts.md). Decisions: D59–D68 (the brief's §11 defaults) and D69–D76 (Phase 0 resolutions) in `docs/decisions.md`.
+
+**Status (Phase 0, 2026-09-25):** every row is `TODO`; nothing is implemented. Each lane updates its rows in the same change as its code. Check names start with the row id (`"CAT-06 …"`). The evidence gate while Actions are refused is the local macOS build plus tests (D75); the "Windows evidence" column says what this Mac cannot supply, so a row can reach `WINDOWS-PENDING` but not `GREEN` until that part exists. "DoD only" means the row has no OS-specific code: local evidence makes it `GREEN`, and the `windows-latest` run is owed to the definition of done (brief §10), not to the row.
+
+### 11.1 CAT rows
+
+| ID | Behavior | Evidence | Owner lane | Checks (contracts §8) | Windows evidence | Status |
+|---|---|---|---|---|---|---|
+| CAT-01 | Pipeline emits `data/output/app-catalog.json` per §5.1: Working-only, deduped, `tag` precomputed, collections included; hard validation; count == canonical Working count | `Catalog` suite + pipeline log | data, test | `app_catalog.py --self-test`; the `app-catalog:` count line; `Catalog` "CAT-01 …" checks the checked-in JSON against `data/canonical/*.csv` | none | TODO |
+| CAT-02 | `dotnet build` (Debug+Release) and `dotnet publish` (win-x64, osx-arm64) copy the JSON into the output | CI matrix | integration, release | build and publish outputs compared with `cmp`; `Catalog` "CAT-02 …" (the file reaches the test output) | `windows-latest` build and publish | TODO |
+| CAT-03 | macOS `.app` and Windows zip contain a parseable `app-catalog.json` next to the apphost | verify scripts + bundle smoke | integration, release | `verify-mac-app.sh --zip`; `verify-win-package.ps1` on the zip cross-built here (D58); the bundle smoke's catalog check | Windows native smoke from the zip | TODO |
+| CAT-04 | Runtime load off-thread from `AppContext.BaseDirectory`; missing/corrupt file → degraded mode (muted message + `FileAppLog` warning), no crash | `Catalog` suite + smoke | integration, test | `Catalog` "CAT-04 …" (every Unavailable case, one `catalog.unavailable`, no throw; the real default location); `UiViewModels` "CAT-04 …" (a load that never completes blocks nothing); the smoke catalog check | Windows smoke catalog check | TODO |
+| CAT-05 | `DIALSHIFT_CATALOG_PATH` override works (fixtures) | `Catalog` suite | integration, test | `Catalog` "CAT-05 …" (`ResolveLocation`, fixture through the override, no fallback for a relative value) | `windows-latest` (Windows path rules) | TODO |
+| CAT-06 | Search matches name/city case- and diacritic-insensitively | `Catalog` suite | core, test | `Catalog` "CAT-06 …" (`Fold` examples, the searched fields, Greek, German, French) | `windows-latest` (OS normalization data) | TODO |
+| CAT-07 | Frequency search: `1015` and `101.5` match FM 101.5 | `Catalog` suite | core, test | `Catalog` "CAT-07 …" | DoD only | TODO |
+| CAT-08 | Country/City/Type/Genre/Language filters: dynamic distinct values, ANDed with text | `Catalog` + `UiViewModels` | core, ui, test | `Catalog` and `UiViewModels` "CAT-08 …" | DoD only | TODO |
+| CAT-09 | Ranking (prefix > substring > votes), cap 50 + "showing 50 of N" | `Catalog` suite | core, ui, test | `Catalog` "CAT-09 …"; `UiViewModels` count texts | DoD only | TODO |
+| CAT-10 | Selecting a result fills Name/Tag/URL (+Notes); detail pane shows notes/votes/freq/language | `UiViewModels` + HS checks | ui, test | `UiViewModels` and `HeadlessUi` "CAT-10 …" | DoD only | TODO |
+| CAT-11 | Manual entry unchanged — BHV-52/53 green, HS-02 green, edit mode has no catalog panel | HS-02 | ui, test | every HS-02 check (focus check amended, §11.2); "CAT-11 …" | `windows-latest` headless | TODO |
+| CAT-12 | Keyboard: focus on search in Add mode, Up/Down/Enter select, Esc cancels | HS checks | ui, test | `HeadlessUi` "CAT-12 …" (focus, Down/Enter pick, Enter saves with no highlight, Esc, Tab order) | `windows-latest` headless; native focus in NC-01 | TODO |
+| CAT-13 | Empty/no-match/no-catalog states are honest and never dead-end | `UiViewModels` + design review | ui, design | `UiViewModels` "CAT-13 …"; `design-reviewer` report | none | TODO |
+| CAT-14 | QG-03: theme, automation names, no clipped text at 780×650, no typing jank | design review + HS | ui, design | `HeadlessUi` "CAT-14 …"; `design-reviewer` report; CAT-16's search timings | Windows native visual pass (NC-01) | TODO |
+| CAT-15 | `Station.Notes` persists only when set; null writes nothing; Settings.Version stays 1; old files load | `Catalog`/settings checks | core, test | `Catalog` "CAT-15 …" (a golden pre-brief file saves byte-identical) | DoD only | TODO |
+| CAT-16 | Perf budget: ≤5,000 entries, load <50 ms, search <10 ms (measured) | perf check | perf | `CatalogPerf` (budget amended by D69: ≤ 10,000 entries; the real catalog has 8,274) | none (Windows hardware not measured; reported) | TODO |
+| CAT-17 | Zero station facts in C#; refresh = re-run pipeline; `generated_utc` shown in UI | review + docs | qa, data, docs | `qa-auditor` grep; `UiViewModels` "CAT-17 …" (the status text shows the date) | none | TODO |
+| CAT-18 | Docs current in the same change: README, data/README, matrix, decisions D59+, XLSX README tab | docs review | docs, qa | `docs-engineer` pass, then `qa-auditor`; includes the `THIRD-PARTY-NOTICES` catalog section (D76) | none | TODO |
+
+### 11.2 BHV-52 amendment
+
+- **Today (BHV-52, GREEN):** the station dialog focuses the name field on open, in Add and Edit mode (`StationEditorDialog.axaml.cs`: `Opened += (_, _) => NameField.Focus()`).
+- **Amended (D68, brief §11 #10):** in Add mode the "Search stations" box is focused on open; Edit mode keeps the name field. Justification: BHV-52's intent is "focus where typing starts", and in Add mode typing now starts with the catalog search. Everything else in BHV-52 is unchanged: the three fields and their limits, the trimming, the "Internet radio" default, both validation messages and the focus they move to, Save as the default and Cancel as the cancel button.
+- **Same commit as the dialog (ui lane, Phase 4a):** the HS-02 headless check "HS-02 BHV-52 the add dialog: \"Add a frequency · DialShift\", no delete button, name field focused" in `DialShift.Tests/Ui/HeadlessUiTests.cs` (`StationEditorFlow`) asserts the search box instead, and a new check asserts the Edit dialog still focuses the name field; the dialog's class summary and the BHV-52 rows in §2.6 and §3.1 change with it. The other HS-02 checks stay as they are, including "Enter with no name keeps the dialog open … name field focused", which follows validation, not the open focus.
+
+### 11.3 Phase gates
+
+| Phase | Lane | Gate (pasted real output) |
+|---|---|---|
+| 0 | spec | the six agent files, this section, `docs/catalog-contracts.md`, D59–D76; baseline build and 24 suites green (done, see the banner) |
+| 1 | data | `app_catalog.py --self-test`; `build_all.py` count line with `exported` equal to the validation count; the country CSVs unchanged |
+| 2 | core (+ test) | `dotnet build DialShift.slnx -c Release -warnaserror`; `Catalog` suite green; all 24 suites green; the DOD-02 grep clean |
+| 3 | integration (+ test) | the build; `dotnet publish` for both RIDs with the JSON in each; `verify-mac-app.sh --zip`; the bundle smoke with the catalog check; `verify-win-package.ps1` on the cross-built zip |
+| 4 | ui (+ test) | the build; `HeadlessUi` and `UiViewModels` green with HS-02 (as amended) and the CAT checks |
+| 5 | test, qa, design, perf | every suite green; CAT-01..18 `GREEN`, `WINDOWS-PENDING` or `NATIVE-PENDING` with evidence; QG-03 audit; CAT-16 numbers; dead-code grep; `Settings.Version` audit |
+| 6 | docs, release | docs current; notices (D76); the final report lists every Windows gap |
 
 ---
 

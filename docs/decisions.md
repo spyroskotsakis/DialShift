@@ -1,6 +1,6 @@
-# Decision log — single-codebase refactor + schedule timezones
+# Decision log — single-codebase refactor + schedule timezones + add-station catalog search
 
-ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor.md` (brief 1) and `docs/schedule-timezone-research.md` (brief 2). Each entry: what was decided, why, and where the briefs raise it. A decision changes only by adding a new entry that supersedes it. The acceptance matrix (`docs/acceptance-matrix.md`) tracks verification of every decision that has a testable consequence.
+ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor.md` (brief 1), `docs/schedule-timezone-research.md` (brief 2) and `docs/add-station-catalog-search.md` (brief 3, from D59; its frozen contracts are in `docs/catalog-contracts.md`). Each entry: what was decided, why, and where the briefs raise it. A decision changes only by adding a new entry that supersedes it. The acceptance matrix (`docs/acceptance-matrix.md`) tracks verification of every decision that has a testable consequence.
 
 | ID | Date | Decision | Brief ref |
 |---|---|---|---|
@@ -62,6 +62,24 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D56 | 2026-09-25 | SW-N4: `Install.ps1` stages the new build beside the install and swaps it in by renames (retried about 4 s), restoring the old install on failure; refuses a source that overlaps the install folder (textual comparison); shows every message and waits for Enter when interactive; one run at a time (named mutex `Local\DialShift.Install`); removes only exactly named leftovers of earlier runs, never through a junction; checked in CI, including a locked file and a held install lock; ships as `v0.3.0-rc.2` because `v0.3.0-rc.1` is already a published tag | brief 1 §8; D7, D53; matrix §7.10 SW-N4 |
 | D57 | 2026-09-25 | Ship 0.3.0 as a stable release before the native checks (user decision): tag `v0.3.0` on the rc.2 app code, with the testing status in the release notes and README; overrides open-items §6's "stable only after the native checks" and the D7/D53 expectation of signing and clean-machine tests before the first full release, for 0.3.0 only; the NATIVE-PENDING rows stay open for 0.3.x | brief 1 §8, §11 DoD; D7, D36, D53, D56 |
 | D58 | 2026-09-25 | Local backup release path: `scripts/release-local.sh <tag> [--repo] [--win-zip] [--publish]` builds, verifies and publishes the same release as `release.yml` from the maintainer's Apple Silicon Mac when Actions cannot run (dry run by default); `scripts/build.ps1` runs under PowerShell 7 on macOS for the Windows cross-build; the Actions workflows are unchanged and stay the normal path | brief 1 §8; D7, D36, D53, D57 |
+| D59 | 2026-09-25 | Brief 3 catalog handoff: a generated JSON snapshot, `data/output/app-catalog.json`, checked in; no CSV parsing and no embedded resource in the app (§11 #1, adopted default) | brief 3 §4, §5.1, §11 #1 |
+| D60 | 2026-09-25 | The catalog is a loose file named `app-catalog.json` at `AppContext.BaseDirectory` (next to the apphost; `Contents/Resources/app` in the D51 bundle, verified) (§11 #2, adopted default) | brief 3 §5.2, §11 #2; D51 |
+| D61 | 2026-09-25 | `Station.Notes`: optional, nullable, never written when null; `Settings.Version` stays 1 (§11 #3, adopted default) | brief 3 §4.6, §9, §11 #3; QA-N3 |
+| D62 | 2026-09-25 | The catalog search exists in the Add dialog only; Edit keeps today's three-field form (§11 #4, adopted default) | brief 3 §6, §11 #4; BHV-52, BHV-53 |
+| D63 | 2026-09-25 | Search control: a TextBox plus an overlay ListBox, not `AutoCompleteBox` (§11 #5, adopted default) | brief 3 §6, §11 #5 |
+| D64 | 2026-09-25 | Matching: diacritic- and case-insensitive substring over name, local name and city, plus frequency digits, ranked per brief 3 §7.2 (§11 #6, adopted default; made precise by D70) | brief 3 §7.2, §11 #6 |
+| D65 | 2026-09-25 | Catalog refresh is manual (`build_all.py --refresh`, then commit the regenerated files), documented in `data/README.md` (§11 #7, adopted default) | brief 3 §9, §11 #7 |
+| D66 | 2026-09-25 | Logos load asynchronously with a timeout and fall back to the monogram; never blocking (§11 #8, adopted default) | brief 3 §6, §9, §11 #8 |
+| D67 | 2026-09-25 | No CI freshness check for the catalog: presence and parse only; the refresh procedure is documented (§11 #9, adopted default) | brief 3 §11 #9 |
+| D68 | 2026-09-25 | BHV-52 amended: in Add mode the search box has focus on open; Edit mode keeps the name field; the matrix row and the HS-02 check change in the same change as the UI (§11 #10, adopted default) | brief 3 §6, §11 #10; BHV-52 |
+| D69 | 2026-09-25 | The real catalog has 8,281 Working stations (8,274 after the URL rule), not ~1,400: the entry budget becomes ≤ 10,000; load < 50 ms and search < 10 ms are measured at the real count and at 10,000 | brief 3 §1, §5.2, §9 |
+| D70 | 2026-09-25 | Matching is culture-independent: search keys are folded once into a `StationCatalogIndex` and compared ordinally; `Search` takes the index (amends the brief's signature); exact frequency-query, tier and tie-break rules | brief 3 §7.2; D64 |
+| D71 | 2026-09-25 | Export details: dedupe per country with the pipeline's final key, URLs must pass the app's rule (≤ 2,048 characters), placeholder and type normalization, one station per line, validation counts | brief 3 §5.1 |
+| D72 | 2026-09-25 | Dialog behavior details: a 200 ms delay plus a generation check off the UI thread (`LatestValueDispatcher` only marshals), flat filter lists with an "All" option, the overlay state and Enter semantics | brief 3 §6, §9 |
+| D73 | 2026-09-25 | A picked entry's notes are saved only if the saved URL is still the entry's stream URL; the fill truncates to the BHV-52 limits | brief 3 §6.6, §4.6; BHV-52 |
+| D74 | 2026-09-25 | Core catalog types carry no JSON attributes; the App parses through private DTOs; a relative `DIALSHIFT_CATALOG_PATH`, a wrong `schema_version`, an oversized or empty catalog are Unavailable, with no fallback | brief 3 §5.2, §7 |
+| D75 | 2026-09-25 | While the private repository's Actions are refused, the per-phase gate is the local macOS build plus tests; a CAT row missing only Windows evidence is `WINDOWS-PENDING` | brief 3 §10, §12; D58 |
+| D76 | 2026-09-25 | The app packages now carry third-party catalog data (radio-browser.info, Wikipedia): `THIRD-PARTY-NOTICES.md` gains a station-catalog section in the same change as the bundling | brief 3 §5, §10 (CAT-18) |
 
 ---
 
@@ -614,3 +632,153 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Consequence:** A local release skips what only a Windows machine can check: the tests' Windows-only checks (the LibVLC engine suite and others report SKIP on macOS), the Windows native smoke and `build.yml`'s `Install.ps1` cases. It also restores NuGet packages from the maintainer's cache, where `release.yml` restores from nuget.org. The macOS smokes open DialShift windows on the maintainer's screen for a few minutes. The worktree lives under `/tmp`, not macOS's per-user `$TMPDIR` (`/var/folders/<2 random characters>/…`): a redaction check in `DialShift.Tests` ("no credential, path or token of either survives") looks for `/x` and `/y` in an exception text that includes the stack trace's source paths, so it fails when the source path has a folder starting with `x` or `y`, as the first local run under `/var/folders/x5/…` showed. The test lane replaced those fragments with path-proof sentinels in `25e6abe` (matrix §7.11 HZ-09); tags up to `v0.3.0` keep the old check, which is why `release-local.sh` builds under `/tmp`. Tags up to `v0.3.0` carry the Windows-only `build.ps1`, so they need `--win-zip`. If a `release.yml` run for the tag can still run on the target repository, it fails at `gh release create` once the release exists, so it is cancelled first. Signing is unchanged (D7).
 - **Numbering:** brief 3 (`docs/add-station-catalog-search.md`) first reserved "D58+" for its decisions; this decision took D58, so brief 3 and its goal prompt now say D59+.
 - **Brief ref:** brief 1 §8 (artifact format, signing); D7, D36, D53, D57.
+
+## D59 — Brief 3: the catalog reaches the app as a checked-in JSON snapshot
+
+- **Status:** Adopted (brief 3 default, §11 #1).
+- **Decision:** The pipeline additionally writes `data/output/app-catalog.json` (schema in `docs/catalog-contracts.md` §2), generated and checked in like the XLSX. The app reads only that file. No CSV parsing in the app, no embedded or Avalonia resource, no hand-copied C# constants, no new NuGet package (`System.Text.Json` is part of the shared framework).
+- **Rationale:** A fresh `dotnet build` needs no Python; builds are reproducible from the commit; the file is readable and diffable; JSON needs no new parser. New data needs no app-code change.
+- **Consequence:** The data lane owns the export and its validation (CAT-01); the integration lane copies the file into every build and publish output (CAT-02, CAT-03). Matrix §11.
+- **Brief ref:** brief 3 §4.1–4.2, §5.1, §11 #1.
+
+## D60 — Brief 3: the catalog file sits next to the apphost
+
+- **Status:** Adopted (brief 3 default, §11 #2).
+- **Decision:** The file is named `app-catalog.json` and is resolved as `Path.Combine(AppContext.BaseDirectory, "app-catalog.json")`, never from the current directory; `DIALSHIFT_CATALOG_PATH` (absolute) overrides it (D74). The csproj `Content` item copies it to the output and publish roots (`CopyToOutputDirectory` and `CopyToPublishDirectory` `PreserveNewest`, `Condition="Exists(...)"`, `Link="app-catalog.json"`).
+- **Rationale:** The same rule works for `dotnet run`, the publish folder, the Windows zip and the macOS bundle. Phase 0 checked the bundle: in the D51 layout (the apphost in `Contents/MacOS`, `DialShift.dll` symlinked from `Contents/Resources/app`), a self-contained `osx-arm64` test app printed `AppContext.BaseDirectory` = `…/Contents/Resources/app/`, and a JSON file there was found. `build-mac-app.sh` leaves non-Mach-O files in `Contents/Resources/app`, so no script change is needed for the file to reach the right place.
+- **Consequence:** `verify-mac-app.sh` asserts the file in `Contents/Resources/app`; `verify-win-package.ps1` next to `DialShift.exe`; the smoke loads it from the app folder (CAT-03, CAT-04).
+- **Brief ref:** brief 3 §5.2, §9 (bundle containment), §11 #2; D51.
+
+## D61 — Brief 3: `Station.Notes` is optional and version-safe
+
+- **Status:** Adopted (brief 3 default, §11 #3).
+- **Decision:** `public string? Notes { get; set; }` with `[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]`, exactly like `ScheduleEntry.TimeZone`. `Settings.Version` stays 1; `SettingsStore` is unchanged (it validates only name and URL).
+- **Rationale:** The QA-N3 recipe is proven: a null field is not written, so settings without notes stay byte-for-byte identical, and older builds ignore the unknown key.
+- **Consequence:** CAT-15 checks the byte-identical round-trip of a pre-brief file, a set value, Version 1 and an old file. A hand-edited `"Notes": 123` takes the `.unreadable-*` path, as `"TimeZone": 123` does (CT-SET-11); it is pinned, not changed.
+- **Brief ref:** brief 3 §4.6, §7, §9, §11 #3; QA-N3.
+
+## D62 — Brief 3: catalog search in the Add dialog only
+
+- **Status:** Adopted (brief 3 default, §11 #4).
+- **Decision:** The catalog panel (search, filters, results, detail pane) exists only when adding a station. Editing shows exactly today's form and never loads the catalog; saving an edit never touches `Notes`.
+- **Rationale:** Editing an existing station must not regress (BHV-53), and a search there has no clear meaning.
+- **Consequence:** CAT-11 asserts the Edit form is unchanged and has no catalog panel.
+- **Brief ref:** brief 3 §6, §11 #4; BHV-52, BHV-53.
+
+## D63 — Brief 3: TextBox plus an overlay ListBox
+
+- **Status:** Adopted (brief 3 default, §11 #5).
+- **Decision:** The search is a `TextBox` with an overlay `ListBox` of results, not Avalonia's `AutoCompleteBox`.
+- **Rationale:** Explicit controls give full control over the custom ranking, the five filters, the result template, the keyboard contract and the empty states.
+- **Consequence:** The keyboard behavior is specified in `docs/catalog-contracts.md` §5.5 and tested by CAT-12.
+- **Brief ref:** brief 3 §6, §11 #5.
+
+## D64 — Brief 3: matching semantics
+
+- **Status:** Adopted (brief 3 default, §11 #6); made precise by D70.
+- **Decision:** A case- and diacritic-insensitive substring match over name, local name and city, plus a frequency-digits match, ranked prefix-in-name > substring-in-name > local name or city > frequency, then votes, then name; capped at 50 with the total count shown.
+- **Rationale:** Users type fragments of names they know, in any case and often without accents; the frequency is how many people know a local station.
+- **Consequence:** CAT-06, CAT-07, CAT-09.
+- **Brief ref:** brief 3 §7.2, §11 #6.
+
+## D65 — Brief 3: manual catalog refresh
+
+- **Status:** Adopted (brief 3 default, §11 #7).
+- **Decision:** The catalog is refreshed by hand: `data/.venv/bin/python data/build/build_all.py --refresh`, then a commit of the regenerated CSVs, XLSX and JSON. `data/README.md` documents it.
+- **Rationale:** Radio-browser data changes daily; an automatic refresh would make builds irreproducible and diffs noisy.
+- **Consequence:** The app shows the catalog date (`generated_utc`, CAT-17), so staleness is visible.
+- **Brief ref:** brief 3 §9 (staleness), §11 #7.
+
+## D66 — Brief 3: logo rendering
+
+- **Status:** Adopted (brief 3 default, §11 #8).
+- **Decision:** Logos load asynchronously through `ICatalogLogoLoader` (http/https only, 5 s timeout, 256 KiB cap, 4 downloads at once, cached per URL including failures) and fall back to the monogram, the first letter of the name, as the station tiles do. Nothing waits for a logo.
+- **Rationale:** Catalog logo URLs are remote and often dead (3,259 of the 8,281 Working stations have none).
+- **Consequence:** `docs/catalog-contracts.md` §4.3; the design review checks the monogram state (CAT-13, CAT-14).
+- **Brief ref:** brief 3 §6.4, §9, §11 #8.
+
+## D67 — Brief 3: no CI freshness check
+
+- **Status:** Adopted (brief 3 default, §11 #9).
+- **Decision:** CI checks only that the JSON is present and parses in both packages (and the `Catalog` suite checks it against the canonical CSVs); nothing fails because the data is old.
+- **Rationale:** Freshness is a data-maintenance choice (D65), not a build defect.
+- **Consequence:** CAT-01, CAT-03.
+- **Brief ref:** brief 3 §11 #9.
+
+## D68 — Brief 3: BHV-52 focus rule amended
+
+- **Status:** Adopted (brief 3 default, §11 #10).
+- **Decision:** In Add mode the search box ("Search stations") has keyboard focus when the dialog opens; in Edit mode the name field keeps it. The BHV-52 matrix row and the HS-02 headless check "the add dialog: … name field focused" (`HeadlessUiTests.StationEditorFlow`) are updated in the same commit as the dialog.
+- **Rationale:** BHV-52's intent is "focus where typing starts"; in Add mode typing now starts with a search.
+- **Consequence:** CAT-11 and CAT-12; the amendment is noted on BHV-52 in matrix §2.6 and §3.1.
+- **Brief ref:** brief 3 §6.1, §11 #10; BHV-52.
+
+## D69 — Brief 3: the real catalog size and the amended budget
+
+- **Status:** Adopted (spec lane, Phase 0).
+- **Decision:** The entry budget is **≤ 10,000** entries (the brief said ≤ 5,000). A full load (read, parse, validate, index) stays **< 50 ms** and a filtered search **< 10 ms**, measured on the dev box (Apple Silicon, Release) at the real checked-in count and at a synthetic 10,000-entry set, as the median of 7 runs after one warm-up; the cold first load is reported, not gated. The pipeline fails above 10,000 entries and the app treats more as Unavailable.
+- **Rationale:** The brief assumed ~1,400 stations. The canonical CSVs at `78b122e` hold 8,665 rows, 8,281 of them Working with a URL (8,274 after the URL rule, D71); the README already says "8,700+". The inclusion rules are part of the non-negotiable data contract, so the budget moves, not the data. 10,000 leaves room for about one more country.
+- **Consequence:** CAT-16 is measured against these numbers (`CatalogPerf`). Documents that say "~1,400" are corrected in the same change as the JSON.
+- **Brief ref:** brief 3 §1, §5.2, §9 (performance).
+
+## D70 — Brief 3: culture-independent matching on a folded index
+
+- **Status:** Adopted (spec lane, Phase 0); amends the brief's `Search` signature.
+- **Decision:** `StationCatalogIndex` folds name, local name and city once (FormKD, non-spacing marks removed, invariant lower case, `ς→σ ß→ss æ→ae œ→oe ø→o ł→l đ→d ı→i`, whitespace collapsed) and keeps the frequency digits; `StationCatalogQuery.Search(StationCatalogIndex, string?, CatalogFilters, int cap = 50)` matches ordinally on those keys. A frequency query is 2–4 digits with an optional `.`/`,` and up to 2 decimals and an optional `fm`/`mhz`/`khz`; it matches when the entry's frequency digits start with the query's digits. Tiers: name prefix, name substring, local name or city, frequency. Ties: votes desc (null = 0), folded name, name, country, stream URL, position, all ordinal. Exact rules: `docs/catalog-contracts.md` §3.3.
+- **Rationale:** Measured on the real data, `CompareInfo.IndexOf(…, IgnoreCase | IgnoreNonSpace)` per field per search took up to 11.2 ms (`münchen`) before any ranking, over the 10 ms budget; the same search on folded keys took 0.12–0.22 ms, and folding every row once takes 7.3 ms, inside the load budget. Ordinal tie-breaks make the order identical on every OS and culture, which the tests need.
+- **Consequence:** CAT-06, CAT-07, CAT-09, CAT-16. `Fold` is internal to Core and tested directly.
+- **Brief ref:** brief 3 §7.2, §9; D64.
+
+## D71 — Brief 3: export details
+
+- **Status:** Adopted (spec lane, Phase 0).
+- **Decision:**
+  - **Dedupe per country** with the pipeline's final key `(country, norm(name) without spaces, norm_city, url_norm)`.
+  - **URL rule:** http/https, a host, no whitespace, at most 2,048 characters (the app's `ValidUrl` plus BHV-52's limit).
+  - **Count rule:** exported == the number of distinct `(country, name, stream_url)` among Working rows that pass the URL rule; a dedupe that drops a row therefore fails the run (fix the YAML).
+  - **Normalization:** every string trimmed; `city` `—` and `region` `(unlisted)` → `""`; `internet_only` `Yes` → `true`, else `false`; `bitrate` positive or `null`; `votes` ≥ 0 or `null`; notes that are only `tags:` → `""`, `_text_` → `text`; logos that are not http(s) → `""`; `country_label` from the YAML `name`, `Internet (collections)` for collections.
+  - **File:** exactly 18 keys in a fixed order, one station per line, UTF-8, ordered by country, votes desc, name, stream URL.
+  - Details: `docs/catalog-contracts.md` §2.
+- **Rationale:** A dedupe key without the country merges one station that exists in three country lists (`Abdulbasit Abdulsamad`, city `—`), which would break the brief's own count rule. Seven Working URLs are longer than the app accepts, so they could never be saved. The placeholders would otherwise become a "—" city filter. One station per line keeps a 3.5 MB file diffable.
+- **Consequence:** Expected counts on today's data: `working=8281 url_excluded=7 duplicates_removed=0 exported=8274`. CAT-01.
+- **Brief ref:** brief 3 §5.1.
+
+## D72 — Brief 3: dialog behavior details
+
+- **Status:** Adopted (spec lane, Phase 0).
+- **Decision:** Typing schedules a search after 200 ms; filter changes, Clear and the load completion search at once. Each search runs on the thread pool, is cancelled by the next, and its result is applied through `LatestValueDispatcher` only if its generation is still current. Filter lists are flat and data-driven: "All" first, then `AvailableValues` of the whole catalog, never cascading. The first results (empty query) are the 50 most-voted stations, with the overlay closed. Enter in the search box picks the highlighted result; with none highlighted it falls through to Save. Exact surface: `docs/catalog-contracts.md` §5.
+- **Rationale:** The brief calls `LatestValueDispatcher` "the existing debounce primitive", but it only coalesces pushes into one UI-thread post with no delay, and it cannot drop a result that finishes after a newer one; the delay and the generation check are needed on top. Cascading filters were not asked for and would hide values.
+- **Consequence:** CAT-08, CAT-12, CAT-14 (no typing jank).
+- **Brief ref:** brief 3 §3, §6, §9 (performance).
+
+## D73 — Brief 3: notes follow the picked stream
+
+- **Status:** Adopted (spec lane, Phase 0).
+- **Decision:** Picking a result fills Name (truncated to 100 characters), Description/Genre (the precomputed `tag`, truncated to 160) and Stream URL. On save, a new station gets the picked entry's notes only if the saved URL is still exactly the entry's stream URL; otherwise `Notes` stays null.
+- **Rationale:** The fields stay editable (brief §6.6); after the URL is replaced, the station is a different stream and the notes would describe the wrong one. 67 catalog names exceed BHV-52's 100-character limit, which `Save` does not re-check.
+- **Consequence:** CAT-10, CAT-15.
+- **Brief ref:** brief 3 §4.6, §6.6; BHV-52; D61.
+
+## D74 — Brief 3: provider parsing and degraded-mode rules
+
+- **Status:** Adopted (spec lane, Phase 0).
+- **Decision:** Core's catalog types carry no JSON attributes (Core already uses `System.Text.Json` for settings, but the catalog engine stays format-free, as brief §7 requires). `CatalogProvider` parses private DTOs with the snake_case naming policy and maps them. Unavailable, with one `catalog.unavailable` warning and never an exception: a relative `DIALSHIFT_CATALOG_PATH` (no fallback to the app folder), a missing, unreadable or larger-than-32-MiB file, invalid JSON or a JSON type mismatch, `schema_version` ≠ 1, no `stations`, no usable entry, more than 10,000 entries. Invalid single entries are skipped with one `catalog.entries_skipped` warning. Unknown keys are ignored. Log events: `catalog.loaded`, `catalog.unavailable`, `catalog.entries_skipped`.
+- **Rationale:** A wrong override silently replaced by the bundled file would hide the developer's mistake; everything else degrades to manual entry, which always works.
+- **Consequence:** CAT-04, CAT-05; `docs/catalog-contracts.md` §4.
+- **Brief ref:** brief 3 §5.2, §7.
+
+## D75 — Brief 3: evidence gate while Actions are unavailable
+
+- **Status:** Adopted (orchestrator instruction, 2026-09-25).
+- **Decision:** The private repository's Actions jobs are refused for billing (D58) and brief 3 does not push to `origin`. The per-phase gate is therefore the local macOS run of `dotnet build DialShift.slnx -c Release -warnaserror` and `dotnet run --project DialShift.Tests -c Release`, pasted as real output, plus each lane's own commands. A new matrix status, `WINDOWS-PENDING`, marks a row whose macOS evidence is complete and whose only gap is a `windows-latest` run or a Windows machine, named in the row. `docs/catalog-contracts.md` §8 lists, per CAT row, what needs Windows.
+- **Rationale:** `NATIVE-PENDING` means "only a hardware or native-desktop check is outstanding"; a missing CI run is automatable, so it needs its own honest label rather than a green it has not earned.
+- **Consequence:** Phase 5 closes with every CAT row `GREEN`, `WINDOWS-PENDING` or `NATIVE-PENDING` with evidence; the final report lists the Windows gaps for the next CI run.
+- **Brief ref:** brief 3 §10, §12; D58.
+
+## D76 — Brief 3: the packages carry third-party catalog data
+
+- **Status:** Adopted (spec lane, Phase 0).
+- **Decision:** From the change that bundles `app-catalog.json`, both packages redistribute station data compiled from radio-browser.info and Wikipedia's lists of radio stations (the notes of 742 entries come from Wikipedia tables). `THIRD-PARTY-NOTICES.md` gains a "Station catalog data" section naming both sources and their terms (Wikipedia text: CC BY-SA 4.0), written by the docs lane with the source list from the release lane, in the same change as the bundling.
+- **Rationale:** Until now the catalog lived only in the repository's `data/` folder; shipping it inside the app is a new redistribution.
+- **Consequence:** Part of CAT-18.
+- **Brief ref:** brief 3 §5, §10 (CAT-18).

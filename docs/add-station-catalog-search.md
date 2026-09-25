@@ -4,6 +4,15 @@
 > `single-codebase-refactor.md` (brief 1) and `schedule-timezone-research.md` (brief 2). Execution per §12
 > by the orchestrator (goal prompt: `docs/add-station-catalog-search-goal.md`, ≤4,000 chars, same discipline
 > as `claude-goal-execution.md`). All decisions taken during execution are recorded as D59+ (D58 is the local backup release path) in `docs/decisions.md`.
+>
+> **Phase 0 done (2026-09-25):** the six new agent files are in `.claude/agents/`, the contracts are frozen in
+> `docs/catalog-contracts.md`, the CAT rows are in `docs/acceptance-matrix.md` §11, and §11's defaults are D59–D68.
+> Phase 0 measured the real data and resolved these points of this brief (D69–D76): the catalog has 8,281 Working
+> stations, not ~1,400, so the budget is ≤ 10,000 entries (D69); `Search` takes a pre-folded `StationCatalogIndex`
+> instead of the entry list, because per-call `CompareInfo` matching measured over 10 ms (D70); the export dedupes per
+> country and applies the app's 2,048-character URL limit (D71); `LatestValueDispatcher` only marshals, so the 200 ms
+> debounce is a separate delay (D72); notes are kept only while the picked URL is kept (D73); the provider's degraded
+> rules (D74); the local-macOS evidence gate while Actions are refused (D75); catalog-data notices (D76).
 
 ## 1. Context
 

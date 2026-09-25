@@ -14,6 +14,7 @@ Native menu-bar/tray internet-radio app with a weekly listening schedule. Window
 
 - `docs/single-codebase-refactor.md` — one Avalonia codebase, LibVLC (Windows) / AVPlayer (macOS) adapters. Frozen final revision. Follow its §12 execution order, §5 state-machine spec, and all §4–§11 non-negotiables.
 - `docs/schedule-timezone-research.md` — per-slot IANA timezone support. QA-B1..B4 are BLOCKING fixes; QA-N1..N9 non-blocking. Never bump `Settings.Version`.
+- `docs/add-station-catalog-search.md` — brief 3: a searchable station catalog in the Add-station dialog, fed by the generated `data/output/app-catalog.json`. Its frozen contracts, file-ownership map and test plan are `docs/catalog-contracts.md`; acceptance rows CAT-01..18 (matrix §11); decisions D59+. Goal prompt: `docs/add-station-catalog-search-goal.md`.
 - `docs/claude-goal-execution.md` — the orchestrator goal that sequences both briefs (main agent orchestrates, 7 expert subagents implement).
 - `docs/upstream-main-repo-comparison.md` — upstream v0.2.0 reference (AVPlayer `MacAudioSession.cs`, tray-menu fix).
 
