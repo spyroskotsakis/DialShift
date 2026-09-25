@@ -131,6 +131,18 @@ internal static class CatalogQueryTests
             && F(new string('\uD800', 300)) == new string('\uFFFD', 300));
         Check($"CAT-06 D77 a valid pair folds exactly as before (the §3.3 example \\uD83D\\uDCFB unchanged; Radio 😀 → radio 😀){c}",
             F("\uD83D\uDCFB") == "\uD83D\uDCFB" && F("Radio 😀") == "radio 😀" && F("😀") == "😀" && F("😀").Length == 2);
+        Check($"CAT-06 D77 a valid pair after an unpaired surrogate survives: \\uD800📻 → \\uFFFD📻, \\uDC00x📻 → \\uFFFDx📻{c}",
+            F("\uD800\uD83D\uDCFB") == "\uFFFD\uD83D\uDCFB" && F("\uDC00x\uD83D\uDCFB") == "\uFFFDx\uD83D\uDCFB");
+        Check($"CAT-06 D77 U+FFFE folds to U+FFFD like an unpaired surrogate: \\uFFFE, a\\uFFFEb, \\uFFFE\\uD800, \\uD800\\uFFFE{c}",
+            F("\uFFFE") == "\uFFFD" && F("a\uFFFEb") == "a\uFFFDb" && F("\uFFFE\uD800") == "\uFFFD\uFFFD" && F("\uD800\uFFFE") == "\uFFFD\uFFFD");
+        CatalogSearchResult? onEmptyFffe = null;
+        Check($"CAT-06 D77 Search(StationCatalogIndex.Empty, \"\\uFFFE\", CatalogFilters.None) returns an empty result instead of throwing{c}",
+            NoThrow(() => onEmptyFffe = Search(StationCatalogIndex.Empty, "\uFFFE")) && onEmptyFffe is { TotalCount: 0, Items.Count: 0 });
+        StationCatalogIndex? withFffe = null;
+        Check($"CAT-06 D77 an index over a Name with U+FFFE (Radio\\uFFFE) builds{c}",
+            NoThrow(() => withFffe = Index(E("Radio\uFFFE", votes: 1), E("Plain", votes: 2))));
+        CheckQueries($"CAT-06 D77 Radio\\uFFFE is found by radio, and by \\uFFFE and \\uFFFD (both fold to U+FFFD){c}", withFffe!, null,
+            ("radio", ["Radio\uFFFE"]), ("\uFFFE", ["Radio\uFFFE"]), ("\uFFFD", ["Radio\uFFFE"]), ("plain", ["Plain"]));
         var onEmpty = Search(StationCatalogIndex.Empty, "\uD800");
         Check($"CAT-06 D77 Search(StationCatalogIndex.Empty, \"\\uD800\", CatalogFilters.None) returns an empty result instead of throwing{c}",
             onEmpty.Items.Count == 0 && onEmpty.TotalCount == 0);
@@ -191,6 +203,8 @@ internal static class CatalogQueryTests
         TableRow($"CAT-07 §3.3 table, not frequency queries (mhz and khz only trail): MHz 101.5, kHz 1593 find nothing{c}", ["MHz 101.5", "kHz 1593"], []);
         TableRow($"CAT-07 §3.3 table, not frequency queries (tokens outside the set): UKW 101.5, 101.5 FMX find nothing{c}", ["UKW 101.5", "101.5 FMX"], []);
         TableRow($"CAT-07 §3.3 table, not frequency queries (shape): 1, 12345, 101.555 find nothing{c}", ["1", "12345", "101.555"], []);
+        CheckQueries($"CAT-07 the shape row is not vacuous: over FM 101.555 and 1234.5 (digits 101555 and 12345), 12345 and 101.555 still find nothing{c}",
+            Index(E("Golf", frequency: "101.555"), E("Hotel", frequency: "1234.5")), null, ("12345", []), ("101.555", []));
         TableRow($"CAT-07 §3.3 table, not frequency queries (ASCII digits only): Arabic-Indic ١٠١٫٥ and full-width １０１.５ find nothing{c}",
             ["١٠١٫٥", "１０１.５"], []);
         Check($"CAT-07 §3.3 table: the empty and Shortwave entries match no digit query (10, 101, 1017, 1593, 89){c}",
@@ -202,6 +216,7 @@ internal static class CatalogQueryTests
         TableRow($"CAT-07 FM tokens are case-insensitive, with any spacing: Fm 101.5, fM101,5, 101.5  mHz, 101.5\\t\\tFM, no-break spaces around FM 101.5{c}",
             ["Fm 101.5", "fM101,5", "101.5  mHz", "101.5\t\tFM", "  FM 101.5  "], [Fm1015]);
         TableRow($"CAT-07 kHz tokens are case-insensitive: Am 1017, 1017 KHZ, 1017khz{c}", ["Am 1017", "1017 KHZ", "1017khz"], [Khz1017]);
+        TableRow($"CAT-07 the Kelvin sign U+212A reads as k: 1017 \\u212Ahz finds kHz 1017 only{c}", ["1017 \u212Ahz"], [Khz1017]);
 
         var unbanded = Index(E("India", frequency: "108.5", votes: 3), E("Juliet", frequency: "149", votes: 2), E("Kilo", frequency: "87", votes: 1),
             E("Lima", frequency: "", votes: 4));

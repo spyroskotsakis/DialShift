@@ -7,26 +7,35 @@ namespace DialShift.Tests.Catalog;
 
 /// <summary>
 /// The <c>Catalog</c> suite (brief 3; docs/catalog-contracts.md §8). Check names start with their CAT row id, so the
-/// acceptance matrix §11 can cite them. Covered here: the Core half of CAT-06..09 (<see cref="CatalogQueryTests"/>) and
-/// CAT-15 (<see cref="CatalogSettingsTests"/>).
+/// acceptance matrix §11 can cite them. Covered here: the Core half of CAT-06..09 (<see cref="CatalogQueryTests"/>),
+/// CAT-15 (<see cref="CatalogSettingsTests"/>), CAT-01/02 and the real-file half of CAT-04
+/// (<see cref="CatalogExportContractTests"/>), the fixture half of CAT-01, CAT-04 and CAT-05 (<see cref="CatalogProviderTests"/>),
+/// and the logo loader checks of CAT-10 (<see cref="CatalogLogoLoaderTests"/>).
 /// </summary>
 /// <remarks>
-/// <b>Machine-independent by construction:</b> every catalog is an inline fixture (never <c>data/output/app-catalog.json</c>),
-/// nothing is timed (CAT-16 is the perf lane's <c>CatalogPerf</c>), and the query checks run twice: under the harness's
-/// invariant culture and under tr-TR, whose dotted/dotless I casing and decimal comma are what a culture-sensitive
-/// matcher would get wrong (D70). A cross-culture check then compares whole result sets across several cultures.
+/// <b>Machine-independent by construction:</b> every catalog is an inline fixture, except the explicit checks of the
+/// checked-in <c>app-catalog.json</c> in <see cref="CatalogExportContractTests"/>, which assert its contract and never its
+/// contents. Nothing depends on the host's zone, culture or network (the logo loader gets a fake handler); nothing is
+/// gated on speed (CAT-16 is the perf lane's <c>CatalogPerf</c>), and the one real-time wait is the logo loader's fixed
+/// 5 s timeout. The query checks run twice: under the harness's invariant culture and under tr-TR, whose dotted/dotless I
+/// casing and decimal comma are what a culture-sensitive matcher would get wrong (D70). A cross-culture check then
+/// compares whole result sets across several cultures.
 /// </remarks>
 public static class CatalogTests
 {
     /// <summary>Cultures whose casing or number format differ from the invariant culture in ways that matter to matching.</summary>
     private static readonly string[] OtherCultures = ["tr-TR", "az-Latn-AZ", "lt-LT", "el-GR", "de-DE"];
 
-    public static void Run()
+    /// <summary>The suite entry (<c>Program.cs</c> registers it as <c>Catalog</c>).</summary>
+    public static async Task Run()
     {
         CatalogQueryTests.Run("");
         RunUnderTurkish();
         CrossCultureResults();
         CatalogSettingsTests.Run();
+        await CatalogExportContractTests.RunAsync();
+        await CatalogProviderTests.RunAsync();
+        await CatalogLogoLoaderTests.RunAsync();
     }
 
     private static void RunUnderTurkish()
