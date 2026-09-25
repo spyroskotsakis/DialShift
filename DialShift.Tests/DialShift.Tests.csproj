@@ -6,4 +6,9 @@
          OS-specific types are reached only behind OperatingSystem guards. -->
     <ProjectReference Include="..\DialShift.App\DialShift.App.csproj"/>
   </ItemGroup>
+  <ItemGroup>
+    <!-- Headless UI suites (HS-01..08, HS-13, HS-14): the real views and dialogs on Avalonia's headless platform with the
+         Skia renderer, driven from the console runner. Pinned to the App's Avalonia version (D6, PK-06). -->
+    <PackageReference Include="Avalonia.Headless" Version="12.1.2"/>
+  </ItemGroup>
 </Project>

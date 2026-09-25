@@ -13,6 +13,8 @@ namespace DialShift.Tests.Platform;
 public static class MonotonicClockTests
 {
     private const int Reads = 100_000;
+    private const int Samples = 5;
+    private static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(300);
 
     public static void Run()
     {
@@ -37,26 +39,29 @@ public static class MonotonicClockTests
         Check($"§8.2.8 {name}: {Reads:N0} consecutive reads never decrease", decreases == 0);
         Check($"§8.2.8 {name}: timestamps are positive (time since boot)", clock.GetTimestamp() > 0);
 
-        // Paired reads over one 200 ms sleep. Retried: a loaded CI runner (macos-latest is a VM) can oversleep or stall a
-        // thread between the paired reads; every attempt is printed.
-        var sleepAgrees = false;
-        var rateAgrees = false;
-        for (var attempt = 0; attempt < 3 && !(sleepAgrees && rateAgrees); attempt++)
+        // Unit conversion and rate against Stopwatch, robust to loaded CI VMs (HZ-08): several paired samples over a
+        // 300 ms sleep, judged on the median, so one oversleep or one preemption between paired reads cannot fail the check.
+        // The bounds still catch any unit error: a wrong tick unit is off by 10x or more, far outside [0.5x, 3x].
+        var samples = new List<(double Clock, double Stopwatch)>();
+        for (var i = 0; i < Samples; i++)
         {
             var stopwatchStart = Stopwatch.GetTimestamp();
             var start = clock.GetTimestamp();
-            Thread.Sleep(200);
+            Thread.Sleep(Delay);
             var end = clock.GetTimestamp();
             var stopwatchElapsed = Stopwatch.GetElapsedTime(stopwatchStart);
-            var elapsed = clock.GetElapsedTime(start, end);
-            Console.WriteLine($"  {name}: 200 ms sleep measured {elapsed.TotalMilliseconds:F1} ms (Stopwatch {stopwatchElapsed.TotalMilliseconds:F1} ms)");
-            sleepAgrees = (elapsed - TimeSpan.FromMilliseconds(200)).Duration() <= TimeSpan.FromMilliseconds(50);
-            rateAgrees = (elapsed - stopwatchElapsed).Duration() <= TimeSpan.FromMilliseconds(50);
+            samples.Add((clock.GetElapsedTime(start, end).TotalMilliseconds, stopwatchElapsed.TotalMilliseconds));
         }
-        Check($"§8.2.8 {name}: GetElapsedTime over a 200 ms sleep is 200 ms ±50 ms", sleepAgrees);
+        var medianElapsed = Median(samples.Select(s => s.Clock));
+        var medianRate = Median(samples.Select(s => s.Clock / s.Stopwatch));
+        Console.WriteLine($"  {name}: {Samples} x {Delay.TotalMilliseconds:0} ms sleeps measured "
+            + string.Join(", ", samples.Select(s => $"{s.Clock:F1}/{s.Stopwatch:F1}")) + $" ms (clock/Stopwatch); median {medianElapsed:F1} ms, rate {medianRate:F3}");
+        Check($"§8.2.8 HZ-08 {name}: the median GetElapsedTime over a {Delay.TotalMilliseconds:0} ms sleep is within [0.5x, 3x] of it (unit conversion)",
+            medianElapsed >= Delay.TotalMilliseconds * 0.5 && medianElapsed <= Delay.TotalMilliseconds * 3);
         // Elapsed times, not absolute values, are comparable across the two clocks; with no sleep in the interval the
-        // sleep-inclusive clock and Stopwatch advance at the same rate.
-        Check($"§8.2.8 {name}: over the same interval its elapsed time is within ±50 ms of Stopwatch's (no sleep occurred)", rateAgrees);
+        // sleep-inclusive clock and Stopwatch advance at the same rate. ±10% covers GetTickCount64's ~16 ms resolution.
+        Check($"§8.2.8 HZ-08 {name}: over the same intervals it advances at Stopwatch's rate (median ratio within ±10%)",
+            Math.Abs(medianRate - 1.0) <= 0.10);
 
         if (OperatingSystem.IsMacOS())
         {
@@ -76,5 +81,12 @@ public static class MonotonicClockTests
             Check("§8.2.8 win: the clock is Environment.TickCount64", Math.Abs(clock.GetTimestamp() - Environment.TickCount64) <= 100);
         }
         Check($"§8.2.8 {name}: a reversed pair gives a negative span", clock.GetElapsedTime(1_000_000, 0) < TimeSpan.Zero);
+    }
+
+    private static double Median(IEnumerable<double> values)
+    {
+        var sorted = values.Order().ToList();
+        var middle = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
     }
 }
