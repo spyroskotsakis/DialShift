@@ -21,12 +21,35 @@
 # native osx-arm64 AVPlayer build earned "native-avplayer" by passing SP-01/SP-02 and the
 # native smoke (docs/acceptance-matrix.md).
 #
+# Usage: scripts/build-mac-app.sh [--version <semver>] [--build-number <n>]
+#
+#   --version       SemVer without build metadata, for example 0.3.0-rc.1. Its MAJOR.MINOR.PATCH
+#                   must equal the csproj <Version>, the single source of the numeric version
+#                   (D53): the override only adds a pre-release suffix. It goes to dotnet publish
+#                   as -p:Version, so the assembly InformationalVersion carries it.
+#                   Default: the csproj <Version>.
+#   --build-number  CFBundleVersion: one to three dot-separated integers. The release workflow
+#                   passes its run number. Default: the csproj <Version>.
+#
+# Info.plist versions (D53): CFBundleShortVersionString is MAJOR.MINOR.PATCH (Apple allows only
+# integers there, so a pre-release suffix is dropped) and CFBundleVersion is the build number.
+#
 # Requires: macOS with the .NET 10 SDK (on PATH or at ~/.dotnet) and the built-in
 # sips, iconutil, codesign, ditto, lipo, plutil and PlistBuddy tools.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 fail() { echo "error: $*" >&2; exit 1; }
+
+VERSION=""
+BUILD_NUMBER=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --version) [ $# -ge 2 ] || fail "--version needs a value"; VERSION="$2"; shift 2 ;;
+        --build-number) [ $# -ge 2 ] || fail "--build-number needs a value"; BUILD_NUMBER="$2"; shift 2 ;;
+        *) fail "unknown argument '$1' (usage: scripts/build-mac-app.sh [--version <semver>] [--build-number <n>])" ;;
+    esac
+done
 
 export PATH="$HOME/.dotnet:$PATH"
 
@@ -48,18 +71,27 @@ MIN_MACOS="14.0"
 [[ "$LABEL" =~ ^[a-z0-9][a-z0-9-]*$ ]] || fail "MACOS_LABEL must be lowercase letters, digits and dashes (got '$LABEL')."
 ZIP="dist/DialShift-osx-arm64-$LABEL.zip"
 
-VERSION="$(awk -F'[<>]' '/<Version>/ { print $3; exit }' "$CSPROJ")"
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "could not read a <Version>x.y.z</Version> from $CSPROJ (got '$VERSION')."
+CSPROJ_VERSION="$(awk -F'[<>]' '/<Version>/ { print $3; exit }' "$CSPROJ")"
+[[ "$CSPROJ_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "could not read a <Version>x.y.z</Version> from $CSPROJ (got '$CSPROJ_VERSION')."
+VERSION="${VERSION:-$CSPROJ_VERSION}"
+[[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] \
+    || fail "--version must be SemVer MAJOR.MINOR.PATCH[-prerelease] without build metadata (got '$VERSION')."
+SHORT_VERSION="${VERSION%%-*}"
+[ "$SHORT_VERSION" = "$CSPROJ_VERSION" ] \
+    || fail "--version $VERSION does not match the csproj <Version>$CSPROJ_VERSION</Version>; bump the csproj first (D53)."
+BUILD_NUMBER="${BUILD_NUMBER:-$SHORT_VERSION}"
+[[ "$BUILD_NUMBER" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] \
+    || fail "--build-number must be one to three dot-separated integers (got '$BUILD_NUMBER')."
 
 [ -f "$ICON_SRC" ] || fail "missing icon source $ICON_SRC"
 icon_w="$(sips -g pixelWidth "$ICON_SRC" | awk '/pixelWidth/ {print $2}')"
 icon_h="$(sips -g pixelHeight "$ICON_SRC" | awk '/pixelHeight/ {print $2}')"
 [ "$icon_w" = "512" ] && [ "$icon_h" = "512" ] || fail "$ICON_SRC must be 512x512 (got ${icon_w}x${icon_h})."
 
-echo "== Publishing self-contained osx-arm64 build (DialShift $VERSION) =="
+echo "== Publishing self-contained osx-arm64 build (DialShift $VERSION, build $BUILD_NUMBER) =="
 rm -rf "$PUBLISH"
 dotnet publish "$CSPROJ" -c Release -r osx-arm64 --self-contained \
-    -p:DebugType=None -p:DebugSymbols=false -o "$PUBLISH"
+    -p:Version="$VERSION" -p:DebugType=None -p:DebugSymbols=false -o "$PUBLISH"
 
 echo "== Assembling $APP =="
 rm -rf "$APP" "$ZIP"
@@ -130,9 +162,9 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleIdentifier</key>
     <string>com.tsiger.dialshift</string>
     <key>CFBundleVersion</key>
-    <string>$VERSION</string>
+    <string>$BUILD_NUMBER</string>
     <key>CFBundleShortVersionString</key>
-    <string>$VERSION</string>
+    <string>$SHORT_VERSION</string>
     <key>CFBundleExecutable</key>
     <string>DialShift</string>
     <key>CFBundlePackageType</key>
@@ -173,4 +205,4 @@ ditto -c -k --norsrc --noextattr --noacl --keepParent "$APP" "$ZIP"
 echo "== Verifying $ZIP (extracted with ditto and with unzip) =="
 scripts/verify-mac-app.sh --zip "$ZIP"
 
-echo "== Built $APP and $ZIP (label: $LABEL) =="
+echo "== Built $APP and $ZIP (version $VERSION, build $BUILD_NUMBER, label $LABEL) =="
