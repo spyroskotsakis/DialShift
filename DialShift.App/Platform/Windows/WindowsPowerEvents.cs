@@ -12,8 +12,9 @@ namespace DialShift.App.Platform.Windows;
 /// <para><see cref="Start"/> must be called after the Avalonia desktop lifetime and its message loop exist (from
 /// the UI thread, e.g. in <c>OnFrameworkInitializationCompleted</c>). <c>SystemEvents</c> creates its hidden
 /// notification window on first subscription, and subscribing earlier would tie it to a thread without a pump.</para>
-/// <para><see cref="Dispose"/> unsubscribes deterministically; nothing is raised after it. <see cref="Resumed"/> is
-/// raised on the <c>SystemEvents</c> thread. A subscription failure is logged as <c>power_events.unavailable</c> and
+/// <para><see cref="Dispose"/> unsubscribes deterministically; nothing is raised after it returns, because the check
+/// and the raise happen under the same lock (handlers must return quickly and must not wait for another thread that
+/// may call <see cref="Dispose"/>). <see cref="Resumed"/> is raised on the <c>SystemEvents</c> thread. A subscription failure is logged as <c>power_events.unavailable</c> and
 /// is never fatal: the coordinator's monotonic tick-gap check (<see cref="WindowsMonotonicClock"/>) still detects wake.</para>
 /// </remarks>
 [SupportedOSPlatform("windows")]
@@ -23,7 +24,7 @@ public sealed class WindowsPowerEvents : ISystemPowerEvents
     private readonly Lock gate = new();
     private bool subscribed;
     private bool started;
-    private volatile bool disposed;
+    private bool disposed;
 
     public WindowsPowerEvents(IAppLog log)
     {
@@ -73,15 +74,21 @@ public sealed class WindowsPowerEvents : ISystemPowerEvents
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {
-        if (disposed || e.Mode != PowerModes.Resume) return;
-        log.Info("power_events.resumed", "Windows reported resume from sleep.");
-        try
+        if (e.Mode != PowerModes.Resume) return;
+        // Checked and raised under the gate, so once Dispose returns nothing is raised (Dispose waits for a raise in
+        // progress on another thread). Lock is re-entrant, so a handler may dispose on the same thread.
+        lock (gate)
         {
-            Resumed?.Invoke(this, EventArgs.Empty);
-        }
-        catch (Exception ex)
-        {
-            log.Error("power_events.handler_failed", "The wake handler threw.", ex);
+            if (disposed) return;
+            log.Info("power_events.resumed", "Windows reported resume from sleep.");
+            try
+            {
+                Resumed?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                log.Error("power_events.handler_failed", "The wake handler threw.", ex);
+            }
         }
     }
 }

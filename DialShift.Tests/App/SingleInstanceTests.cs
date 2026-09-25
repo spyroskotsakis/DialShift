@@ -43,6 +43,136 @@ public static class SingleInstanceTests
         await ProcessLevelActivationAsync();
         await CrashedPrimaryRecoveryAsync();
         await ActivationDuringTeardownAsync();
+        await ActivationBeforeSubscriberAsync();
+        await InvalidUtf8OnTheWireAsync();
+        await LockErrorsAsync();
+        StartupFailureMapping();
+    }
+
+    // ---- F3: activation during the startup window ------------------------------------------------------------
+
+    /// <summary>
+    /// The listener starts before the app subscribes (Avalonia initializes in between). An activation in that window is
+    /// acknowledged, kept (one, coalesced) and raised for the first subscriber, never dropped.
+    /// </summary>
+    private static async Task ActivationBeforeSubscriberAsync()
+    {
+        using var temp = new TempDirectory("si-early");
+        var log = new RecordingAppLog();
+        await using var primary = new SingleInstanceService(PathsFor(temp.Path), log);
+        Check("F3 precondition: primary without a subscriber", primary.TryStartPrimary() == SingleInstanceStartResult.Primary);
+        await using var client = new SingleInstanceService(PathsFor(temp.Path), new RecordingAppLog());
+
+        Check("F3 an activation before anyone subscribes is acknowledged", await client.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
+        Check("F3 ... a second one too (they coalesce)", await client.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
+        Check("F3 ... logged as single_instance.activated: queued (not delivered)",
+            log.Entries.Count(e => e.EventName == "single_instance.activated" && e.Message.EndsWith("queued until the app subscribes.", StringComparison.Ordinal)) == 2 &&
+            !log.Entries.Any(e => e.EventName == "single_instance.activated" && e.Message.EndsWith("delivered.", StringComparison.Ordinal)));
+
+        var first = new ActivationCounter(primary);
+        Check("F3 the first subscriber receives the pending activation", await first.WaitForAsync(1, EventWait));
+        Check("F3 ... replay logged as single_instance.activation_replayed", log.HasEvent("single_instance.activation_replayed"));
+        var second = new ActivationCounter(primary);
+        await Task.Delay(300);
+        Check("F3 ... exactly once (at most one pending), and a later subscriber gets no replay", first.Count == 1 && second.Count == 0);
+
+        Check("F3 with subscribers an activation is delivered to each", await client.ActivateExistingAsync() == SingleInstanceActivationResult.Activated &&
+            await first.WaitForAsync(2, EventWait) && await second.WaitForAsync(1, EventWait));
+        Check("F3 ... logged as single_instance.activated: delivered",
+            log.Entries.Any(e => e.EventName == "single_instance.activated" && e.Message.EndsWith("delivered.", StringComparison.Ordinal)));
+
+        using var disposedDir = new TempDirectory("si-early-disposed");
+        var disposed = new SingleInstanceService(PathsFor(disposedDir.Path), new RecordingAppLog());
+        Check("F3 precondition: a second primary", disposed.TryStartPrimary() == SingleInstanceStartResult.Primary);
+        await using (var other = new SingleInstanceService(PathsFor(disposedDir.Path), new RecordingAppLog()))
+            Check("F3 precondition: an activation is pending", await other.ActivateExistingAsync() == SingleInstanceActivationResult.Activated);
+        await disposed.DisposeAsync();
+        var late = new ActivationCounter(disposed);
+        await Task.Delay(300);
+        Check("F3 a disposed service never replays its pending activation", late.Count == 0);
+    }
+
+    // ---- F5: undecodable text inside the JSON ---------------------------------------------------------------
+
+    private static async Task InvalidUtf8OnTheWireAsync()
+    {
+        using var temp = new TempDirectory("si-utf8");
+        var log = new RecordingAppLog();
+        await using var primary = StartPrimary(temp.Path, log, out var activations);
+        byte[] payload = [.. "{\"version\":1,\"command\":\""u8, 0xFF, .. "\"}\n"u8];
+        Check("F5 invalid UTF-8 inside the command string is answered rejected (not dropped)", await ExchangeAsync(primary.PipeName, payload) == RejectedReply);
+        Check("F5 an escaped lone surrogate as the command is answered rejected",
+            await ExchangeAsync(primary.PipeName, "{\"version\":1,\"command\":\"\\ud800\"}\n") == RejectedReply);
+        Check("F5 ... logged as single_instance.rejected, never single_instance.connection_error",
+            log.Entries.Count(e => e.EventName == "single_instance.rejected") == 2 && !log.HasEvent("single_instance.connection_error"));
+        Check("F5 ... and nothing was activated", activations.Count == 0);
+    }
+
+    // ---- F6: lock errors other than "held by another process" ------------------------------------------------
+
+    private static async Task LockErrorsAsync()
+    {
+        using var temp = new TempDirectory("si-lockerr");
+
+        var fileInTheWay = temp.Combine("data-is-a-file");
+        await File.WriteAllTextAsync(fileInTheWay, "x");
+        await CheckLockFailedAsync("the data folder path is a file", fileInTheWay);
+
+        var lockIsFolder = temp.Combine("lock-is-a-folder");
+        Directory.CreateDirectory(Path.Combine(lockIsFolder, ".single-instance.lock"));
+        await CheckLockFailedAsync("the lock file path is a folder", lockIsFolder);
+
+        var readOnly = temp.Combine("read-only");
+        Directory.CreateDirectory(readOnly);
+        if (!OperatingSystem.IsWindows() && TempDirectory.TryMakeReadOnly(readOnly))
+        {
+            await CheckLockFailedAsync("the data folder is read-only", readOnly);
+            File.SetUnixFileMode(readOnly, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        else Skip("F6 read-only data folder gives LockFailed", "chmod 0500 is Unix-only and does not stop root");
+
+        var held = temp.Combine("held");
+        Directory.CreateDirectory(held);
+        using (new FileStream(PathsFor(held).SingleInstanceLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            IOException? contention = null;
+            try { new FileStream(PathsFor(held).SingleInstanceLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose(); }
+            catch (IOException ex) { contention = ex; }
+            Console.WriteLine($"  lock contention: {contention?.GetType().Name} HResult=0x{contention?.HResult:X8}");
+            Check("F6 a lock held by another handle is recognized as contention (sharing violation / EWOULDBLOCK)",
+                contention != null && SingleInstanceService.IsHeldByAnotherProcess(contention));
+        }
+        Check("F6 other I/O errors are not contention",
+            !SingleInstanceService.IsHeldByAnotherProcess(new IOException("disk full", OperatingSystem.IsWindows() ? unchecked((int)0x80070070) : 28)) &&
+            !SingleInstanceService.IsHeldByAnotherProcess(new IOException("exists", OperatingSystem.IsWindows() ? unchecked((int)0x800700B7) : 17)) &&
+            !SingleInstanceService.IsHeldByAnotherProcess(new IOException("generic")));
+    }
+
+    private static async Task CheckLockFailedAsync(string scenario, string dataDirectory)
+    {
+        var log = new RecordingAppLog();
+        await using var service = new SingleInstanceService(PathsFor(dataDirectory), log);
+        var result = service.TryStartPrimary();
+        Console.WriteLine($"  {scenario}: {result}; {log.Entries.FirstOrDefault(e => e.EventName == "single_instance.lock_failed")?.Exception?.GetType().Name}");
+        Check($"F6 {scenario}: LockFailed, not AlreadyRunning", result == SingleInstanceStartResult.LockFailed);
+        Check($"F6 {scenario}: ... logged as single_instance.lock_failed, not already_running",
+            log.HasEvent("single_instance.lock_failed") && !log.HasEvent("single_instance.already_running"));
+    }
+
+    // ---- F7: D29 exit codes for the primary-side start results -----------------------------------------------
+
+    private static void StartupFailureMapping()
+    {
+        var paths = PathsFor(Path.Combine(Path.GetTempPath(), "DialShift-exitcodes"));
+        var channel = DialShift.App.Program.StartupFailureFor(SingleInstanceStartResult.Failed, paths);
+        var lockFailed = DialShift.App.Program.StartupFailureFor(SingleInstanceStartResult.LockFailed, paths);
+        Check("F7 D29 Primary is not a failure", DialShift.App.Program.StartupFailureFor(SingleInstanceStartResult.Primary, paths) == null);
+        Check("F7 D29 lock acquired, channel failed: exit 3 (SingleInstanceFailed)", channel?.ExitCode == ExitCodes.SingleInstanceFailed && channel.ExitCode == 3);
+        Check("F7 D29 the lock itself couldn't be opened: exit 1 (StartupFailed), with the data folder in the message",
+            lockFailed?.ExitCode == ExitCodes.StartupFailed && lockFailed.ExitCode == 1 && lockFailed.Reason.Contains(paths.DataDirectory, StringComparison.Ordinal));
+        Check("F7 ... and it does not blame the activation channel", !lockFailed!.Reason.Contains("activation channel", StringComparison.Ordinal));
+        Check("F7 AlreadyRunning is a second launch, not a startup failure",
+            Throws<ArgumentOutOfRangeException>(() => DialShift.App.Program.StartupFailureFor(SingleInstanceStartResult.AlreadyRunning, paths)));
     }
 
     // ---- SI-D1 regression -------------------------------------------------------------------------------------
@@ -110,6 +240,22 @@ public static class SingleInstanceTests
         var exact = prefix + new string(' ', SingleInstanceMessage.MaxMessageBytes - prefix.Length - 1) + "}";
         Check("CT-SI-05 TryParse accepts exactly MaxMessageBytes plus the newline", exact.Length == SingleInstanceMessage.MaxMessageBytes && Parses(exact + "\n"));
         Check("CT-SI-06 TryParse rejects invalid UTF-8", !SingleInstanceMessage.TryParse([0x7B, 0xFF, 0xFE, 0x7D, 0x0A], out _));
+        byte[][] undecodable =
+        [
+            [.. "{\"version\":1,\"command\":\""u8, 0xFF, .. "\"}\n"u8],
+            [.. "{\"version\":1,\"command\":\"activ"u8, 0xC0, 0xAF, .. "ate\"}\n"u8],
+            [.. "{\"version\":1,\"command\":\"activate\",\""u8, 0xED, 0xA0, 0x80, .. "\":1}\n"u8],
+            Encoding.UTF8.GetBytes("{\"version\":1,\"command\":\"\\ud800\"}\n"),
+            Encoding.UTF8.GetBytes("{\"version\":1,\"command\":\"\\udc00activate\"}\n"),
+        ];
+        var i = 0;
+        foreach (var bytes in undecodable)
+        {
+            var parsed2 = true;
+            Check($"F5 TryParse returns false and never throws for undecodable command text #{++i}",
+                NoThrow(() => parsed2 = SingleInstanceMessage.TryParse(bytes, out _)) && !parsed2);
+        }
+        Check("F5 an escaped but valid command still parses (\\u0061ctivate)", Parses("{\"version\":1,\"command\":\"\\u0061ctivate\"}\n"));
     }
 
     private static bool Parses(string line) => SingleInstanceMessage.TryParse(Encoding.UTF8.GetBytes(line), out _);
@@ -568,8 +714,8 @@ public static class SingleInstanceTests
     // ---- child-process modes ---------------------------------------------------------------------------------
 
     /// <summary>
-    /// Entry point for <c>DialShift.Tests --si-child &lt;dataDir&gt;</c> (a second instance: exit 0 Activated, 2
-    /// Rejected/NoResponse, 3 Failed, 4 unexpectedly became primary) and <c>--si-crash-primary &lt;dataDir&gt;</c> (become
+    /// Entry point for <c>DialShift.Tests --si-child &lt;dataDir&gt;</c> (a second instance: exit 0 Activated, 1
+    /// LockFailed, 2 Rejected/NoResponse, 3 Failed, 4 unexpectedly became primary) and <c>--si-crash-primary &lt;dataDir&gt;</c> (become
     /// primary, then exit 0 without disposing, like a crash; 3 when it could not become primary).
     /// </summary>
     public static async Task<int> RunChildAsync(string[] args)
@@ -602,6 +748,8 @@ public static class SingleInstanceTests
                     return 4;
                 case SingleInstanceStartResult.Failed:
                     return 3;
+                case SingleInstanceStartResult.LockFailed:
+                    return 1;
             }
             var result = await service.ActivateExistingAsync();
             Console.WriteLine($"activation={result}");

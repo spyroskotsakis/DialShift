@@ -220,6 +220,19 @@ public static class ViewModelTests
         await vm.Settings.OpenSettingsFolderCommand.ExecuteAsync();
         Check("HS-04 BHV-63 a reveal failure is logged and shown, not swallowed",
             rig.Log.HasEvent("ui.reveal_failed") && rig.Recorder!.Messages.Any(m => m.Title == UiText.OpenFolderFailedTitle && m.Message == "gone"));
+        foreach (var error in new Exception[]
+                 {
+                     new TimeoutException("Finder didn't respond within 10 seconds."), new TaskCanceledException("cancelled"),
+                     new InvalidOperationException("Finder could not open the folder: x"), new System.ComponentModel.Win32Exception(2, "no explorer"),
+                 })
+        {
+            rig.Reveal.Error = error;
+            var shown = rig.Recorder!.Messages.Count;
+            await vm.Settings.OpenSettingsFolderCommand.ExecuteAsync();
+            Check($"F10 BHV-63 a reveal {error.GetType().Name} shows the error dialog with its message",
+                rig.Recorder.Messages.Count == shown + 1 && rig.Recorder.Messages[^1].Title == UiText.OpenFolderFailedTitle && rig.Recorder.Messages[^1].Message == error.Message);
+        }
+        rig.Reveal.Error = null;
     }
 
     private static async Task VolumeRules()

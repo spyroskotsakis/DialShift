@@ -100,14 +100,11 @@ internal static unsafe partial class ObjCRuntime
     /// <summary>
     /// <c>CMTime (id, SEL)</c>: currentTime. CMTime is a 24-byte struct, returned indirectly: on arm64 the caller passes the
     /// result address in x8, which the plain objc_msgSend trampoline preserves (verified in the spike against
-    /// CMTimeGetSeconds). x86_64 would need objc_msgSend_stret instead; DialShift ships macOS for osx-arm64 only (decision D2).
+    /// CMTimeGetSeconds). This prototype is arm64-only: x86_64 would need objc_msgSend_stret, and DialShift ships macOS for
+    /// osx-arm64 only (decision D13).
     /// </summary>
     [LibraryImport(LibObjC, EntryPoint = "objc_msgSend")]
     private static partial CMTime SendCMTimeArm64(nint receiver, nint selector);
-
-    /// <summary>x86_64 prototype for a 24-byte struct return (the hidden result pointer is the first argument).</summary>
-    [LibraryImport(LibObjC, EntryPoint = "objc_msgSend_stret")]
-    private static partial void SendCMTimeX64(CMTime* result, nint receiver, nint selector);
 
     // ─── Helpers ───
 
@@ -152,14 +149,12 @@ internal static unsafe partial class ObjCRuntime
         return utf8 == null ? null : Marshal.PtrToStringUTF8((nint)utf8);
     }
 
-    /// <summary>Reads a <c>CMTime</c>-returning getter with the architecture-correct struct-return convention.</summary>
-    internal static CMTime SendCMTime(nint receiver, nint selector)
-    {
-        if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64) return SendCMTimeArm64(receiver, selector);
-        CMTime result;
-        SendCMTimeX64(&result, receiver, selector);
-        return result;
-    }
+    /// <summary>Reads a <c>CMTime</c>-returning getter (arm64 indirect struct return, see <see cref="SendCMTimeArm64"/>).</summary>
+    /// <exception cref="PlatformNotSupportedException">The process is not arm64 (D13: no osx-x64 build).</exception>
+    internal static CMTime SendCMTime(nint receiver, nint selector) =>
+        RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            ? SendCMTimeArm64(receiver, selector)
+            : throw new PlatformNotSupportedException("The AVPlayer adapter supports arm64 only (decision D13).");
 
     /// <summary>Reads an exported <c>NSString *const</c> (or any pointer-sized constant) from a loaded framework.</summary>
     internal static nint ReadPointerConstant(nint library, string symbol) => Marshal.ReadIntPtr(NativeLibrary.GetExport(library, symbol));

@@ -17,7 +17,9 @@ namespace DialShift.App.Platform.MacOS;
 /// outlives this object.</para>
 /// <para><b>Threading:</b> <see cref="Resumed"/> is raised synchronously on the thread that posted the notification.
 /// AppKit posts the real wake notification on the main thread (the Avalonia UI thread), but consumers must treat it as
-/// an arbitrary thread, return quickly and not block.</para>
+/// an arbitrary thread, return quickly and not block. The disposed check and the raise happen under the same lock, so
+/// nothing is raised after <see cref="Dispose"/> returns; a handler must therefore never wait for another thread that
+/// may call <see cref="Dispose"/>.</para>
 /// <para><b>Failure:</b> any problem while registering (AppKit missing, runtime refusal) is logged as
 /// <c>power_events.unavailable</c> and <see cref="Start"/> returns normally: the coordinator's sleep-inclusive
 /// monotonic tick-gap check (<see cref="MacMonotonicClock"/>) still detects wake. Handler exceptions are logged and
@@ -32,7 +34,7 @@ public sealed class MacPowerEvents : ISystemPowerEvents
     private readonly Lock gate = new();
     private NotificationObserver? observer;
     private bool started;
-    private volatile bool disposed;
+    private bool disposed;
 
     public MacPowerEvents(IAppLog log)
     {
@@ -109,15 +111,20 @@ public sealed class MacPowerEvents : ISystemPowerEvents
 
     private void RaiseResumed()
     {
-        if (disposed) return;
-        log.Info("power_events.resumed", "macOS reported wake from sleep.");
-        try
+        // Checked and raised under the gate, so once Dispose returns nothing is raised (Dispose waits for a raise in
+        // progress on another thread). Lock is re-entrant, so a handler may dispose on the same thread.
+        lock (gate)
         {
-            Resumed?.Invoke(this, EventArgs.Empty);
-        }
-        catch (Exception ex)
-        {
-            log.Error("power_events.handler_failed", "The wake handler threw.", ex);
+            if (disposed) return;
+            log.Info("power_events.resumed", "macOS reported wake from sleep.");
+            try
+            {
+                Resumed?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                log.Error("power_events.handler_failed", "The wake handler threw.", ex);
+            }
         }
     }
 }

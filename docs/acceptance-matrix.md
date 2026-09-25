@@ -746,6 +746,7 @@ public interface IStartupRegistration
 **Windows**
 
 - Key `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value name `DialShift`, data `"\"<Environment.ProcessPath>\" --tray"`.
+- Task Manager's Startup apps switch: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`, `REG_BINARY` value `DialShift`. The format is undocumented; observed: byte 0 with the low bit set (`0x03`, `0x07`) is disabled, clear (`0x02`, `0x06`) is enabled, and a missing value is enabled. A disabled value gives `IsEnabled=false` with "Turned off in Task Manager's Startup apps. Turn it on again here to fix it."; a value that isn't a non-empty `REG_BINARY` is not enabled either. `SetEnabledAsync(true)` replaces a disabled or unreadable value with `02 00 00 00 00 00 00 00 00 00 00 00` (what Task Manager writes on re-enable), then verifies. `SetEnabledAsync(false)` removes both values. Confirmed natively by NC-04.
 
 **macOS**
 
@@ -753,6 +754,9 @@ public interface IStartupRegistration
 - Contents: `ProgramArguments` = `["/usr/bin/open", "-a", "<bundle path>", "--args", "--tray"]` when running inside a `.app`, otherwise `[<exe>, "--tray"]` (development runs). Also `RunAtLoad=true` and `ProcessType=Interactive`.
 - All strings are XML-escaped (`SecurityElement.Escape`). The file is written to a temp path and moved into place atomically.
 - **No `launchctl bootstrap` or `bootout`**, because it would launch a second instance immediately or could kill the running one (OQ-4). The entry takes effect at the next login.
+- Disabled states are never reported as enabled. A plist with `Disabled=true` gives the diagnostic "The launch-at-login entry is marked as disabled. Turn it on again to fix it." launchd's override is read with `/bin/launchctl print-disabled gui/<uid>` (read-only, `ArgumentList`, 5 s timeout): `"com.tsiger.dialshift" => disabled` (or legacy `=> true`) gives "macOS has launch at login turned off for DialShift. If macOS Login Items shows DialShift as not allowed, enable it there. Then turn it on again here." If that check fails (tool error, non-zero exit, timeout, unrecognized output) the status is **not enabled** with "DialShift couldn't check with macOS whether launch at login is allowed. If macOS Login Items shows DialShift as not allowed, enable it there."
+- `SetEnabledAsync(true)` rewrites the plist without `Disabled` and clears a launchd override with `launchctl enable gui/<uid>/com.tsiger.dialshift` (removes the override only; it does not load or start the job), then verifies.
+- The macOS 13+ Login Items "Allow in the Background" switch lives in the Background Task Management database, which has no public read API. Whether it is reflected in `print-disabled` is confirmed natively by NC-10.
 
 #### 8.2.2 `ISystemPowerEvents`
 
@@ -768,7 +772,7 @@ public interface ISystemPowerEvents : IDisposable
 
 - `Start()` is idempotent and is called after the Avalonia desktop lifetime and message loop exist.
 - `Resumed` is raised on an arbitrary thread; the App forwards it to `IPlaybackCoordinator.NotifyWakeAsync()`. In practice (D30), macOS raises it synchronously on the posting thread, which is the main thread for a real wake, and Windows raises it on the `SystemEvents` thread.
-- `Dispose()` unsubscribes deterministically. Nothing is raised after dispose.
+- `Dispose()` unsubscribes deterministically. Nothing is raised after it returns: the disposed check and the raise share one lock, so `Dispose()` on another thread waits for a raise in progress (handlers must not block on a thread that may dispose).
 - Windows: `SystemEvents.PowerModeChanged` with `PowerModes.Resume` (SP-03).
 - macOS: `NSWorkspace.DidWakeNotification` only if SP-04 passes (D3). Otherwise a no-op implementation, and the coordinator's monotonic tick gap covers wake. SP-04 was adopted, pending NC-08. `MacPowerEvents` uses the shared `Interop/NotificationObserver` (runtime class `DialShiftNotificationObserver`, D27).
 - Registration failure is logged as `power_events.unavailable` and never fatal.
@@ -813,7 +817,7 @@ public sealed record SingleInstanceMessage(int Version, string Command)
     public static bool TryParse(ReadOnlySpan<byte> utf8Line, [NotNullWhen(true)] out SingleInstanceMessage? message);
 }
 
-public enum SingleInstanceStartResult { Primary, AlreadyRunning, Failed }
+public enum SingleInstanceStartResult { Primary, AlreadyRunning, Failed, LockFailed }
 public enum SingleInstanceActivationResult { Activated, Rejected, NoResponse }
 
 public interface ISingleInstanceService : IAsyncDisposable
@@ -834,6 +838,8 @@ public interface ISingleInstanceService : IAsyncDisposable
 - Validation (JSON, schema, version, command) happens **before** acting.
 - Malformed, oversize, unknown-version, unknown-command and extra-property messages all get `rejected`. They are logged as `single_instance.rejected`, with the byte count only and never the payload. They are not app errors.
 - No privileged action is ever triggered by pipe input. `activate` only shows the window.
+- Bytes that are not valid UTF-8, and escaped text that can't be decoded (a lone surrogate such as `"\ud800"`), are `rejected` like any other malformed message: `TryParse` never throws.
+- Startup window: the listener starts before the app subscribes to `ActivationRequested` (the UI toolkit initializes in between). An `activate` that arrives with no subscriber is acknowledged `ok`, kept as **one** pending activation (later ones coalesce into it) and raised for the next subscriber (`single_instance.activation_replayed`). `single_instance.activated` says "delivered" or "queued". After disposal nothing is kept or raised, and a late message gets `rejected`.
 
 **Pipe name**
 
@@ -852,7 +858,8 @@ public interface ISingleInstanceService : IAsyncDisposable
 
 - Lock file `<data>/.single-instance.lock`, opened with `FileShare.None` and held for the process lifetime.
 - `TryStartPrimary`:
-  - lock taken by someone else → `AlreadyRunning`;
+  - lock held by another process (Windows sharing/lock violation `0x80070020`/`0x80070021`, macOS `flock` `EWOULDBLOCK` errno 35) → `AlreadyRunning`;
+  - any other error creating or opening the lock (a file in the way of the data folder, read-only volume, disk full, access denied) → log `single_instance.lock_failed`, return `LockFailed`. The app shows the startup-failure dialog ("couldn't create its lock file in <data folder>") and exits 1;
   - lock acquired but the server fails to start → release the lock, log `single_instance.server_failed`, return `Failed`. The app then shows the startup-failure dialog and exits.
 - The listener loop **never stops** on a per-connection exception. It logs, backs off 1 s and continues. Only disposal stops it.
 
@@ -861,7 +868,7 @@ public interface ISingleInstanceService : IAsyncDisposable
 | Code | Constant | Meaning |
 |---|---|---|
 | 0 | `Success` | Normal quit, or a second launch that got `Activated` |
-| 1 | `StartupFailed` | Startup failure (dialog shown); also an invalid `DIALSHIFT_DATA_DIR`, or an exception escaping the UI toolkit |
+| 1 | `StartupFailed` | Startup failure (dialog shown), including a single-instance lock that couldn't be created or opened (`LockFailed`); also an invalid `DIALSHIFT_DATA_DIR`, or an exception escaping the UI toolkit |
 | 2 | `ActivationFailed` | Second launch got `Rejected` / `NoResponse` (logged as `single_instance.activate_failed`) |
 | 3 | `SingleInstanceFailed` | Lock acquired but the activation pipe failed to start (`Failed`); the startup-failure dialog is shown |
 | 4 | `SmokeTestFailed` | A `--smoke-test` run in which at least one check failed, or the smoke watchdog fired (`results.json` says which) |
@@ -904,7 +911,6 @@ public sealed class AppPaths
     public const string DataDirectoryOverrideVariable = "DIALSHIFT_DATA_DIR";
     public string DataDirectory { get; }
     public DataDirectorySource Source { get; }
-    public string SettingsFile => Path.Combine(DataDirectory, "settings.json");
     public string LogFile => Path.Combine(DataDirectory, "dialshift.log");
     public string SingleInstanceLockFile => Path.Combine(DataDirectory, ".single-instance.lock");
 
@@ -924,7 +930,7 @@ public sealed class AppPaths
 
 - There is no separate "Preview" directory: `DialShift.App` on Windows uses the same directory and format as WPF (OQ-5).
 - `DataDirectory` is computed once in `Program.Main` and passed to `SettingsStore`, the logger and the single-instance service.
-- Files: `settings.json`, `dialshift.log` (and `.1`), `.single-instance.lock`, `settings.json.unreadable-*`. The `settings.json.before-import-*` name is reserved (OQ-2).
+- Files: `settings.json`, `dialshift.log` (and `.1`), `.single-instance.lock`, `settings.json.unreadable-*`. The `settings.json.before-import-*` name is reserved (OQ-2). The settings file name belongs to Core's `SettingsStore` (`FilePath`, built from the `DataDirectory` it is given), so `AppPaths` does not repeat it.
 
 #### 8.2.7 App file logger and redaction rules
 
@@ -987,13 +993,13 @@ Each check is run from the **CI artifact** (the zip a user downloads), not from 
 | NC-02 | **Windows `SystemEvents` delivery and real sleep.** On Windows hardware, while playing, sleep for at least 30 s (Start → Sleep; on a laptop also lid close), then wake. Repeat while paused inside a slot, and across a slot boundary (TZ-12). Then repeat with power events forced unavailable, so that only the `GetTickCount64` tick gap can detect the wake (D14). **Pass:** `power_events.started` at startup (after the message loop); on each wake, `power_events.resumed` and one `wake.detected` (`os` or `tick_gap`), then exactly one `wake.recovery` and one reconnect. The exception is a `Resume` arriving more than 10 s after the recovery completed (HZ-04): record that delay. A paused app stays paused; a slot that started during sleep plays; with power events off the tick gap still recovers; quit unsubscribes with no `SystemEvents` hang. | Needs Windows hardware sleep; a hosted runner can't be suspended | BHV-42; MX-08; SP-03; QA-N1; TZ-12; D14; D30; HZ-04; DOD-07 | Open |
 | NC-03 | **Windows LibVLC real playback and corpus.** Run the `docs/spikes.md` corpus (C1–C15, T1–T15) against the Windows build (`VideoLAN.LibVLC.Windows` 3.0.23.1), and fill the "LibVLC (Windows)" column (time to Playing or Failed, and the kind). Also: the recovery policy with the real engine (3/6/30 s retries, fallback after 3 failures, primary re-check at 120 s, alternation), the 25 s watchdog on a hanging server (T14), titles shown for a Shoutcast v1 `http://` station (it answers `ICY 200 OK`), for an `http://` Icecast station either titles or the tag (record which: LibVLC 3.0.4 sent no `Icy-MetaData` on a plain HTTP 200, `docs/spikes.md`), and the tag shown for `https://` (D26). HS-17 LV-01..LV-11 already cover the local transport cases, state mapping and failure kinds on `windows-latest` without audio (first CI run pending); this check adds audible output, mute at volume 0, and the public MP3/AAC/HLS/HTTPS streams. **Pass:** kinds match the Adapter column or the difference is explained; no crash; no audio after Stop. | Needs Windows audio | MX-10, MX-13; BHV-32, BHV-37, BHV-39 | Open |
 | NC-15 | **LibVLC fast-switch stress on real Windows.** 7 runs of 160 rapid station switches (0–300 ms apart), plus 50 Skip presses and a Stop in the middle of a connect. **Pass:** no crash in any run (the SIGILL seen under Rosetta must not reproduce natively); at most one audible player at any time; working set flat (±20 MB) after the first run; the final station plays. | Needs native Windows; the only data so far is x86_64 LibVLC under Rosetta | MX-10; BHV-40 | Open |
-| NC-04 | **Windows launch at login.** Enable it, sign out and in: DialShift starts in the tray, with no window. Move the extracted folder (or replace it with a newer build) and sign in again: the Settings checkbox shows **off** with the stale diagnostic, and turning it on repairs it. **Pass:** `startup_registration.result` lines match each step; the HKCU `Run` value is `"<exe>" --tray`. | Needs a real Windows sign-in | BHV-59; MX-07, MX-15; DOD-06 | Open |
+| NC-04 | **Windows launch at login.** Enable it, sign out and in: DialShift starts in the tray, with no window. Move the extracted folder (or replace it with a newer build) and sign in again: the Settings checkbox shows **off** with the stale diagnostic, and turning it on repairs it. Then turn DialShift off in Task Manager → Startup apps and reopen Settings: the checkbox shows **off** with "Turned off in Task Manager's Startup apps…"; turn it on in DialShift: Task Manager shows it **Enabled** again and the next sign-in starts DialShift. **Pass:** `startup_registration.result` lines match each step; the HKCU `Run` value is `"<exe>" --tray`; `StartupApproved\Run\DialShift` starts with `03` while off and `02` after re-enabling (confirms the flag semantics in §8.2.1). | Needs a real Windows sign-in | BHV-59; MX-07, MX-15; DOD-06 | Open |
 | NC-05 | Windows SmartScreen / Authenticode behavior of the `.zip` artifact (release only, D7) | Needs a signing certificate and a clean Windows machine | D7 | Open (release) |
 | NC-06 | **Windows second-launch foreground.** With the app hidden in the tray, launch it again from the Start menu and from an Explorer double-click, both while another app has focus. **Pass:** the existing window comes to the **foreground** (not just a flashing taskbar button); the second process exits 0; the log has `single_instance.activated`. | Needs a Windows desktop with focus rules | BHV-08, BHV-15; MX-06; DOD-05 | Open |
 | NC-07 | **Clean-machine Apple Silicon install plus Gatekeeper first launch.** On an Apple Silicon Mac with no Rosetta and no developer tools, unzip the CI `DialShift-osx-arm64-*` artifact, move it to `/Applications`, and open it (ad-hoc signed: right-click → Open, or System Settings → Open Anyway). **Pass:** the menu-bar icon appears with no Dock icon; an `https://` **and** an `http://` station play (ATS media exception, T16, D32); Quit, then relaunch; a second launch activates the window; `app.start` shows `rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine`; no Rosetta prompt ever appears. | Needs a clean Apple Silicon Mac | SP-02; MX-12; DOD-04, DOD-05; D32. When it passes, the README drops "not clean-machine tested" (DOD-08, D36) | Open |
 | NC-08 | **macOS lid-close wake.** While playing, close the lid for at least 60 s, then open it. Repeat while paused, across a slot boundary (TZ-12 macOS path), and with the wake observer forced unavailable (tick gap on `CLOCK_MONOTONIC` only, D14). **Pass:** `power_events.resumed` on wake (the main thread, D30); exactly one `wake.recovery` per wake; paused stays paused; a new slot plays; the tick gap alone recovers when the observer is off. | Needs a physical lid close | SP-04; BHV-42; MX-08; QA-N1; TZ-12; D3, D14, D30; DOD-07 | Open |
 | NC-09 | Gatekeeper with Developer ID signing and notarization (release only, D7): `spctl -a -vv` reports "accepted, source=Notarized Developer ID"; first launch shows no warning | Needs an Apple Developer ID and notarization credentials | D7; PK-03 | Open (release) |
-| NC-10 | **macOS LaunchAgent at a real login.** Enable it, log out and in: DialShift starts in the menu bar with no window (`open -a <bundle> --args --tray`). Move `DialShift.app` elsewhere and log in again: the checkbox shows **off** with the stale diagnostic, and re-enabling repairs it. **Pass:** `~/Library/LaunchAgents/com.tsiger.dialshift.plist` passes `plutil -lint` and targets the current bundle; no second instance is spawned. | Needs a login-session cycle (possible on the dev box, by hand) | BHV-59; MX-07, MX-15; DOD-06 | Open |
+| NC-10 | **macOS LaunchAgent at a real login.** Enable it, log out and in: DialShift starts in the menu bar with no window (`open -a <bundle> --args --tray`). Move `DialShift.app` elsewhere and log in again: the checkbox shows **off** with the stale diagnostic, and re-enabling repairs it. Then switch DialShift off under System Settings → General → Login Items ("Allow in the Background") and reopen Settings: record whether `launchctl print-disabled gui/$UID` lists `"com.tsiger.dialshift" => disabled` and whether the checkbox shows **off** with the Login Items diagnostic (if it still shows on, the BTM state is not visible to `print-disabled`, and that limitation must be recorded in docs/decisions.md and the README). Also `launchctl disable gui/$UID/com.tsiger.dialshift`: the checkbox shows **off**; turning it on runs `launchctl enable` and the next login starts DialShift. **Pass:** `~/Library/LaunchAgents/com.tsiger.dialshift.plist` passes `plutil -lint` and targets the current bundle; no second instance is spawned. | Needs a login-session cycle (possible on the dev box, by hand) | BHV-59; MX-07, MX-15; DOD-06 | Open |
 | NC-11 | **macOS AVPlayer under real network faults.** From the bundled app: Wi-Fi off in the middle of a stream, then on (retry, then recovery); a real captive portal; fallback alternation with the real engine (BHV-37). **Pass:** failures are classified as in the corpus; the retry and fallback timings match §5.1; no audio after Stop. | Needs network manipulation (possible on the dev box, by hand) | MX-11, MX-13; SP-01; BHV-37 | Open |
 | NC-12 | **Menu-bar template icon.** The 44×44 `tray.png` (D34) renders sharp at 17 pt in light and dark menu bars, and follows highlight inversion. The tray menu updates after station and slot edits with no native crash. | A visual check (possible on the dev box, by hand) | BHV-19, BHV-22; MX-05; PK-04; D34 | Open |
 | NC-13 | **Socket permissions under LaunchServices.** Launch the bundled app via `open DialShift.app`, and again via the LaunchAgent at login (not from a terminal). **Pass:** `stat -f %Lp "$TMPDIR"/CoreFxPipe_DialShift-*` prints `600`; the log has `single_instance.socket` with the observed mode; a second `open` activates. | Needs the production launch environment | BHV-08; CT-SI-12; MX-06; D24 | Open |

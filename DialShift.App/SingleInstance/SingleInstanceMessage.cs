@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Unicode;
 
 namespace DialShift.App.SingleInstance;
 
@@ -37,12 +38,17 @@ public sealed record SingleInstanceMessage(int Version, string Command)
     /// is rejected because a message is exactly one line. Property names
     /// and the command are case-sensitive; duplicate, missing or extra properties, comments and trailing
     /// content are rejected.
+    /// <para>Never throws for any input. Bytes that are not valid UTF-8 are rejected before JSON parsing, and the command
+    /// is compared as JSON text (<see cref="Utf8JsonReader.ValueTextEquals(ReadOnlySpan{byte})"/>) instead of being
+    /// decoded to a string, so an escaped lone surrogate such as <c>"\ud800"</c> is simply not <c>"activate"</c>.
+    /// <see cref="Utf8JsonReader"/>'s decode failures (<see cref="InvalidOperationException"/>) are caught as well.</para>
     /// </remarks>
     public static bool TryParse(ReadOnlySpan<byte> utf8Line, [NotNullWhen(true)] out SingleInstanceMessage? message)
     {
         message = null;
         if (!utf8Line.IsEmpty && utf8Line[^1] == (byte)'\n') utf8Line = utf8Line[..^1];
         if (utf8Line.IsEmpty || utf8Line.Length > MaxMessageBytes || utf8Line.Contains((byte)'\n')) return false;
+        if (!Utf8.IsValid(utf8Line)) return false;
 
         try
         {
@@ -50,7 +56,7 @@ public sealed record SingleInstanceMessage(int Version, string Command)
             if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return false;
 
             int? version = null;
-            string? command = null;
+            bool? isActivate = null;
             while (reader.Read())
             {
                 if (reader.TokenType == JsonTokenType.EndObject) break;
@@ -63,19 +69,19 @@ public sealed record SingleInstanceMessage(int Version, string Command)
                 }
                 else if (reader.ValueTextEquals("command"u8))
                 {
-                    if (command != null || !reader.Read() || reader.TokenType != JsonTokenType.String) return false;
-                    command = reader.GetString();
+                    if (isActivate != null || !reader.Read() || reader.TokenType != JsonTokenType.String) return false;
+                    isActivate = reader.ValueTextEquals(ActivateCommand);
                 }
                 else return false;
             }
 
             if (reader.TokenType != JsonTokenType.EndObject || reader.Read()) return false;
-            if (version != CurrentVersion || command != ActivateCommand) return false;
+            if (version != CurrentVersion || isActivate != true) return false;
 
             message = Activate;
             return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             return false;
         }
