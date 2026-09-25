@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Automation;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Headless;
@@ -74,8 +75,11 @@ internal static class CatalogHeadlessTests
 
     private static Border Detail(Window dialog) => Find<Border>(dialog).Single(b => AccessibleName(b) == "Station details");
 
-    /// <summary>The status line, found by its declared automation name (a text block's peer announces its text instead).</summary>
-    private static TextBlock StatusLine(Window dialog) => Find<TextBlock>(dialog).Single(t => AutomationProperties.GetName(t) == "Catalog status");
+    /// <summary>The status line's container: it carries the automation name "Catalog status" (a text block's peer would announce its text instead).</summary>
+    private static Border StatusRegion(Window dialog) => Find<Border>(dialog).Single(b => AutomationProperties.GetName(b) == "Catalog status");
+
+    /// <summary>The status line's text, inside <see cref="StatusRegion"/>.</summary>
+    private static TextBlock StatusLine(Window dialog) => (TextBlock)StatusRegion(dialog).Child!;
 
     private static List<ListBoxItem> Items(Window dialog) => [.. Find<ListBoxItem>(dialog).Where(i => i.IsEffectivelyVisible)];
 
@@ -142,8 +146,13 @@ internal static class CatalogHeadlessTests
             Focused(dialog) == search && search.PlaceholderText == UiText.SearchPlaceholder);
         Check("CAT-17 the status line (\"Catalog status\") reads \"7 stations · catalog updated 2026-09-25\"",
             StatusLine(dialog).Text == "7 stations · catalog updated 2026-09-25");
-        Check("CAT-14 §5.5 the status line declares the automation name \"Catalog status\"; Avalonia's text-block peer announces its text (\"7 stations · …\")",
-            AutomationProperties.GetName(StatusLine(dialog)) == "Catalog status" && AccessibleName(StatusLine(dialog)) == StatusLine(dialog).Text);
+        var statusPeer = ControlAutomationPeer.CreatePeerForElement(StatusRegion(dialog));
+        var linePeer = ControlAutomationPeer.CreatePeerForElement(StatusLine(dialog));
+        Check("CAT-14 §5.5 the status line is announced as \"Catalog status\": its container's peer is a Group in the control view named " +
+            "\"Catalog status\" with the line as its help text, and the line inside announces its text (\"7 stations · …\")",
+            statusPeer.GetName() == "Catalog status" && statusPeer.GetHelpText() == StatusLine(dialog).Text && statusPeer.IsControlElement()
+            && statusPeer.GetAutomationControlType() == AutomationControlType.Group && statusPeer.GetChildren().SequenceEqual([linePeer])
+            && linePeer.GetName() == "7 stations · catalog updated 2026-09-25" && linePeer.GetAutomationControlType() == AutomationControlType.Text);
         Check("CAT-13 after the load the results stay closed (the 50 most-voted wait behind Down) and the detail pane shows its placeholder",
             !Overlay(dialog).IsVisible && editor.Results.Count == 7 && Shows(dialog, UiText.CatalogDetailPlaceholder));
         Check("CAT-14 §5.5 automation names: the search box, the five filters, Clear, the status line, the detail pane, the three fields",
@@ -177,13 +186,17 @@ internal static class CatalogHeadlessTests
         var rows = editor.Results;
         Check("CAT-12 typing opens the results: \"radio\" lists three rows, the footer says \"3 matches\", focus stays in the search box",
             Overlay(dialog).IsVisible && rows.Select(r => r.Entry).SequenceEqual([Thessaloniki, KolnAm, Shortwave]) && Shows(dialog, "3 matches") && Focused(dialog) == search);
+        var footer = ControlAutomationPeer.CreatePeerForElement(Find<TextBlock>(Overlay(dialog)).Single(t => t.Text == "3 matches"));
+        Check("CAT-14 the results footer (\"3 matches\") is a polite live region, so the match count is announced as it changes",
+            footer.GetName() == "3 matches" && footer.GetLiveSetting() == AutomationLiveSetting.Polite);
         Check("CAT-14 §5.5 each result is announced by its CatalogResultRow.AutomationName (\"Radio Thessaloniki, Thessaloniki · 94.5 FM · Greece\", …)",
             Items(dialog).Select(AccessibleName).SequenceEqual(rows.Select(r => r.AutomationName)) && AccessibleName(Items(dialog)[0]) == "Radio Thessaloniki, Thessaloniki · 94.5 FM · Greece");
 
         var title = Find<TextBlock>(Items(dialog)[0]).Single(t => t.Classes.Contains("resultTitle"));
-        Check("[quirk] CAT-14 a result's first line reads \"Radio Thessaloniki  ·  Thessaloniki · 94.5 FM · Greece\" (two spaces each side of the dot): " +
-            "the line breaks between the template's three Runs add a \" \" run on each side of \" · \" (5 inlines, not 3)",
-            title.Inlines!.Count == 5 && DisplayText(title) == "Radio Thessaloniki  ·  Thessaloniki · 94.5 FM · Greece");
+        Check("CAT-14 a result's first line reads \"Radio Thessaloniki · Thessaloniki · 94.5 FM · Greece\" (one space each side of the dot): " +
+            "the template's three Runs are its only inlines (no whitespace runs between them), the name semibold, the subtitle 12 px",
+            title.Inlines is [Run name, Run { Text: " · " }, Run subtitle] && DisplayText(title) == "Radio Thessaloniki · Thessaloniki · 94.5 FM · Greece"
+            && name.FontWeight == Avalonia.Media.FontWeight.SemiBold && subtitle.FontSize == 12);
 
         await PressAsync(dialog, Key.Down);
         Check("CAT-12 Down highlights the first result (the list selection follows); the detail pane shows it, notes included",
@@ -314,6 +327,12 @@ internal static class CatalogHeadlessTests
         rig.Catalog.Hold = hold;
         rig.Catalog.Result = Loaded(Small);
         var (dialog, editor) = await OpenAddAsync(rig, settle: false);
+        var linePeer = ControlAutomationPeer.CreatePeerForElement(StatusLine(dialog));
+        var announced = new List<string>();
+        linePeer.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == AutomationElementIdentifiers.NameProperty) announced.Add($"{e.OldValue} → {e.NewValue}");
+        };
         var search = ByName<TextBox>(dialog, "Search stations");
         Check("CAT-13 loading: status \"Loading the station catalog…\", the search box enabled and focused, the filters and Clear disabled",
             StatusLine(dialog).Text == UiText.CatalogLoading && search.IsEffectivelyEnabled && Focused(dialog) == search
@@ -324,6 +343,11 @@ internal static class CatalogHeadlessTests
         Check("CAT-13 when the load completes, the text typed meanwhile is searched and shown (Kosmos 93.6)",
             await WaitAsync(() => editor.PendingSearch.IsCompleted && editor.IsResultsOpen) && editor.Results.Single().Entry == Kosmos
             && ByName<ComboBox>(dialog, "Country filter").IsEffectivelyEnabled && Focused(dialog) == search);
+        Check("CAT-14 the status line is a polite live region: loading → loaded raises one name change on its peer " +
+            "(\"Loading the station catalog… → 7 stations · catalog updated 2026-09-25\") and the container's help text follows",
+            linePeer.GetLiveSetting() == AutomationLiveSetting.Polite
+            && announced.SequenceEqual([$"{UiText.CatalogLoading} → 7 stations · catalog updated 2026-09-25"])
+            && ControlAutomationPeer.CreatePeerForElement(StatusRegion(dialog)).GetHelpText() == "7 stations · catalog updated 2026-09-25");
         dialog.Close();
         await PumpAsync();
 
