@@ -1,3 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <!-- Scheduler.ConversionMemoState: the QA-N4 memo-invalidation check. -->
+    <InternalsVisibleTo Include="DialShift.Tests"/>
+  </ItemGroup>
 </Project>

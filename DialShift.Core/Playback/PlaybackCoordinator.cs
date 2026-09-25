@@ -82,7 +82,7 @@
 // Every policy timer (retry backoff, primary re-check, 60 s stable reset, 25 s stall watchdog, 15 s wake gap, 2 s wake
 // settle, wake debounce) is measured on IMonotonicClock and evaluated in OnTickAsync. There is no Task.Delay, so tests
 // drive time by advancing fake clocks and calling OnTickAsync. Wall-clock time (IClock converted to localZone) is used
-// only for the schedule.
+// only for the schedule; Scheduler converts zoned slots into the same localZone, so every schedule call receives it.
 //
 // ─── Engine ownership ─────────────────────────────────────────────────────────────────────────────────────────────────
 // The coordinator takes ownership of the engine: DisposeAsync stops it, unsubscribes, and disposes it. The composition
@@ -247,7 +247,7 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
     private void UserPlay(Station station, long now)
     {
         // A manual choice holds the current occurrence so the next tick does not override it.
-        scheduleSession.HoldCurrent(settings, LocalNow());
+        scheduleSession.HoldCurrent(settings, LocalNow(), localZone);
         StartPlayback(station, now);
     }
 
@@ -265,7 +265,7 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
 
     private void UserStop()
     {
-        scheduleSession.HoldCurrent(settings, LocalNow());
+        scheduleSession.HoldCurrent(settings, LocalNow(), localZone);
         Halt();
     }
 
@@ -405,9 +405,9 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
 
     private bool TakeScheduleChange(bool force, long now)
     {
-        var slot = scheduleSession.TakeChange(settings, LocalNow(), force);
+        var slot = scheduleSession.TakeChange(settings, LocalNow(), force, localZone);
         if (slot == null || Find(slot.Entry.StationId) is not { } station) return false;
-        Info("schedule.fired", $"Slot {slot.Entry.Time} starts '{station.Name}'" + (force ? " (forced)." : "."));
+        Info("schedule.fired", $"Slot {slot.Entry.Time}{(slot.Zone is { } zone ? " " + zone.Id : "")} starts '{station.Name}'" + (force ? " (forced)." : "."));
         StartPlayback(station, now);
         return true;
     }
@@ -579,6 +579,7 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
 
     private Station? Find(Guid? id) => id is { } value ? settings.Stations.FirstOrDefault(s => s.Id == value) : null;
 
+    /// <summary>Computer-local wall time in the injected zone (Kind Unspecified); the schedule calls also receive <c>localZone</c> (QA-B2).</summary>
     private DateTime LocalNow() => TimeZoneInfo.ConvertTime(clock.UtcNow, localZone).DateTime;
 
     private TimeSpan Elapsed(long from, long now) => monotonicClock.GetElapsedTime(from, now);
@@ -589,7 +590,7 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
 
     private void RefreshUpcoming()
     {
-        upcoming = settings.ScheduleEnabled ? Scheduler.Evaluate(settings, LocalNow()).Next : null;
+        upcoming = settings.ScheduleEnabled ? Scheduler.Evaluate(settings, LocalNow(), localZone).Next : null;
         upcomingStationName = upcoming is null ? null : Find(upcoming.Entry.StationId)?.Name;
     }
 
