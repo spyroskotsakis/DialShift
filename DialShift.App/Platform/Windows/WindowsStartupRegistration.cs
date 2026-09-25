@@ -5,7 +5,7 @@ using Microsoft.Win32;
 namespace DialShift.App.Platform.Windows;
 
 /// <summary>
-/// Windows launch at login via <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</c>, value <c>DialShift</c> =
+/// Windows launch at sign-in via <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</c>, value <c>DialShift</c> =
 /// <c>"&lt;exe&gt;" --tray</c> (acceptance matrix §8.2.1), the same value earlier Windows releases wrote, gated by the
 /// user's switch in Task Manager's Startup apps (<c>...\Explorer\StartupApproved\Run</c>, value <c>DialShift</c>).
 /// </summary>
@@ -33,7 +33,7 @@ public sealed class WindowsStartupRegistration : IStartupRegistration
     public const string DefaultRunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     public const string DefaultStartupApprovedKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
     public const string ValueName = "DialShift";
-    public const string StaleDiagnostic = "Launch at login points to an older copy of DialShift. Turn it on again to fix it.";
+    public const string StaleDiagnostic = "Launch at sign-in points to an older copy of DialShift. Turn it on again to fix it.";
     public const string DisabledInTaskManagerDiagnostic = "Turned off in Task Manager's Startup apps. Turn it on again here to fix it.";
     private const string ApprovalUnreadableDiagnostic = "Windows' Startup apps setting for DialShift can't be read. Turn it on again to fix it.";
 
@@ -76,7 +76,7 @@ public sealed class WindowsStartupRegistration : IStartupRegistration
     private StartupRegistrationStatus Enable()
     {
         var expected = ExpectedValue();
-        if (expected == null) return new(false, "DialShift couldn't determine where it is installed, so launch at login can't be set.");
+        if (expected == null) return new(false, "DialShift couldn't determine where it is installed, so launch at sign-in can't be set.");
         try
         {
             using (var key = Registry.CurrentUser.CreateSubKey(runKeyPath, writable: true))
@@ -92,13 +92,13 @@ public sealed class WindowsStartupRegistration : IStartupRegistration
         catch (Exception ex)
         {
             log.Warn("startup_registration.error", "Couldn't write the Run or StartupApproved registry value.", ex);
-            return ReadStatus() with { DiagnosticMessage = $"Couldn't turn on launch at login: {ex.Message}" };
+            return ReadStatus() with { DiagnosticMessage = $"Couldn't turn on launch at sign-in: {ex.Message}" };
         }
 
         var verified = ReadStatus();
         return verified.IsEnabled
             ? verified
-            : verified with { DiagnosticMessage = "Launch at login was saved but couldn't be verified. " + verified.DiagnosticMessage };
+            : verified with { DiagnosticMessage = "Launch at sign-in was saved but couldn't be verified. " + verified.DiagnosticMessage };
     }
 
     private StartupRegistrationStatus Disable()
@@ -111,7 +111,7 @@ public sealed class WindowsStartupRegistration : IStartupRegistration
         catch (Exception ex)
         {
             log.Warn("startup_registration.error", "Couldn't delete the Run registry value.", ex);
-            return ReadStatus() with { DiagnosticMessage = $"Couldn't turn off launch at login: {ex.Message}" };
+            return ReadStatus() with { DiagnosticMessage = $"Couldn't turn off launch at sign-in: {ex.Message}" };
         }
 
         // Without the Run value the approval flag has no effect; removing it only avoids leaving residue behind.
@@ -138,7 +138,7 @@ public sealed class WindowsStartupRegistration : IStartupRegistration
         catch (Exception ex)
         {
             log.Warn("startup_registration.error", "Couldn't read the Run registry value.", ex);
-            return new(false, "The launch-at-login entry can't be read. Turn it on again to fix it.");
+            return new(false, "The launch-at-sign-in entry can't be read. Turn it on again to fix it.");
         }
 
         if (value == null) return new(false);

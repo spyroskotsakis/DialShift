@@ -17,8 +17,8 @@ public static class PlatformServices
     /// <summary>
     /// Registers, as singletons: <see cref="FileAppLog"/> (also as <see cref="IAppLog"/>),
     /// <see cref="ISingleInstanceService"/>, <see cref="IClock"/>, and the per-OS <see cref="IMonotonicClock"/>
-    /// (sleep-inclusive), <see cref="IStartupRegistration"/>, <see cref="ISystemPowerEvents"/> and
-    /// <see cref="IFileRevealService"/>.
+    /// (sleep-inclusive), <see cref="IStartupRegistration"/>, <see cref="ISystemPowerEvents"/>,
+    /// <see cref="IFileRevealService"/> and <see cref="LegacyInstanceDetector"/> (with that OS's probes).
     /// </summary>
     /// <remarks>
     /// Prerequisite: the composition root registers the <see cref="AppPaths"/> it resolved once in <c>Program.Main</c>
@@ -53,6 +53,7 @@ public static class PlatformServices
         services.AddSingleton<IStartupRegistration>(sp => new WindowsStartupRegistration(sp.GetRequiredService<IAppLog>()));
         services.AddSingleton<ISystemPowerEvents>(sp => new WindowsPowerEvents(sp.GetRequiredService<IAppLog>()));
         services.AddSingleton<IFileRevealService>(_ => new WindowsFileRevealService());
+        services.AddSingleton(sp => new LegacyInstanceDetector(sp.GetRequiredService<IAppLog>(), LegacyInstanceDetector.WindowsProbes()));
     }
 
     [SupportedOSPlatform("macos")]
@@ -62,5 +63,7 @@ public static class PlatformServices
         services.AddSingleton<IStartupRegistration>(sp => new MacStartupRegistration(sp.GetRequiredService<IAppLog>()));
         services.AddSingleton<ISystemPowerEvents>(sp => new MacPowerEvents(sp.GetRequiredService<IAppLog>()));
         services.AddSingleton<IFileRevealService>(_ => new MacFileRevealService());
+        services.AddSingleton(sp => new LegacyInstanceDetector(sp.GetRequiredService<IAppLog>(),
+            LegacyInstanceDetector.MacProbes(AppPaths.DefaultDataDirectory())));
     }
 }

@@ -68,6 +68,9 @@ public static class StartupRegistrationTests
         await MacLaunchctlAsync(temp);
         MacPrintDisabledParsing();
         await MacRealLaunchctlAsync(temp);
+        await MacLegacyAsync(temp);
+        await MacInPlaceUpgradeAsync(temp);
+        await MacTranslocatedAsync(temp);
         Check("HS-11 mac: the happy path logs no startup_registration.error", !log.HasEvent("startup_registration.error"));
     }
 
@@ -191,7 +194,215 @@ public static class StartupRegistrationTests
             var actual = MacStartupRegistration.ParsePrintDisabled(output).ToString();
             Check($"F2 mac: print-disabled parse {output.Replace("\n", "\\n", StringComparison.Ordinal).Replace("\t", "", StringComparison.Ordinal)} → {expected}", actual == expected);
         }
+
+        var both = header + "\t\t\"com.dialshift.radio\" => disabled\n\t\t\"com.tsiger.dialshift\" => enabled\n" + footer;
+        Check("S1 mac: print-disabled parses the upstream v0.2.0 label on its own line",
+            MacStartupRegistration.ParsePrintDisabled(both, MacStartupRegistration.LegacyLabel) == MacStartupRegistration.LaunchdState.Disabled &&
+            MacStartupRegistration.ParsePrintDisabled(both) == MacStartupRegistration.LaunchdState.NotDisabled &&
+            MacStartupRegistration.ParsePrintDisabled(header + footer, MacStartupRegistration.LegacyLabel) == MacStartupRegistration.LaunchdState.NotDisabled);
+        Check("S1 mac: print-disabled rejects a label that isn't DialShift's",
+            Throws<ArgumentOutOfRangeException>(() => MacStartupRegistration.ParsePrintDisabled(both, "com.example.other")));
     }
+
+    /// <summary>
+    /// S1: upstream v0.2.0's <c>com.dialshift.radio</c> entry is recognized, reported, and replaced or removed, so an
+    /// upgrading user never ends up with two launch-at-login entries.
+    /// </summary>
+    [SupportedOSPlatform("macos")]
+    private static async Task MacLegacyAsync(TempDirectory temp)
+    {
+        var agents = temp.Combine("LaunchAgents-legacy");
+        var bundle = temp.Combine("legacy-Applications", "DialShift.app");
+        var exe = CreateFile(Path.Combine(bundle, "Contents", "MacOS", "DialShift"));
+        var otherBundle = temp.Combine("legacy-elsewhere", "DialShift.app");
+        Directory.CreateDirectory(otherBundle);
+        var launchd = new FakeLaunchctl();
+        var log = new RecordingAppLog();
+        var registration = NewMac(log, agents, exe, launchd);
+        Check("S1 mac: the legacy plist path is <LaunchAgents>/com.dialshift.radio.plist",
+            registration.LegacyPlistPath == Path.Combine(agents, "com.dialshift.radio.plist"));
+
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        Check("S1 mac: precondition: the upstream v0.2.0 plist is valid (plutil)", Lint(registration.LegacyPlistPath));
+        Check("S1 mac: an upstream v0.2.0 entry for this copy is enabled, with the \"set up by an older DialShift\" diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true, MacStartupRegistration.LegacyDiagnostic));
+        Check("S1 mac: ... and the diagnostic says so", MacStartupRegistration.LegacyDiagnostic.Contains("set up by an older DialShift", StringComparison.Ordinal));
+        Check("S1 mac: ... after checking launchd for the legacy label",
+            launchd.Calls.Any(c => c.ArgumentList[0] == "print-disabled"));
+
+        launchd.LegacyOverride = "disabled";
+        Check("S1 mac: launchd has the legacy job disabled: not enabled, with the disabled diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.DisabledDiagnostic));
+        launchd.LegacyOverride = null;
+
+        WriteUpstreamPlist(registration.LegacyPlistPath, otherBundle);
+        Check("S1 mac: an upstream v0.2.0 entry for another copy is not enabled, with the stale diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+        WriteUpstreamPlist(registration.LegacyPlistPath, temp.Combine("legacy-gone", "DialShift.app"));
+        Check("S1 mac: an upstream v0.2.0 entry for a deleted copy is not enabled, with the stale diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+        File.WriteAllText(registration.LegacyPlistPath, "<plist><dict><key>Label</key>");
+        var corrupt = await registration.GetStatusAsync();
+        Check("S1 mac: a corrupt legacy plist is not enabled, with a diagnostic, never throws", !corrupt.IsEnabled && !string.IsNullOrEmpty(corrupt.DiagnosticMessage));
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle, label: "com.example.other");
+        var foreign = await registration.GetStatusAsync();
+        Check("S1 mac: a legacy file with another label is not enabled, with a diagnostic", !foreign.IsEnabled && !string.IsNullOrEmpty(foreign.DiagnosticMessage));
+
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        Check("S1 mac: turning it off removes the upstream v0.2.0 entry: not enabled, no diagnostic",
+            await registration.SetEnabledAsync(false) == new StartupRegistrationStatus(false) && !File.Exists(registration.LegacyPlistPath));
+
+        WriteUpstreamPlist(registration.LegacyPlistPath, otherBundle);
+        Check("S1 mac: turning it on writes ours and is verified without a diagnostic",
+            await registration.SetEnabledAsync(true) == new StartupRegistrationStatus(true));
+        Check("S1 mac: ... and removes the legacy entry, so there is exactly one",
+            Directory.GetFiles(agents).Select(Path.GetFileName).SequenceEqual(["com.tsiger.dialshift.plist"]));
+
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        Check("S1 mac: ours enabled plus a leftover legacy entry: enabled, with the leftover diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true, MacStartupRegistration.LegacyLeftoverDiagnostic));
+        Check("S1 mac: ... turning it on again removes the leftover",
+            await registration.SetEnabledAsync(true) == new StartupRegistrationStatus(true) && !File.Exists(registration.LegacyPlistPath));
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        Check("S1 mac: ... turning it off removes both entries",
+            await registration.SetEnabledAsync(false) == new StartupRegistrationStatus(false) && Directory.GetFiles(agents).Length == 0);
+
+        // Ours exists but is stale while the legacy one still starts this copy: the one that works wins.
+        CreateFile(temp.Combine("legacy-old-dev", "DialShift"));
+        await NewMac(new RecordingAppLog(), agents, temp.Combine("legacy-old-dev", "DialShift")).SetEnabledAsync(true);
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        Check("S1 mac: a stale entry of ours plus a working legacy one: enabled, with the legacy diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true, MacStartupRegistration.LegacyDiagnostic));
+        File.Delete(registration.LegacyPlistPath);
+        Check("S1 mac: ... without the legacy one, ours explains itself (stale)",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+        await registration.SetEnabledAsync(false);
+
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        if (TempDirectory.TryMakeReadOnly(agents))
+        {
+            var failed = await registration.SetEnabledAsync(true);
+            Check("S1 mac: when ours can't be written, the legacy entry is kept and still reported (enabled, with the write failure)",
+                failed.IsEnabled && failed.DiagnosticMessage?.StartsWith("Couldn't turn on launch at login", StringComparison.Ordinal) == true &&
+                File.Exists(registration.LegacyPlistPath) && !File.Exists(registration.PlistPath));
+            var stuck = await registration.SetEnabledAsync(false);
+            Check("S1 mac: when the legacy entry can't be deleted, off reports the true state with a diagnostic",
+                stuck.IsEnabled && stuck.DiagnosticMessage?.StartsWith("Couldn't turn off launch at login", StringComparison.Ordinal) == true);
+            File.SetUnixFileMode(agents, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        else Skip("S1 mac: unwritable LaunchAgents dir with a legacy entry", "chmod 0500 does not stop writes (running as root?)");
+        Check("S1 mac: the happy legacy paths log no errors except the unwritable ones",
+            log.Entries.Where(e => e.EventName == "startup_registration.error").All(e => e.Message.StartsWith("Couldn't", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// NIT N3: after an in-place upgrade (the new app replaced the old one at the same path), entries the older apps wrote
+    /// still start this copy and are enabled.
+    /// </summary>
+    [SupportedOSPlatform("macos")]
+    private static async Task MacInPlaceUpgradeAsync(TempDirectory temp)
+    {
+        var agents = temp.Combine("LaunchAgents-inplace");
+        var bundle = temp.Combine("inplace-Applications", "DialShift.app");
+        var exe = CreateFile(Path.Combine(bundle, "Contents", "MacOS", "DialShift"));
+        var helper = CreateFile(Path.Combine(bundle, "Contents", "MacOS", "DialShift.Mac"));
+        var otherExe = CreateFile(temp.Combine("inplace-elsewhere", "DialShift.app", "Contents", "MacOS", "DialShift"));
+        var registration = NewMac(new RecordingAppLog(), agents, exe);
+        Directory.CreateDirectory(agents);
+
+        // Byte-for-byte what the retired DialShift.Mac wrote (legacy-last-known-good, App.axaml.cs SetStartup).
+        await File.WriteAllTextAsync(registration.PlistPath, LegacyMacPlist(exe));
+        Check("N3 mac: DialShift.Mac's [<this bundle's exe>, --tray] entry is enabled, no diagnostic",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true));
+        await File.WriteAllTextAsync(registration.PlistPath, LegacyMacPlist(helper));
+        Check("N3 mac: another existing executable inside this bundle resolves to the same bundle: enabled",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true));
+        await File.WriteAllTextAsync(registration.PlistPath, LegacyMacPlist(Path.Combine(bundle, "Contents", "MacOS", "Gone")));
+        Check("N3 mac: an executable in this bundle that doesn't exist: stale",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+        await File.WriteAllTextAsync(registration.PlistPath, LegacyMacPlist(otherExe));
+        Check("N3 mac: an executable in another bundle: stale",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+        await File.WriteAllTextAsync(registration.PlistPath, LegacyMacPlist("DialShift.app/Contents/MacOS/DialShift"));
+        Check("N3 mac: a relative executable path: stale",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+        await File.WriteAllTextAsync(registration.PlistPath, LegacyMacPlist(exe, "--hidden"));
+        Check("N3 mac: this executable without --tray: stale",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.StaleDiagnostic));
+
+        WriteUpstreamPlist(registration.PlistPath, bundle + "/", label: MacStartupRegistration.Label);
+        Check("N3 mac: open -a with this bundle and a trailing slash: enabled",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true));
+        WriteUpstreamPlist(registration.PlistPath, Path.Combine(bundle, "Contents", ".."), label: MacStartupRegistration.Label);
+        Check("N3 mac: open -a with this bundle spelled with ..: enabled",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(true));
+
+        Check("N3 mac: turning it on again rewrites the current form",
+            await registration.SetEnabledAsync(true) == new StartupRegistrationStatus(true) &&
+            Strings(ReadPlist(registration.PlistPath)["ProgramArguments"]).SequenceEqual(["/usr/bin/open", "-a", bundle, "--args", "--tray"]));
+
+        var devExe = CreateFile(temp.Combine("inplace-dev", "DialShift"));
+        var dev = NewMac(new RecordingAppLog(), temp.Combine("LaunchAgents-inplace-dev"), devExe);
+        Directory.CreateDirectory(dev.LaunchAgentsDirectory);
+        await File.WriteAllTextAsync(dev.PlistPath, LegacyMacPlist(devExe + "/"));
+        Check("N3 mac: outside a bundle only the exact form counts", (await dev.GetStatusAsync()).IsEnabled == false);
+    }
+
+    /// <summary>S3: a copy running from its App Translocation path never registers that path and never reports enabled.</summary>
+    [SupportedOSPlatform("macos")]
+    private static async Task MacTranslocatedAsync(TempDirectory temp)
+    {
+        Check("S3 mac: a translocated path is detected",
+            MacAppTranslocation.IsTranslocated("/private/var/folders/xy/abc123/T/AppTranslocation/0A1B2C3D-4E5F/d/DialShift.app/Contents/MacOS/DialShift"));
+        Check("S3 mac: /Applications, a lookalike folder, null and empty are not translocated",
+            !MacAppTranslocation.IsTranslocated("/Applications/DialShift.app/Contents/MacOS/DialShift") &&
+            !MacAppTranslocation.IsTranslocated("/Users/me/AppTranslocationNotes/DialShift.app/Contents/MacOS/DialShift") &&
+            !MacAppTranslocation.IsTranslocated(null) && !MacAppTranslocation.IsTranslocated(""));
+
+        var agents = temp.Combine("LaunchAgents-translocated");
+        var bundle = temp.Combine("AppTranslocation", "0A1B2C3D-4E5F", "d", "DialShift.app");
+        var exe = CreateFile(Path.Combine(bundle, "Contents", "MacOS", "DialShift"));
+        var registration = NewMac(new RecordingAppLog(), agents, exe);
+
+        Check("S3 mac: translocated, nothing registered: not enabled, no diagnostic until the user asks",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false));
+        Check("S3 mac: turning it on is refused with \"Move DialShift to Applications first\"",
+            await registration.SetEnabledAsync(true) == new StartupRegistrationStatus(false, MacStartupRegistration.TranslocatedDiagnostic) &&
+            MacStartupRegistration.TranslocatedDiagnostic == "Move DialShift to Applications first, then turn this on again.");
+        Check("S3 mac: ... and writes nothing", !Directory.Exists(agents) || Directory.GetFiles(agents).Length == 0);
+
+        Directory.CreateDirectory(agents);
+        WriteUpstreamPlist(registration.PlistPath, bundle, label: MacStartupRegistration.Label);
+        Check("S3 mac: an entry for the translocated path itself is never reported enabled",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.TranslocatedDiagnostic));
+        WriteUpstreamPlist(registration.LegacyPlistPath, bundle);
+        Check("S3 mac: ... nor is an upstream v0.2.0 entry for it",
+            await registration.GetStatusAsync() == new StartupRegistrationStatus(false, MacStartupRegistration.TranslocatedDiagnostic));
+        Check("S3 mac: a refused turn-on leaves existing entries alone",
+            !(await registration.SetEnabledAsync(true)).IsEnabled && File.Exists(registration.PlistPath) && File.Exists(registration.LegacyPlistPath));
+        Check("S3 mac: turning it off still works and removes both",
+            await registration.SetEnabledAsync(false) == new StartupRegistrationStatus(false) && Directory.GetFiles(agents).Length == 0);
+    }
+
+    /// <summary>A launch agent in upstream v0.2.0's exact format (one line, no ProcessType), for <paramref name="bundle"/>.</summary>
+    [SupportedOSPlatform("macos")]
+    private static void WriteUpstreamPlist(string path, string bundle, string label = MacStartupRegistration.LegacyLabel)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var escaped = System.Security.SecurityElement.Escape(bundle);
+        File.WriteAllText(path, $"<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>Label</key><string>{label}</string><key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-a</string><string>{escaped}</string><string>--args</string><string>--tray</string></array><key>RunAtLoad</key><true/></dict></plist>");
+    }
+
+    /// <summary>The retired DialShift.Mac's launch agent, as it wrote it (unescaped: its paths had no XML metacharacters).</summary>
+    private static string LegacyMacPlist(string exe, string argument = "--tray") =>
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
+        "<plist version=\"1.0\"><dict>\n" +
+        "  <key>Label</key><string>com.tsiger.dialshift</string>\n" +
+        "  <key>ProgramArguments</key><array><string>" + exe + "</string><string>" + argument + "</string></array>\n" +
+        "  <key>RunAtLoad</key><true/>\n" +
+        "  <key>ProcessType</key><string>Interactive</string>\n" +
+        "</dict></plist>\n";
 
     /// <summary>The real <c>launchctl print-disabled</c> (read-only; the status call never runs <c>enable</c>).</summary>
     [SupportedOSPlatform("macos")]
@@ -221,12 +432,14 @@ public static class StartupRegistrationTests
 
     /// <summary>
     /// Stands in for <c>/bin/launchctl</c>: <c>print-disabled</c> prints an override block with <see cref="Override"/>
-    /// for our label (none when null), <c>enable</c> sets it to <c>enabled</c> when <see cref="EnableClears"/>.
+    /// for our label and <see cref="LegacyOverride"/> for upstream v0.2.0's (none when null), <c>enable</c> sets ours to
+    /// <c>enabled</c> when <see cref="EnableClears"/>.
     /// </summary>
     private sealed class FakeLaunchctl
     {
         public List<ProcessStartInfo> Calls { get; } = [];
         public string? Override { get; set; }
+        public string? LegacyOverride { get; set; }
         public bool EnableClears { get; set; } = true;
         public int ExitCode { get; set; }
         public Exception? Error { get; set; }
@@ -243,7 +456,8 @@ public static class StartupRegistrationTests
                 if (EnableClears) Override = "enabled";
                 return (0, "");
             }
-            var line = Override == null ? "" : $"\t\t\"com.tsiger.dialshift\" => {Override}\n";
+            var line = (Override == null ? "" : $"\t\t\"com.tsiger.dialshift\" => {Override}\n") +
+                       (LegacyOverride == null ? "" : $"\t\t\"com.dialshift.radio\" => {LegacyOverride}\n");
             return (ExitCode, Output ?? $"\n\tdisabled services = {{\n\t\t\"com.docker.helper\" => enabled\n{line}\t}}\n\n\tlogin item associations = {{\n\t}}\n");
         }
     }

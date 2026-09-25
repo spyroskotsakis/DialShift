@@ -48,7 +48,7 @@ public static class ExitCodes
     /// <summary>Normal quit, or a second launch that activated the running instance.</summary>
     public const int Success = 0;
 
-    /// <summary>Startup failed: the startup-failure dialog was shown (BHV-04, HS-08).</summary>
+    /// <summary>Startup failed: the startup-failure dialog was shown (BHV-04, HS-08). Also used when an older DialShift is still running.</summary>
     public const int StartupFailed = 1;
 
     /// <summary>A second launch whose activation request was rejected or not answered.</summary>
