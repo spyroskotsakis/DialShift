@@ -15,7 +15,8 @@ public sealed class StationCatalogIndex
     public static StationCatalogIndex Empty { get; } = new([]);
 
     /// <summary>Copies <paramref name="entries"/> (order kept) and folds Name, NameLocal and City, extracts the
-    /// FrequencyFm digits and computes the FrequencyFm band (<see cref="StationCatalogQuery.BandOf"/>) of every entry.
+    /// FrequencyFm digits, computes the FrequencyFm band (<see cref="StationCatalogQuery.BandOf"/>) and splits Language
+    /// into its names (<see cref="StationCatalogQuery.LanguageNames"/>, D84) of every entry.
     /// O(n); throws ArgumentNullException for a null list or a null entry, and never throws on text content (§3.3, D77, D79).</summary>
     public StationCatalogIndex(IReadOnlyList<StationCatalogEntry> entries)
     {
@@ -31,7 +32,8 @@ public sealed class StationCatalogIndex
                 StationCatalogQuery.Fold(entry.NameLocal),
                 StationCatalogQuery.Fold(entry.City),
                 AsciiDigits(entry.FrequencyFm),
-                StationCatalogQuery.BandOf(entry.FrequencyFm));
+                StationCatalogQuery.BandOf(entry.FrequencyFm),
+                StationCatalogQuery.LanguageNames(entry.Language));
         }
         Entries = Array.AsReadOnly(items);
     }
@@ -60,8 +62,10 @@ public sealed class StationCatalogIndex
         });
     }
 
-    /// <summary>One entry's precomputed search keys: the folded Name, NameLocal and City (§3.3 <c>Fold</c>), the
-    /// FrequencyFm digits ("" when it has none, which never matches a frequency query) and the FrequencyFm band
-    /// (<see cref="StationCatalogQuery.BandOf"/>, D79).</summary>
-    internal readonly record struct SearchKeys(string Name, string NameLocal, string City, string FrequencyDigits, FrequencyBand Band);
+    /// <summary>One entry's precomputed search and filter keys: the folded Name, NameLocal and City (§3.3 <c>Fold</c>),
+    /// the FrequencyFm digits ("" when it has none, which never matches a frequency query), the FrequencyFm band
+    /// (<see cref="StationCatalogQuery.BandOf"/>, D79) and the language names the Language filter compares
+    /// (<see cref="StationCatalogQuery.LanguageNames"/>, D84; <c>[""]</c> for an entry without a language).</summary>
+    internal readonly record struct SearchKeys(
+        string Name, string NameLocal, string City, string FrequencyDigits, FrequencyBand Band, string[] LanguageNames);
 }

@@ -6,7 +6,8 @@ using System.Text.RegularExpressions;
 
 namespace DialShift.Core.Catalog;
 
-/// <summary>Filter values; null means "All". Values compare ordinally with the entry's field (Country is the code).</summary>
+/// <summary>Filter values; null means "All". Values compare ordinally with the entry's field (Country is the code);
+/// Language matches when it equals any one of the entry's language names (§3.3, D84).</summary>
 public sealed record CatalogFilters(
     string? Country = null, string? City = null, string? Type = null, string? Genre = null, string? Language = null)
 {
@@ -29,7 +30,9 @@ public enum FrequencyBand { None, Fm, Kilohertz }
 /// <remarks>
 /// <para><b>Matching (D70).</b> Text matches ordinally on keys folded by <see cref="Fold"/>, which ignores case,
 /// diacritics and compatibility forms without consulting any culture. Only Name, NameLocal, City and the FrequencyFm
-/// digits are searched; genre, notes and tags are not. Filters compare ordinally and AND with each other and the text.</para>
+/// digits are searched; genre, language, notes and tags are not. Filters compare ordinally and AND with each other and
+/// the text. Language is multi-valued (D84): its filter matches an entry when it equals any one of the entry's
+/// <see cref="LanguageNames"/>, which the index splits once, so for a single name it is the equality of the other fields.</para>
 /// <para><b>Frequency (D79).</b> A query such as <c>101.5</c>, <c>FM 101,50</c>, <c>1017 kHz</c> or bare <c>1017</c>
 /// matches entries whose FrequencyFm digits start with the query's digits, restricted to the band the query implies
 /// (<see cref="BandOf"/>): FM for a decimal separator, <c>fm</c> or <c>mhz</c>; kHz for <c>am</c> or <c>khz</c>; any band
@@ -46,6 +49,10 @@ public enum FrequencyBand { None, Fm, Kilohertz }
 public static partial class StationCatalogQuery
 {
     public const int DefaultCap = 50;
+
+    /// <summary>The separator of an entry's language names (§2.1, D84). Internal: the index splits on it, and the tests
+    /// see it through InternalsVisibleTo.</summary>
+    internal const string LanguageSeparator = ", ";
 
     /// <summary>Folds up to this many characters in a stack buffer; longer text rents one from the shared pool.</summary>
     private const int StackFoldLimit = 256;
@@ -77,8 +84,9 @@ public static partial class StationCatalogQuery
         for (var position = 0; position < entries.Length; position++)
         {
             var entry = entries[position];
-            if (!Passes(filters, entry)) continue;
-            var tier = Tier(keys[position], query, frequency);
+            ref readonly var entryKeys = ref keys[position];
+            if (!Passes(filters, entry, entryKeys)) continue;
+            var tier = Tier(entryKeys, query, frequency);
             if (tier == NoMatch) continue;
             total++;
             var candidate = new Ranked(tier, entry.Votes ?? 0, position);
@@ -93,22 +101,26 @@ public static partial class StationCatalogQuery
 
     /// <summary>
     /// The distinct non-empty values of <paramref name="field"/> across <paramref name="entries"/> (ordinal), for a flat
-    /// filter list (D72). Label is the value, except for <see cref="CatalogField.Country"/>: the first non-empty
-    /// CountryLabel of an entry with that code (list order), else the code. Ordered by the folded label, then the label,
-    /// then the value, all ordinal.
+    /// filter list (D72). For <see cref="CatalogField.Language"/> the values are the individual language names of the
+    /// entries (<see cref="LanguageNames"/>, D84), never a joined combination, so each is a value the Language filter
+    /// matches. Label is the value, except for <see cref="CatalogField.Country"/>: the first non-empty CountryLabel of an
+    /// entry with that code (list order), else the code. Ordered by the folded label, then the label, then the value, all
+    /// ordinal. It takes the entry list, not the index, so it splits each Language itself; it runs once per load, off the
+    /// search path.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="entries"/> or one of its entries is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="field"/> is not a defined <see cref="CatalogField"/>.</exception>
     public static IReadOnlyList<CatalogFilterValue> AvailableValues(IReadOnlyList<StationCatalogEntry> entries, CatalogField field)
     {
         ArgumentNullException.ThrowIfNull(entries);
-        Func<StationCatalogEntry, string> select = field switch
+        // Null for Language, which is multi-valued and read through LanguageNames below (D84).
+        Func<StationCatalogEntry, string>? select = field switch
         {
             CatalogField.Country => static e => e.Country,
             CatalogField.City => static e => e.City,
             CatalogField.Type => static e => e.Type,
             CatalogField.Genre => static e => e.Genre,
-            CatalogField.Language => static e => e.Language,
+            CatalogField.Language => null,
             _ => throw new ArgumentOutOfRangeException(nameof(field), field, "Not a catalog filter field."),
         };
 
@@ -117,10 +129,15 @@ public static partial class StationCatalogQuery
         for (var i = 0; i < entries.Count; i++)
         {
             var entry = entries[i] ?? throw new ArgumentNullException(nameof(entries), $"Catalog entry {i} is null.");
-            var value = select(entry);
-            if (value.Length == 0) continue;
-            ref var label = ref CollectionsMarshal.GetValueRefOrAddDefault(labels, value, out _);
-            if (string.IsNullOrEmpty(label)) label = field == CatalogField.Country ? entry.CountryLabel : value;
+            if (select is null)
+            {
+                foreach (var name in LanguageNames(entry.Language)) Add(labels, name, name);
+            }
+            else
+            {
+                var value = select(entry);
+                Add(labels, value, field == CatalogField.Country ? entry.CountryLabel : value);
+            }
         }
 
         var sorted = new (string Key, CatalogFilterValue Value)[labels.Count];
@@ -137,7 +154,22 @@ public static partial class StationCatalogQuery
             return order != 0 ? order : string.CompareOrdinal(x.Value.Value, y.Value.Value);
         });
         return Array.ConvertAll(sorted, static s => s.Value);
+
+        // Records a non-empty value; its label is the first non-empty one offered (a country's may come later).
+        static void Add(Dictionary<string, string> labels, string value, string label)
+        {
+            if (value.Length == 0) return;
+            ref var kept = ref CollectionsMarshal.GetValueRefOrAddDefault(labels, value, out _);
+            if (string.IsNullOrEmpty(kept)) kept = label;
+        }
     }
+
+    /// <summary>The language names of an entry's Language (§3.3, D84): <paramref name="language"/> split on
+    /// <see cref="LanguageSeparator"/>, ordinal, with <see cref="StringSplitOptions.None"/>, not trimmed and not folded.
+    /// <c>"English, German"</c> → <c>["English", "German"]</c>; <c>"German,English"</c> → <c>["German,English"]</c>;
+    /// <c>""</c> → <c>[""]</c>, so the filter <c>""</c> matches an entry without a language. Core maps, corrects and drops
+    /// nothing: the pipeline normalizes the names (contracts §2.6).</summary>
+    internal static string[] LanguageNames(string language) => language.Split(LanguageSeparator, StringSplitOptions.None);
 
     /// <summary>
     /// The §3.3 band of a FrequencyFm value, the one classification behind both the frequency query and the §5.4 label:
@@ -297,12 +329,22 @@ public static partial class StationCatalogQuery
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex FrequencyQueryPattern();
 
-    private static bool Passes(CatalogFilters filters, StationCatalogEntry entry) =>
+    /// <summary>The §3.3 filters: each non-null field equals the entry's, ordinally, except Language, which equals any one
+    /// of the entry's precomputed language names (D84).</summary>
+    private static bool Passes(CatalogFilters filters, StationCatalogEntry entry, in StationCatalogIndex.SearchKeys keys) =>
         (filters.Country is null || string.Equals(filters.Country, entry.Country, StringComparison.Ordinal)) &&
         (filters.City is null || string.Equals(filters.City, entry.City, StringComparison.Ordinal)) &&
         (filters.Type is null || string.Equals(filters.Type, entry.Type, StringComparison.Ordinal)) &&
         (filters.Genre is null || string.Equals(filters.Genre, entry.Genre, StringComparison.Ordinal)) &&
-        (filters.Language is null || string.Equals(filters.Language, entry.Language, StringComparison.Ordinal));
+        (filters.Language is null || HasName(keys.LanguageNames, filters.Language));
+
+    /// <summary>Whether <paramref name="names"/> holds <paramref name="name"/>, ordinally. A plain loop: allocates nothing.</summary>
+    private static bool HasName(string[] names, string name)
+    {
+        foreach (var candidate in names)
+            if (string.Equals(candidate, name, StringComparison.Ordinal)) return true;
+        return false;
+    }
 
     /// <summary>The lowest §3.3 tier the entry satisfies, or <see cref="NoMatch"/>. An empty query puts every entry in tier 0.</summary>
     /// <param name="frequency">The frequency query, whose digits are never empty; null when the text is not one. An entry
