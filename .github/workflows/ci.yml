@@ -1,0 +1,120 @@
+# Compile, test, package and verify DialShift on native runners (brief 1 §4.5, §8; decisions D2, D7, D8).
+# Phases per job: build -> test -> package -> verify the downloadable zip -> upload.
+# New checks (for example headless smokes) go in as steps of the matching phase.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Honest-labeling suffix of the macOS artifact (brief 1 §4.3). Keep "preview" until
+  # MacAvPlayerPlaybackEngine passes SP-01 and SP-02 in docs/acceptance-matrix.md, then set
+  # "native-avplayer". scripts/build-mac-app.sh reads the same variable for the zip name.
+  MACOS_LABEL: preview
+
+jobs:
+  build-test-package:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest is Apple Silicon (arm64), matching the osx-arm64 target (D2).
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # Build: projects one by one (no RID, warnings as errors), not DialShift.slnx,
+      # because the solution still lists the Windows-only WPF project.
+      - name: Build DialShift.Core
+        run: dotnet build DialShift.Core/DialShift.Core.csproj -c Release -warnaserror
+
+      - name: Build DialShift.Tests
+        run: dotnet build DialShift.Tests/DialShift.Tests.csproj -c Release -warnaserror
+
+      - name: Build DialShift.App
+        run: dotnet build DialShift.App/DialShift.App.csproj -c Release -warnaserror
+
+      - name: Build legacy WPF DialShift (until its retirement, D8)
+        if: runner.os == 'Windows' && hashFiles('DialShift/DialShift.csproj') != ''
+        run: dotnet build DialShift/DialShift.csproj -c Release -warnaserror
+
+      # Test: a non-zero exit code fails the job.
+      - name: Test DialShift.Tests
+        run: dotnet run --project DialShift.Tests/DialShift.Tests.csproj -c Release
+
+      # Package: the release scripts are the single source of the artifact layout.
+      - name: Package win-x64 zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build.ps1 -SkipTests
+
+      - name: Package osx-arm64 app bundle and zip
+        if: runner.os == 'macOS'
+        run: scripts/build-mac-app.sh
+
+      # Verify: re-run the packaging checks on the bundle extracted from the zip a user downloads.
+      - name: Verify win-x64 zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $extracted = Join-Path $env:RUNNER_TEMP 'DialShift-win-x64'
+          Expand-Archive -LiteralPath artifacts/DialShift-win-x64.zip -DestinationPath $extracted
+          ./scripts/verify-win-package.ps1 -Path $extracted
+
+      # verify-mac-app.sh asserts: arm64-only executable, arm64 slice in every dylib, no libvlc*/VLC
+      # dylibs (case-sensitive; LibVLCSharp.dll is allowed), Info.plist identity/icon keys,
+      # LSUIElement=true, NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia=true, exec bit,
+      # and a valid ad-hoc signature.
+      - name: Verify osx-arm64 zip
+        if: runner.os == 'macOS'
+        run: |
+          ditto -x -k "dist/DialShift-osx-arm64-${MACOS_LABEL}.zip" "$RUNNER_TEMP/DialShift-osx-arm64"
+          scripts/verify-mac-app.sh "$RUNNER_TEMP/DialShift-osx-arm64/DialShift.app"
+
+      # Upload: the zips are uploaded as-is (the macOS zip keeps permissions and the signature).
+      # Short retention keeps the private repository's artifact storage bounded.
+      - name: Upload win-x64 artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: DialShift-win-x64
+          path: artifacts/DialShift-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload osx-arm64 artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v6
+        with:
+          name: DialShift-osx-arm64-${{ env.MACOS_LABEL }}
+          path: dist/DialShift-osx-arm64-${{ env.MACOS_LABEL }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
