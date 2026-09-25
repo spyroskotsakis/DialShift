@@ -3,7 +3,7 @@
 > **Status: frozen 2026-09-25 by the spec lane, before any implementation lane starts.** Normative for brief 3
 > (`docs/add-station-catalog-search.md`, "the brief"; § numbers without a file name are this document's). Lanes
 > implement the signatures here **verbatim**; a change goes through the spec lane and a new decision in
-> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77 and D78
+> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77–D79
 > post-freeze amendments). The
 > acceptance rows are CAT-01..18 in `docs/acceptance-matrix.md` §11. Nothing here exists as code yet: the
 > contracts are written down, not stubbed, so no lane ever finds dead or throwing placeholder code.
@@ -37,6 +37,8 @@ Taken on this Mac (Apple Silicon, .NET 10 SDK, `data/canonical/*.csv` at `78b122
 | Names with leading/trailing spaces | 146 | The exporter trims every string (D71) |
 | `city == "—"` placeholder / `region == "(unlisted)"` | 3,486 / 3,461 | Normalized to `""` in the JSON, so "—" never becomes a filter value (D71) |
 | `frequency_fm` without a dot (AM kHz such as `1593`) | 70 | Frequency display and matching rules in §3.3 and §5.4 |
+| `frequency_fm` shapes in the exported JSON (measured at `7a6e1e5` for D79) | empty 7,482; `dd.d` 483 and `ddd.d` 239 (all 87.1–108.0, always one decimal, `89.0`-style trailing zeros in 87 entries); `ddd` 14 and `dddd` 55 (522–1650 and one `8500`, all kHz); `Shortwave` 1 | No field says AM or FM, but the value does: 722 FM, 69 kHz, 1 neither (`BandOf`, §3.3, D79) |
+| FM and kHz entries whose frequency digits are equal | 8 digit strings (`891`, `918`, `927`, `936`, `945`, `972`, `1008`, `1017`); `101.7` found 3 FM and 2 kHz entries before D79 | A decimal separator or a band token restricts the band (D79) |
 | Notes that are only `tags:` (radio-browser extras with no tags) | part of 7,330 `tags: …` notes | `tags:` alone becomes `""`; Wikipedia `_emphasis_` markers are stripped (D71) |
 | Logos that are not http(s) | 36; empty: 3,259 | Exporter and provider keep only http(s) logos (D71, D74) |
 | Distinct values: type / genre / language / city | 7 / 132 / 173 / 434 | Flat, data-driven filter lists (D72) |
@@ -92,7 +94,7 @@ A JSON **type** mismatch on a known key (for example `"votes":"12"`) makes the w
 - **Source rows:** every row the run writes to `data/canonical/*.csv` (all `countries/*.yaml` and all `collections/*.yaml`), taken from the same in-memory rows.
 - **URL rule** (mirrors `SettingsStore.ValidUrl` plus BHV-52's limit): `stream_url.strip()` has scheme `http` or `https` (lower case, as `urlsplit` returns it), a non-empty `hostname`, no whitespace or control character, and at most 2,048 characters.
 - **Included:** `stream_status == "Working"` and the URL rule holds. Nothing else is filtered.
-- **Dedupe key** (the pipeline's final dedupe, per country): `(country, norm(name).replace(' ', ''), norm_city(city, country), url_norm(stream_url))` with `norm`, `norm_city`, `url_norm` from `data/build/common.py`. On a collision the row with the higher `common.row_score` (in `data/build/common.py`, shared with `build_stations.py`) stays, ties keep the first.
+- **Dedupe key** (the pipeline's final dedupe, per country): `(country, norm(name).replace(' ', ''), norm_city(city, aliases), url_norm(stream_url))` with `norm`, `norm_city`, `url_norm` from `data/build/common.py`, where `aliases` is the `city_aliases` block of the row's own country YAML (checked by `common.city_aliases`; `{}` for a collection). Aliases come only from the YAMLs; the Python holds no alias list (`common.CITY_ALIASES` is gone, D71 update). A key matches only when it equals `norm(city)` verbatim, so every key must be in `norm()` form. On a collision the row with the higher `common.row_score` (in `data/build/common.py`, shared with `build_stations.py`) stays, ties keep the first.
 - **Order:** `country` ascending, then `votes` descending (`null` as 0), then `name`, then `stream_url`; strings compare by Unicode code point (Python's default `str` order; the C# check uses a code-point comparer, not UTF-16 ordinal). Deterministic for a given input. The app ranks by its own rules (§3.3), so this order only makes the file stable and diffs readable.
 
 ### 2.3 Validation (hard failure, same run)
@@ -186,9 +188,9 @@ public sealed class StationCatalogIndex
     /// <summary>No stations; the catalog of an unavailable load.</summary>
     public static StationCatalogIndex Empty { get; }
 
-    /// <summary>Copies <paramref name="entries"/> (order kept) and folds Name, NameLocal and City and extracts the
-    /// FrequencyFm digits of every entry. O(n); throws ArgumentNullException for a null list or a null entry, and never
-    /// throws on text content (§3.3, D77).</summary>
+    /// <summary>Copies <paramref name="entries"/> (order kept) and folds Name, NameLocal and City, extracts the
+    /// FrequencyFm digits and computes the FrequencyFm band (<see cref="StationCatalogQuery.BandOf"/>) of every entry.
+    /// O(n); throws ArgumentNullException for a null list or a null entry, and never throws on text content (§3.3, D77, D79).</summary>
     public StationCatalogIndex(IReadOnlyList<StationCatalogEntry> entries);
 
     public IReadOnlyList<StationCatalogEntry> Entries { get; }
@@ -210,6 +212,9 @@ public enum CatalogField { Country, City, Type, Genre, Language }
 /// <summary>One distinct filter value. Label is what the user sees: the country label for Country, else Value.</summary>
 public sealed record CatalogFilterValue(string Value, string Label);
 
+/// <summary>How a FrequencyFm value reads (§3.3, §5.4, D79): FM MHz, AM kHz, or neither.</summary>
+public enum FrequencyBand { None, Fm, Kilohertz }
+
 /// <summary>Pure filter-and-rank engine over a <see cref="StationCatalogIndex"/> (§3.3). No I/O.</summary>
 public static class StationCatalogQuery
 {
@@ -218,6 +223,10 @@ public static class StationCatalogQuery
     public static CatalogSearchResult Search(StationCatalogIndex catalog, string? text, CatalogFilters filters, int cap = DefaultCap);
 
     public static IReadOnlyList<CatalogFilterValue> AvailableValues(IReadOnlyList<StationCatalogEntry> entries, CatalogField field);
+
+    /// <summary>The §3.3 band of a FrequencyFm value; the one classification behind both the frequency query and the
+    /// §5.4 label. Throws ArgumentNullException for null; never throws on content (D79).</summary>
+    public static FrequencyBand BandOf(string frequencyFm);
 
     /// <summary>The §3.3 normalization. Internal: used by the index and the query; the tests see it through InternalsVisibleTo.</summary>
     internal static string Fold(string value);
@@ -239,7 +248,41 @@ Examples that are tests: `Fold("München") == "munchen"`, `Fold("ΑΘΗΝΑΣ") 
 
 **Query.** `q = Fold(text ?? "")`. If `q == ""` there is no text constraint.
 
-**Frequency query.** The raw `text.Trim()` matches `^([0-9]{2,4})(?:[.,]([0-9]{0,2}))?(?:\s*(?:fm|mhz|khz))?$` (`RegexOptions.IgnoreCase | RegexOptions.CultureInvariant`, ASCII digits only). Its digits `D` = group 1 + group 2. An entry's frequency digits `F` = the ASCII digits of `FrequencyFm` in order (an empty `F` never matches). It is a frequency match when `F.StartsWith(D, StringComparison.Ordinal)`. So `1015`, `101.5`, `101,5` and `101.5 FM` all match `"101.5"`; `101` matches `101.x` and AM `1017`; `1`, `12345` and `101.555` are not frequency queries (they still text-match).
+**Frequency query** (D79, amends the Phase 0 rule). Let `t = text.Trim()`. `t` is a frequency query when it matches
+
+```text
+^(?:(fm|am)\s*)?([0-9]{2,4})(?:([.,])([0-9]{0,2}))?(?:\s*(fm|mhz|am|khz))?$
+```
+
+with `RegexOptions.IgnoreCase | RegexOptions.CultureInvariant` (`[0-9]` is ASCII only; `\s` is any Unicode white space, so a no-break space works). Groups: `L` the leading band token, `I` the integer digits, `S` the decimal separator, `R` the decimals, `T` the trailing token. Then:
+
+1. **Query band.** FM is implied by a separator `S` (a kHz value is an integer, so `101.7` is FM notation), by `L` or `T` = `fm`, or by `T` = `mhz`; kHz is implied by `L` or `T` = `am`, or by `T` = `khz` (case-insensitive). If FM and kHz are both implied (`AM 101.7`, `101.5 kHz`, `FM 1593 kHz`), `t` is **not** a frequency query. If neither is, the band is Any (bare digits such as `1017`, which people use for either).
+2. **Query digits.** `R'` = `R` without its last character when `R` has two characters and the last is `0` (`50` → `5`, `00` → `0`, `05` and `0` and `5` unchanged). `D = I + R'`. The catalog writes FM with exactly one decimal (§1), so `101.50` and `101.5` find the same stations while `101.0` stays `1010` and keeps its precision (it finds 101.0, not every 101.x).
+3. **Entry keys** (computed once in the index, D70). `F` = the ASCII digits of `FrequencyFm` in order. `BandOf(FrequencyFm)` is `Fm` when `decimal.TryParse(FrequencyFm, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out v)` succeeds and `64 ≤ v ≤ 108`; `Kilohertz` when it succeeds, `FrequencyFm` has no `.` and `v ≥ 150`; `None` otherwise (for example `""`, `Shortwave`, `108.5`, `149`, `1593.0`, or a value with a sign, white space or a thousands separator). No field of the JSON says AM or FM; the value does, with the thresholds §5.4 labels by, so the band a token selects is the one the user sees on the row.
+4. **Match.** A frequency match when `F != ""`, `F.StartsWith(D, StringComparison.Ordinal)`, and the query band is Any or equals `BandOf(FrequencyFm)`. An entry whose band is `None` therefore matches only band-Any queries.
+
+The tiers, the total order and the text tiers 0–2 are unchanged: `t` still text-matches through `q` as before (`FM 101.5` also finds a name containing `fm 101.5`). Per query this allocates `D` once; per entry it is one ordinal `StartsWith` and one enum compare over precomputed keys, so the no-allocation-per-entry rule holds.
+
+Examples that are tests (catalog of entries whose names contain no digits: FM `101.0`, FM `101.5`, FM `101.7`, kHz `1017`, FM `89.0`, kHz `1593`, an empty `FrequencyFm`, `Shortwave`):
+
+| Query | Frequency matches | Why |
+|---|---|---|
+| `1015`, `101.5`, `101,5`, `101.5 FM`, `101.5fm`, `101.5 MHz`, `101,5\u00A0fm` | FM 101.5 | as before D79 |
+| `FM 101.5`, `fm101.5`, `FM 101,5 MHz`, `FM 1015` | FM 101.5 | leading band token |
+| `101.50`, `101,50 MHz` | FM 101.5 | trailing zero dropped |
+| `101.0`, `101.00`, `1010` | FM 101.0 | `101.00` → `1010`; `101.0` keeps its decimal |
+| `89.0`, `89.00`, `890` | FM 89.0 | |
+| `1017` | FM 101.7 and kHz 1017 | bare digits: band Any |
+| `101.7`, `FM 1017`, `1017 MHz` | FM 101.7 only | FM implied |
+| `AM 1017`, `1017 AM`, `1017 kHz`, `am1017` | kHz 1017 only | kHz implied |
+| `101` | FM 101.0, FM 101.5, FM 101.7, kHz 1017 | prefix, band Any |
+| `101.`, `FM 101` | FM 101.0, FM 101.5, FM 101.7 | FM implied |
+| `1593`, `1593 kHz`, `AM 1593`, `159` | kHz 1593 | |
+| `AM 101.7`, `101.5 kHz`, `FM 1593 kHz`, `MHz 101.5`, `kHz 1593`, `UKW 101.5`, `101.5 FMX`, `1`, `12345`, `101.555`, `١٠١٫٥`, `１０１.５` | none (not frequency queries; text match only) | conflicting bands; `mhz`/`khz` only trail; tokens outside the set; shape |
+
+The empty and `Shortwave` entries match no row. The results within a row follow the §3.3 total order (tier 3, then votes).
+
+Not adopted by D79 (recorded there): German transliteration (`koeln` for Köln), other band words (`UKW`, `MW`, `OM`, `PO`), and separator-insensitive matching of frequencies written inside names (`90.3` for `NDR 90,3`).
 
 **Filters.** Every non-null field of `CatalogFilters` must equal the entry's field with `StringComparison.Ordinal` (`Country` against `entry.Country`). All filters AND with each other and with the text.
 
@@ -504,7 +547,7 @@ Numbers are invariant-culture integers without grouping, so every text is machin
 
 ### 5.4 Frequency display (`UiText.FrequencyText`)
 
-`""` when `FrequencyFm` is empty. Otherwise, parsed with `CultureInfo.InvariantCulture`: 64–108 → `"101.5 FM"`; an integer ≥ 150 → `"1593 kHz"` (medium wave, as the Wikipedia lists give it); anything else → the raw value. Display only; the stored data is unchanged.
+`""` when `FrequencyFm` is empty. Otherwise by `StationCatalogQuery.BandOf(FrequencyFm)` (§3.3, D79): `Fm` → `"101.5 FM"`; `Kilohertz` → `"1593 kHz"` (medium wave, as the Wikipedia lists give it); `None` → the raw value. The thresholds are the Phase 0 ones (64–108; an integer ≥ 150); calling `BandOf` instead of parsing again keeps the label and the band a search token selects identical. Display only; the stored data is unchanged.
 
 ### 5.5 Dialog and keyboard contract (`StationEditorDialog`)
 
@@ -575,7 +618,7 @@ Check names start with the row id (`"CAT-06 …"`), as the timezone rows start w
 | CAT-04 | `Catalog`: "CAT-04 …" for missing, empty, not JSON, truncated, `schema_version` 2 / `"1"` / missing, `stations` missing / null, every entry invalid, 10,001 entries, a directory, an unreadable file (SKIP on Windows): Unavailable, exactly one `catalog.unavailable` (`RecordingAppLog`), no exception; the default location in the test process loads the real file; `UiViewModels`: "CAT-04 …" a provider that never completes leaves the dialog responsive and manual Save working; the smoke catalog check | yes | the Windows smoke catalog check |
 | CAT-05 | `Catalog`: "CAT-05 …" `ResolveLocation` for unset / empty / whitespace / relative / absolute values, a fixture loaded through the override, no fallback for a relative value | yes | `windows-latest` (drive-letter and UNC rules of `IsPathFullyQualified`) |
 | CAT-06 | `Catalog`: "CAT-06 …" the §3.3 `Fold` examples, name / name_local / city matching, genre and notes not searched, whitespace collapse, Greek with tonos and final sigma, German umlauts and ß, French accents; lone surrogates (D77): the §3.3 surrogate `Fold` examples, `Search(StationCatalogIndex.Empty, "\uD800", CatalogFilters.None)` returns an empty result instead of throwing, and an index over a `Name` with a lone surrogate builds and matches a query containing the same surrogate | yes | `windows-latest` (the OS normalization data behind `string.Normalize`) |
-| CAT-07 | `Catalog`: "CAT-07 …" `1015`, `101.5`, `101,5`, `101.5 FM` match `101.5`; `101` prefix; `1`, `12345`, `101.555` are not frequency queries; AM `1593`; empty `FrequencyFm` never matches; tier 3 ranks below name matches | yes | DoD only |
+| CAT-07 | `Catalog`: "CAT-07 …" every row of the §3.3 frequency example table (D79) as its own named case, over the table's catalog; in particular the D79 changes: `FM 101.5` finds FM 101.5 (leading token), `101.50` finds FM 101.5 (trailing zero), `101.7` finds FM 101.7 but not kHz 1017 while `1017` finds both, `AM 1017` / `1017 kHz` find only kHz 1017; `101.` no longer finds kHz 1017; conflicting bands (`AM 101.7`, `101.5 kHz`) and `UKW 101.5` are not frequency queries; `BandOf` over `101.5`, `89.0`, `108.0`, `64`, `1017`, `150`, `8500` (`Fm` for the first four, `Kilohertz` for the last three), `108.5` / `149` / `1593.0` / `87,5` / `1,017` / ` 101.5` / `+101.5` / `Shortwave` / `""` (None), and null throws; empty `FrequencyFm` and band `None` entries never match a banded query; a frequency query ANDs with a filter; tier 3 ranks below name matches. `UiViewModels`: "CAT-07 …" `UiText.FrequencyText` ends in ` FM` exactly when `BandOf` is `Fm` and in ` kHz` exactly when it is `Kilohertz`, over the same inputs. `koeln` does not find Köln (pinned as the D79 non-goal) | yes | DoD only |
 | CAT-08 | `Catalog`: "CAT-08 …" each filter alone, all five ANDed with text, `null` = All, ordinal equality, `AvailableValues` distinct / non-empty / ordered / country labels; `UiViewModels`: "CAT-08 …" options = All + catalog values, a filter change re-searches, Clear resets | yes | DoD only |
 | CAT-09 | `Catalog`: "CAT-09 …" tier order, votes desc (null = 0), every tie-break, same result for a shuffled catalog, cap 50 with the true total, `cap < 1` throws; `UiViewModels`: `TotalCountText` for 0, 1, 50-of-50 and 50-of-214 | yes | DoD only |
 | CAT-10 | `UiViewModels`: "CAT-10 …" select fills Name/Tag/Url (with the 100/160 truncation), `SelectedEntry`, detail texts (notes full, votes, frequency, language, location); Save stores `Notes` only when the URL is unchanged; `HeadlessUi`: pick by keyboard fills the real text boxes (found by automation name) and the detail pane shows the notes | yes | DoD only |
