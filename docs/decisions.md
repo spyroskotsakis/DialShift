@@ -25,6 +25,19 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D19 | 2026-09-25 | Avalonia 12.1.2 is the version actually used; `NativeMenuItemToggleType` became `MenuItemToggleType` | brief 1 §7.2 |
 | D20 | 2026-09-25 | Platform contract namespace is `DialShift.App.Platform` (files in `Platform/Abstractions/`) | brief 1 §4.2, §6 |
 | D21 | 2026-09-25 | `--smoke-test` uses an isolated temp data dir; `DIALSHIFT_DATA_DIR` is an absolute-path override | brief 1 §4.5, §7.7 |
+| D22 | 2026-09-25 | `LSMinimumSystemVersion` is 14.0; the AVPlayer corpus is verified only on macOS 26.5 | brief 1 §4.3, §7.2, §8 |
+| D23 | 2026-09-25 | The engine comes from a single-use `PlaybackEngineFactory`; `IPlaybackEngine` is never registered | brief 1 §4.2, §5.4–§5.6 |
+| D24 | 2026-09-25 | Single instance keeps a listening server instance armed, handles at most 2 connections at once, uses `FirstPipeInstance` only on a real bind, and tightens socket permissions on every (re-)bind (SI-D1) | brief 1 §7.5 |
+| D25 | 2026-09-25 | `FileAppLog` serializes processes with a lock file in the per-user temp dir, waits at most 250 ms, and never throws (LOG-D1) | brief 1 §7.9, §11 DoD |
+| D26 | 2026-09-25 | No track metadata on macOS; LibVLC titles on Windows only for `http://` streams | brief 1 §4.3 step 7, §7.8 |
+| D27 | 2026-09-25 | Objective-C interop lives only in `DialShift.App/Interop/` | brief 1 §6, §7.8 |
+| D28 | 2026-09-25 | SIGTERM/SIGINT use the normal quit path; an OS-initiated shutdown is never vetoed, and settings are saved synchronously | brief 1 §4.1, BHV-11 |
+| D29 | 2026-09-25 | Process exit codes: 0 ok, 1 startup failure, 2 second launch couldn't activate, 3 single-instance channel failure | brief 1 §7.5; matrix §8.2.4 |
+| D30 | 2026-09-25 | `ISystemPowerEvents.Resumed` on macOS is raised on the posting thread (the main thread for real wakes) | brief 1 §4.4; matrix §8.2.2 |
+| D31 | 2026-09-25 | The single-instance concurrency limit stays at 2 | brief 1 §7.5 |
+| D32 | 2026-09-25 | ATS: only `NSAllowsArbitraryLoadsForMedia`, never blanket `NSAllowsArbitraryLoads` | brief 1 §8; spikes finding 2 |
+| D33 | 2026-09-25 | CI uses the v5/v6 action majors | brief 1 §4.5, §8 |
+| D34 | 2026-09-25 | The macOS tray keeps one 44×44 alpha-only `tray.png`; the unused `tray@2x.png` is deleted | brief 1 §7.2, §7.6; D4 |
 
 ---
 
@@ -186,3 +199,113 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 
 - **Decision:** `AppPaths.Resolve` applies this order: (1) a non-blank `DIALSHIFT_DATA_DIR`, which must be an absolute path and is used verbatim; (2) with `--smoke-test` and no override, a fresh `DialShift-smoke-<guid>` directory under the temp path; (3) the OS default. `--smoke-test` therefore never touches the user's real settings, log or single-instance lock. The override exists for smoke tests, integration tests and CI, and is documented only in the README developer section.
 - **Brief ref:** brief 1 §4.5, §7.7; acceptance matrix §8.2.6.
+
+## D22 — Minimum macOS 14.0
+
+- **Decision:** The bundle's `Info.plist` sets `LSMinimumSystemVersion` = **14.0** (`scripts/build-mac-app.sh`, `MIN_MACOS`), and `scripts/verify-mac-app.sh` asserts it in CI.
+- **Rationale:** 14.0 matches upstream v0.2.0. The only AVPlayer evidence, the spike and the production adapter corpus in `docs/spikes.md`, comes from **macOS 26.5**. AVFoundation's format support depends on the OS version, and Ogg Vorbis, Opus, FLAC-in-Ogg and `.aacp` were only seen working on 26.5. Nothing in between 14.0 and 26.5 has been tested.
+- **Consequence:** Before release notes list formats beyond MP3/AAC/HLS, the corpus must be re-run on macOS 14 (NC-16). Raising the minimum later is a new decision.
+- **Brief ref:** brief 1 §4.3, §7.2, §8; `docs/spikes.md` finding 5.
+
+## D23 — Single-use `PlaybackEngineFactory`; the engine is never a service
+
+- **Decision:** `AddDialShiftPlayback` registers only a singleton `PlaybackEngineFactory` (`DialShift.App/Services/PlaybackServices.cs`). **No `IPlaybackEngine` is registered.**
+  - The `IPlaybackCoordinator` registration in `AppComposition` is the only caller of `Create()`.
+  - A second `Create()` throws `InvalidOperationException`.
+  - Windows gets `LibVlcPlaybackEngine`, macOS gets `MacAvPlayerPlaybackEngine`, and any other OS throws `PlatformNotSupportedException`.
+- **Rationale:** The coordinator maps its N-th queued start to engine session N (D16), so it needs an engine whose counter has never moved. An engine that was resolved and started anywhere else would have every event discarded as stale and would never play (hazard HZ-01). The container never holds the engine, so disposing the provider can't dispose it a second time, and D17 ownership holds by construction.
+- **Consequence:** The "fresh engine" rule is part of the `IPlaybackEngine` contract remarks. `EngineName` feeds the `app.start` log line (HS-10).
+- **Brief ref:** brief 1 §4.2, §5.4–§5.6; D16, D17.
+
+## D24 — Single-instance server: always armed, bounded, bind-aware (SI-D1)
+
+- **Decision:** `SingleInstanceService` (`DialShift.App/SingleInstance/SingleInstanceService.cs`):
+  - Keeps one listening server instance **armed** at all times. The next instance is created *before* an accepted connection is handed to its handler, so the name never has zero instances between connections.
+  - Handles at most `MaxConcurrentConnections` = **2** connections at once, each off the accept loop. `MaxServerInstances` is 3: two handled connections plus the armed instance.
+  - Adds `PipeOptions.FirstPipeInstance` **only when it really binds the name**, meaning none of its own instances is alive. Joining instances omit it, because a second first-instance create fails on Windows and throws on net10.0 Unix while the name is served.
+  - After **every** create or re-bind, inspects the Unix socket file, removes group/other bits, and logs the observed mode once (`single_instance.socket`).
+  - Recovers a leftover socket from a crashed primary: a probe connect, then delete and retry once.
+- **Rationale:** This fixes SI-D1. On Unix all instances share one ref-counted listening socket, so disposing the last instance between connections closed it, and a client that connected in that gap was dropped. With one armed instance, a stalled client (held for at most the 2 s read timeout) can't block a real activation.
+- **Consequence:** This supersedes the `maxNumberOfServerInstances: 1` option in matrix §8.2.4. It is tested by the SI-D1 check (5 of 5 activations served during teardown), CT-SI-12 (0600 after start and after a re-bind), and the stale-socket checks.
+- **Brief ref:** brief 1 §7.5; matrix §8.2.4, CT-SI-*.
+
+## D25 — Cross-process log lock (LOG-D1)
+
+- **Decision:** `FileAppLog` (`DialShift.App/Services/FileAppLog.cs`) runs each size check, rotation and append under two locks:
+  - an in-process lock shared by every instance writing to the same file;
+  - a cross-process lock: `<per-user temp>/DialShift-log-<16 hex of SHA-256(log path)>.lock`, opened with `FileShare.None` (`flock` on Unix, a sharing violation on Windows). The file is never deleted.
+
+  A writer waits at most **250 ms** (`LockWaitBudget`). After that it assumes the holder is stuck and appends without the lock and **without rotating**. If the lock file can't be opened at all, it writes at once and still rotates. Logging **never throws**.
+- **Rationale:** This fixes LOG-D1. A second launch logs to the same file while the primary runs. .NET's `FileMode.Append` is not an atomic append, so two processes overwrote each other's lines, and two rotations could lose `dialshift.log.1`. The lock file lives in the temp dir because the data directory holds only the files §8.2.6 lists.
+- **Consequence:** Tested by LOG-D1: two processes write 4 000 lines with none lost or torn, and under rotation each process's kept lines are consecutive. Also by the §8.2.7 never-throws checks.
+- **Brief ref:** brief 1 §7.9, §11 DoD; matrix §8.2.7.
+
+## D26 — No track metadata on macOS; `http://` only on Windows
+
+- **Decision:** `MacAvPlayerPlaybackEngine` does **not** implement `ITrackMetadataProvider`, so macOS always shows the station tag (BHV-32). `LibVlcPlaybackEngine` implements it by polling `Meta(NowPlaying)`, but titles only arrive for **`http://`** streams.
+- **Rationale:** In the adapter harness, `AVPlayerItemMetadataOutput` delivered `icy`/`StreamTitle` reliably only for a Shoutcast v2 server, and never for Icecast MP3/AAC or HLS. A title that appears on a few stations and silently goes missing on most would be worse UX than a consistent tag. LibVLC 3's `https://` access module does not send `Icy-MetaData`, so an https station shows its tag.
+- **Consequence:** The README and release notes must state both limits (PK-07, owned by the release lane). The contract remark is on `ITrackMetadataProvider`. CT-PB-37 already covers "no provider → tag".
+- **Brief ref:** brief 1 §4.3 step 7, §7.8; `docs/spikes.md` capability differences.
+
+## D27 — One home for Objective-C interop
+
+- **Decision:** Every Objective-C declaration lives in `DialShift.App/Interop/`:
+  - `ObjCRuntime`: libobjc, the typed `objc_msgSend` entry points, and autorelease pools;
+  - `AVFoundation`: selectors and constants;
+  - `MacMainQueue`: `dispatch_async_f` to the main queue;
+  - `NotificationObserver`: the one runtime class `DialShiftNotificationObserver`, shared by the AVPlayer adapter and `MacPowerEvents`.
+
+  Nothing else declares `objc_msgSend`, selectors or runtime classes. The only other P/Invoke in the App is the libSystem `clock_gettime_nsec_np` in `MacMonotonicClock`, which is not Objective-C.
+- **Rationale:** Each `objc_msgSend` entry point must match its native prototype exactly on arm64. One copy means one place to review ABI signatures, ownership (+1/+0) and the process-global class registration. The platform lane had duplicated the interop (fixed in `20a398a`).
+- **Brief ref:** brief 1 §6, §7.8; `docs/spikes.md` production guidance.
+
+## D28 — Signals and OS shutdown
+
+- **Decision:** SIGTERM (`kill`, `launchctl bootout`) and SIGINT (Ctrl+C) are registered with `PosixSignalRegistration`. They cancel the default termination and post the normal `Quit()` to the UI thread, which runs the full BHV-11 teardown. A `ShutdownRequested` that the app did not start (the app menu's Quit, or the OS ending the session) is **never cancelled**. Avalonia 12 does not say which of the two it is, and cancelling would veto a macOS logout. In that case settings are saved **synchronously**, `app.exit … reason=shutdown_requested` is logged, and the process exits without the asynchronous playback teardown. Where a signal can't be registered, that is logged (`app.signal_unavailable`) and startup continues.
+- **Rationale:** A launch-at-login agent can be stopped by launchd, and a user's settings must survive both that and a logout. A clean quit must never block the OS.
+- **Brief ref:** brief 1 §4.1; BHV-11; `DialShift.App/App.axaml.cs`.
+
+## D29 — Process exit codes
+
+- **Decision:** `DialShift.App/LaunchOptions.cs` `ExitCodes` defines the process exit codes:
+
+  | Code | Constant | Meaning |
+  |---|---|---|
+  | 0 | `Success` | Normal quit, or a second launch whose activation was acknowledged |
+  | 1 | `StartupFailed` | Startup failed and the startup-failure dialog was shown (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
+  | 2 | `ActivationFailed` | A second launch whose activation was rejected or not answered |
+  | 3 | `SingleInstanceFailed` | The lock was acquired but the activation channel could not start |
+
+- **Rationale:** Scripts, CT-SI-03 and the smoke harness need distinct, stable outcomes. Verified against the source at `82a9900`.
+- **Brief ref:** brief 1 §7.5; matrix §8.2.4 (the exit-code table there is updated to match).
+
+## D30 — Thread of `Resumed`
+
+- **Decision:** `MacPowerEvents` raises `Resumed` **synchronously on the thread that posted the notification**. For a real wake, AppKit posts `NSWorkspaceDidWakeNotification` on the main thread, which is the Avalonia UI thread. `WindowsPowerEvents` raises it on the `SystemEvents` thread. The `ISystemPowerEvents` contract still says "arbitrary thread": consumers must return quickly and must not block. The App forwards it to `NotifyWakeAsync()`, which is safe from any thread (D18).
+- **Rationale:** This was measured in the spike (N1 and N1b) and asserted by HS-16. Documenting it avoids a needless re-dispatch, while keeping the contract portable.
+- **Brief ref:** brief 1 §4.4; matrix §8.2.2.
+
+## D31 — The single-instance concurrency limit stays at 2
+
+- **Decision:** `MaxConcurrentConnections` stays **2**. It is not raised and not made configurable.
+- **Rationale:** Both server and client use `PipeOptions.CurrentUserOnly`. On Unix the socket is also 0600 in a per-user `$TMPDIR` (D24). Only the same user can connect, and that user could simply kill the process, so a larger pool would defend against nothing. Two slots already guarantee that one stalled client (held for at most 2 s) can't block a real activation. Further clients wait in the backlog.
+- **Brief ref:** brief 1 §7.5; D24.
+
+## D32 — ATS media exception only
+
+- **Decision:** The bundle's `Info.plist` has `NSAppTransportSecurity` → `NSAllowsArbitraryLoadsForMedia` = true and **never** `NSAllowsArbitraryLoads`. `scripts/verify-mac-app.sh` asserts both in CI.
+- **Rationale:** Without the media exception, AVPlayer inside a `.app` fails every cleartext `http://` stream at once (`-1022`). That is 43 % of the catalog (`docs/spikes.md` finding 2). A blanket exception would also open cleartext for every non-media request, which the app does not need.
+- **Brief ref:** brief 1 §8; `docs/spikes.md` finding 2, corpus T16.
+
+## D33 — CI action majors
+
+- **Decision:** `.github/workflows/ci.yml` uses `actions/checkout@v5`, `actions/setup-dotnet@v5`, `actions/cache@v5` and `actions/upload-artifact@v6`, pinned by major version.
+- **Rationale:** These are the current majors, which run on GitHub's newer Node runtime instead of the Node 20 runtime that is being retired. Pinning by major takes fixes without surprise breaking changes.
+- **Brief ref:** brief 1 §4.5, §8; DOD-03.
+
+## D34 — One 44×44 template tray image
+
+- **Decision:** Keep the single **44×44, alpha-only** `DialShift.App/Assets/tray.png` as the macOS menu-bar template image. The unused `tray@2x.png` is deleted (`554228a`, merged in `82a9900`).
+- **Rationale:** The release lane disassembled `AvnTrayIcon::SetIcon` in `libAvaloniaNative` 12.1.2. Avalonia takes one PNG, sizes it to `floor(menuFont.pointSize × 1.3333)` pt (17 pt, which is 34 px on a Retina display here), and marks it as a template. An `@2x` file is never used. Downscaling a 44 px source to 34 px stays sharp, while a 22 px source would be upscaled and blurry.
+- **Consequence:** Menu-bar rendering in light and dark is still verified natively (NC-12). The icon asset assertion in HS-15 is still open (PK-04).
+- **Brief ref:** brief 1 §7.2, §7.6; D4.

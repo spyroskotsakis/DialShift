@@ -98,6 +98,19 @@ public sealed record PlaybackEngineFailedEventArgs(long SessionId, PlaybackFailu
 /// Adapters should not raise events synchronously inside <see cref="StartAsync"/>/<see cref="StopAsync"/>
 /// call stacks; callers must tolerate it if they do. Every member must return promptly: the caller may be the UI
 /// thread, so slow native work (resolving, connecting, tearing down) runs asynchronously after the call returns.</para>
+/// <para><b>StartAsync returns promptly.</b> The coordinator invokes queued engine commands synchronously, one after
+/// another, on the thread that completed the transition, which is usually the UI thread (D16, D18). It invokes the next
+/// command, typically the <see cref="StopAsync"/> that supersedes a start, only after <see cref="StartAsync"/> has
+/// returned its task. <see cref="StartAsync"/> must therefore only record the request, consume its session id and hand
+/// the work to its native thread, queue or the thread pool before its first real wait. It must never block on
+/// resolving, connecting, buffering or tearing down the previous session. An adapter that blocks freezes the UI and
+/// delays stop-while-connecting by the same amount.</para>
+/// <para><b>Lifetime and ownership (D17, D23).</b> An engine instance serves exactly one coordinator and must be handed
+/// to it fresh: no <see cref="StartAsync"/> may have been invoked on it, because the coordinator relies on the session
+/// counter starting at 1 (the N-th start is session N). If an engine was already started elsewhere, its session ids
+/// would never match, the coordinator would discard every event as stale, and nothing would ever play. The coordinator
+/// disposes the engine exactly once. The App therefore never registers an engine as a service; a single-use factory
+/// creates it inside the coordinator registration.</para>
 /// <para><b>Overlapping calls (stop-while-connecting, D16).</b> Adapters MUST tolerate overlapping calls. The
 /// coordinator invokes engine commands strictly in order but does not await one command's completion before invoking
 /// the next, so <see cref="StartAsync"/>, <see cref="StopAsync"/>, <see cref="SetVolumeAsync"/> and
@@ -119,7 +132,10 @@ public interface IPlaybackEngine : IAsyncDisposable
     /// <summary>Session failures. At most one per session; the session is dead afterwards.</summary>
     event EventHandler<PlaybackEngineFailedEventArgs>? Failed;
 
-    /// <summary>Stops any current session and begins a new one for <paramref name="source"/> at <paramref name="volume"/> (0.0–1.0).</summary>
+    /// <summary>
+    /// Stops any current session and begins a new one for <paramref name="source"/> at <paramref name="volume"/> (0.0–1.0).
+    /// Must return promptly without blocking on native work (see "StartAsync returns promptly" on <see cref="IPlaybackEngine"/>).
+    /// </summary>
     Task StartAsync(StreamSource source, double volume, CancellationToken ct);
 
     /// <summary>

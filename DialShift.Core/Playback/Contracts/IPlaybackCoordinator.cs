@@ -2,7 +2,7 @@ namespace DialShift.Core.Playback;
 
 /// <summary>
 /// UI-agnostic playback + schedule coordinator consumed by view models, the tray, and tests (brief 1 §4.1, §5).
-/// It replaces today's <c>RadioController</c> surface one-to-one but is async, never touches a UI dispatcher,
+/// It replaces the legacy <c>RadioController</c> surface (deleted in <c>4ef9515</c>) one-to-one but is async, never touches a UI dispatcher,
 /// and owns retry/fallback/schedule/wake/cancellation policy. The implementation serializes every transition
 /// through one async gate that is never held across an await, and validates an operation generation before
 /// any delayed work acts.
@@ -40,7 +40,8 @@ namespace DialShift.Core.Playback;
 /// a tick gap for the same wake produce one recovery.</item>
 /// <item><b>SettingsChanged</b> (<see cref="NotifySettingsChangedAsync"/>): any state; revalidates stations, fallback and volume.</item>
 /// <item><b>Dispose</b>: any state → <see cref="PlaybackStatus.Disposing"/> (terminal); stops the engine, then disposes it exactly
-/// once, because the coordinator owns the engine it was given (D17: the composition root must not dispose the engine itself);
+/// once, because the coordinator owns the engine it was given (D17: the composition root must not dispose the engine itself;
+/// D23: the engine must be fresh, never started, when the coordinator receives it);
 /// no event revives playback.</item>
 /// </list>
 /// <para><b>Threading (D18).</b> <c>Settings</c> is plain mutable data, so the host mutates it and calls the commands

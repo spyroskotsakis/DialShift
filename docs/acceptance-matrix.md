@@ -1,6 +1,17 @@
 # Acceptance matrix: behavior inventory, verification plan, QA tracker, contracts
 
-> **Current status (2026-09-25, branch `refactor/single-codebase-timezone`).** Waves done: **spec** (inventory, this matrix, Core contracts, decisions D1–D21); **test characterization** (Phase 1 Core suites, 110 checks green locally, §7.0); **App scaffold** step A (relocation `DialShift.Mac` → `DialShift.App`, `2f0ef5c`) and step B (retarget `win-x64;osx-arm64`, Avalonia 12.1.2, §6 layout, platform/app contracts, `AppPaths`, `d83f946`); **core coordinator** (`PlaybackCoordinator`, `RetryPolicy`, Core folder split, `e875c8e`; spec review in §7.10); §7.3 spikes (`docs/spikes.md`). **In progress:** platform, CI, UI, playback, and coordinator tests (CT-PB, CT-SM).
+> **Current status (2026-09-25, branch `refactor/single-codebase-timezone` at `82a9900`).** Phase 1 code is merged. The merged waves are:
+> - **spec**: inventory, this matrix, Core contracts, decisions D1–D34;
+> - **core**: `PlaybackCoordinator`, `RetryPolicy`, the CR-01/CR-03 fixes in `af816ad`;
+> - **release**: CI matrix, `osx-arm64` `.app` and `win-x64` zip, packaging verification, D22/D34;
+> - **platform**: startup registration, power events, file reveal, sleep-inclusive clocks, single instance, `FileAppLog`, the SI-D1/LOG-D1 fixes in `e3ceaa2`, and one ObjC interop in `e5d70e2`;
+> - **UI**: MVVM views, tray, dialogs, `PlaybackHost`;
+> - **playback**: `MacAvPlayerPlaybackEngine`, `LibVlcPlaybackEngine`, `PlaybackEngineFactory`;
+> - **integration**: the composition root, with the legacy views and `RadioController` deleted, in `4ef9515`.
+>
+> **Tests:** 16 suites, **743 passed / 3 skipped** locally (macOS arm64, at `e5d70e2`). CI run [`36088138439`](https://github.com/spyroskotsakis/dialshift-dev/actions/runs/36088138439) at `e5d70e2` is green: **windows-latest 695 / 9 skipped, macos-latest 743 / 3**, with both packages built and verified. That matches run `36084554492` at `895e141`, and no test file has changed since. The platform harness and the playback-adapter harness results are in `docs/spikes.md`.
+>
+> **Matrix (§3, 106 rows):** 14 GREEN, 19 NATIVE-PENDING, 73 TODO. Almost every TODO waits on the headless UI tests (HS-01..08, HS-13, HS-14), HS-17 in CI, or the new `--smoke-test` harness (BHV-66, test lane, in progress). **Next:** the test lane lands the smoke harness and the UI headless suites; the release lane fixes the README (DOD-08, PK-07) and the HS-15 icon assertion (PK-04). Then the native checks in §9, then the WPF retirement (DOD-01, DOD-10), then Phase 2 (§6).
 
 > **Living document.** This is the behavior inventory required by brief 1 §12 step 1. It is also the acceptance matrix of brief 1 §11 and the timezone QA tracker of brief 2 §9.
 >
@@ -34,6 +45,8 @@
 | `GREEN` | Every non-N/A column for the row passes, with evidence: a test ID in green CI, or a signed-off manual checklist run. |
 | `NATIVE-PENDING` | Every automatable column is green. Only a hardware or native-desktop check is outstanding, and it is listed in §9. |
 
+A status cell may carry a short note: the evidence for `GREEN`/`NATIVE-PENDING`, or what is still missing for `TODO` ("TODO: HS-04, then SMK"). **`SMK` cells count as automatable**, because the macOS run of the app's own `--smoke-test` harness needs only this dev box. Until that harness exists (BHV-66) and passes, a row with an `SMK` cell stays `TODO`. The Windows `SMK` run is native (NC-01). A cell is green only with evidence from this environment: a green CI run, a local run, or a recorded harness run in `docs/spikes.md`. Code inspection alone never makes a cell green.
+
 **Owner lanes:** `core` · `playback` · `platform` · `ui` · `release` · `test` · `spec`. These match the subagents in `.claude/agents/`.
 
 **Test ID prefixes**
@@ -65,10 +78,10 @@
 | Abbreviation | Source |
 |---|---|
 | `W:` | `DialShift/` (WPF) |
-| `M:` | Legacy `DialShift.Mac/` (Avalonia) at the baseline tag. On this branch it is replaced by `DialShift.App/` with the brief 1 §6 layout: the composition root (`Program.cs`, `AppComposition.cs`, `App.axaml.cs`), `AppPaths.cs`, `Views/` (`MainWindow`, `Pages/`, `Dialogs/`), `ViewModels/`, `Tray/`, `Services/` (engines, `PlaybackHost`, `IDialogService`, `IUiDispatcher`, `FileAppLog`), `Platform/` and `SingleInstance/`. The legacy code-built views and `RadioController` are deleted; references to them below point at the baseline tag. |
+| `M:` | Legacy `DialShift.Mac/` (Avalonia) at the baseline tag. On this branch it is replaced by `DialShift.App/` with the brief 1 §6 layout: the composition root (`Program.cs`, `AppComposition.cs`, `App.axaml.cs`), `AppPaths.cs`, `Views/` (`MainWindow`, `Pages/`, `Dialogs/`), `ViewModels/`, `Tray/`, `Services/` (engines, `PlaybackEngineFactory`, `PlaybackHost`, `IDialogService`, `IUiDispatcher`, `FileAppLog`), `Platform/`, `SingleInstance/` and `Interop/` (the only Objective-C declarations, D27). The legacy code-built views and `RadioController` were deleted in `4ef9515`; references to them below point at the baseline tag. |
 | `C:` | `DialShift.Core/`. The former `Models.cs` is split into `Models/` (`Settings`, `Station`, `ScheduleEntry`, `Occurrence`), `Scheduling/` (`Scheduler`, `ScheduleSession`) and `Settings/` (`SettingsStore`). The coordinator is in `Playback/` (`PlaybackCoordinator`, `RetryPolicy`, `Contracts/`). |
 
-`RadioController` is byte-identical on both front-ends except for the wake preamble (QA-N1) and the dispatcher type. Evidence written as `RC:` applies to both: `DialShift/RadioController.cs` (WPF) and `DialShift.App/Services/RadioController.cs` (the relocated Mac copy, deleted once the coordinator is wired in).
+`RadioController` is byte-identical on both front-ends except for the wake preamble (QA-N1) and the dispatcher type. Evidence written as `RC:` applies to both: `DialShift/RadioController.cs` (WPF) and `DialShift.App/Services/RadioController.cs` (the relocated Mac copy, deleted in `4ef9515` when the coordinator was wired in).
 
 ### 2.1 Lifecycle, startup, data
 
@@ -175,128 +188,128 @@
 
 ## 3. Acceptance matrix
 
-Every row starts as `TODO`. Test IDs are defined in §7 (`CT-*`, `HS-*`). `SMK` is the new app's `--smoke-test` run on a native desktop. `MAN` is a manual checklist step in §9.
+Every row started as `TODO`; the status column was last reviewed at `82a9900` against CI run `36088138439` (the counts are in the status header). Test IDs are defined in §7 (`CT-*`, `HS-*`). `SMK` is the new app's `--smoke-test` run on a native desktop. `MAN` is a manual checklist step in §9.
 
 ### 3.1 Behavior rows
 
 | ID | Behavior | Owner lane | Unit | Headless integration | Native Windows smoke | Native macOS smoke | Status |
 |---|---|---|---|---|---|---|---|
-| BHV-01 | First launch defaults | core, ui | CT-SET-07 | HS-01 | SMK | SMK | TODO |
-| BHV-02 | Restore settings | core | CT-SET-03, CT-SET-04, CT-SET-08 | HS-01 | SMK | SMK | TODO |
-| BHV-03 | Corrupt-settings recovery | core, ui | CT-SET-02, CT-SET-05, CT-SET-06, CT-SET-10 | HS-07 | MAN | MAN | TODO |
-| BHV-04 | Startup failure dialog + log | ui, platform | — | HS-08 | MAN | MAN | TODO |
-| BHV-05 | Canonical data directory | platform | — | HS-18 | SMK | SMK | TODO |
-| BHV-06 | Log location, structured + redacted | platform | CT-LOG-01..04 | HS-10 | SMK | SMK | TODO |
-| BHV-07 | Single instance, primary acquisition | platform | — | CT-SI-01, CT-SI-09, CT-SI-11 | SMK | SMK | TODO |
-| BHV-08 | Second launch activates the first | platform, ui | — | CT-SI-02..08, CT-SI-10, CT-SI-13, HS-09 | MAN | MAN | TODO |
-| BHV-09 | Start in tray (`--tray` / setting) | ui | — | HS-06 | MAN | MAN | TODO |
-| BHV-10 | Startup schedule catch-up | core | CT-PB-01 | HS-14 | SMK | SMK | TODO |
-| BHV-11 | Quit (clean teardown) | ui, platform | CT-PB-35 | HS-04, HS-08 | SMK | SMK | TODO |
-| BHV-12 | Close to tray | ui | — | HS-05 | MAN | MAN | TODO |
-| BHV-13 | Minimize hides | ui | — | HS-05 | MAN | MAN | TODO |
-| BHV-14 | Hide-to-tray button (+ Windows balloon, OQ-3) | ui | — | HS-05 | MAN | MAN | TODO |
-| BHV-15 | Show window / bring to front | ui | — | HS-05 | MAN | MAN | TODO |
-| BHV-16 | Save failure dialog, atomic save | core, ui | CT-SET-09 | HS-07 | — | — | TODO |
-| BHV-17 | Save triggers (incl. tray commands, OQ-11) | ui | — | HS-04 | — | — | TODO |
-| BHV-18 | Mac Reopen activation (LSUIElement) | ui | — | — | N/A | MAN | TODO |
-| BHV-19 | Tray icon assets (.ico / template) | ui, release | — | HS-15 | MAN | MAN | TODO |
-| BHV-20 | Tray click semantics per OS | ui | — | — | MAN | MAN | TODO |
-| BHV-21 | Tray menu items + command routing | ui | — | HS-04 | MAN | MAN | TODO |
-| BHV-22 | Tray menu refresh, identity preserved | ui | — | HS-03 | SMK | SMK | TODO |
-| BHV-23 | Tray tooltip text | ui | — | HS-13 | MAN | MAN | TODO |
-| BHV-24 | Window shell, tabs, theme (D1) | ui | — | HS-01 | MAN | MAN | TODO |
-| BHV-25 | Player card rendering | ui | — | HS-13 | SMK | SMK | TODO |
-| BHV-26 | Play/Pause toggle resolution | core, ui | CT-PB-24 | HS-04 | SMK | SMK | TODO |
-| BHV-27 | Skip / next station | core | CT-PB-25 | HS-04 | SMK | SMK | TODO |
-| BHV-28 | Volume clamp, forward, mute at 0, persist | core, ui | CT-PB-23 | HS-13 | SMK | SMK | TODO |
-| BHV-29 | Footer UP NEXT / LOCAL TIME | ui | CT-PB-39 | HS-13 | MAN | MAN | TODO |
-| BHV-30 | Manual play | core | CT-PB-03, CT-SM-02 | HS-14 | SMK | SMK | TODO |
-| BHV-31 | Live state + texts | core | CT-PB-02 | HS-14 | SMK | SMK | TODO |
-| BHV-32 | Now-playing metadata (optional) | core, playback | CT-PB-37 | — | SMK | SMK | TODO |
-| BHV-33 | Pause (user stop) texts + cancellation | core | CT-PB-20, CT-PB-38 | HS-14 | SMK | SMK | TODO |
-| BHV-34 | Stream error / end → failure (once per attempt) | core | CT-PB-05, CT-PB-17, CT-PB-18 | — | SMK (recovery) | SMK (recovery) | TODO |
-| BHV-35 | Retry backoff 3/6/30 s, countdown, never gives up | core | CT-PB-05, CT-PB-06, CT-PB-08 | — | SMK (recovery) | SMK (recovery) | TODO |
-| BHV-36 | Fallback after 3 failures | core | CT-PB-07, CT-PB-09 | — | SMK (recovery) | SMK (recovery) | TODO |
-| BHV-37 | Fallback re-tries primary after 120 s; alternation | core | CT-PB-10, CT-PB-11, CT-PB-12 | — | MAN | MAN | TODO |
-| BHV-38 | 60 s stable playback resets failures (primary only) | core | CT-PB-13, CT-PB-14 | — | — | — | TODO |
-| BHV-39 | 25 s stall watchdog | core, playback | CT-PB-15, CT-PB-16 | — | MAN | MAN | TODO |
-| BHV-40 | Engine selection + lifetime (LibVLC Win / AVPlayer mac) | playback | — | HS-15, HS-17 | SMK | SMK | TODO |
-| BHV-41 | Stale callbacks discarded | core | CT-PB-19, CT-PB-22, CT-PB-40 | — | — | — | TODO |
-| BHV-42 | Sleep/wake recovery (layered) | core, platform | CT-PB-29..34 | HS-16 | MAN | MAN | TODO |
-| BHV-43 | Dispose prevents further playback | core | CT-PB-35, CT-SM-17 | HS-14 | — | — | TODO |
-| BHV-44 | Scheduled switch (even when paused) | core | CT-PB-04, CT-SES-02 | HS-14 | SMK | SMK | TODO |
-| BHV-45 | Manual hold within slot | core | CT-PB-03, CT-SES-02 | — | SMK | SMK | TODO |
-| BHV-46 | Pause holds within slot | core | CT-PB-04, CT-PB-31 | — | SMK | SMK | TODO |
-| BHV-47 | Forced refresh replays current slot [QUIRK] | core | CT-PB-27, CT-SES-05 | — | — | — | TODO |
-| BHV-48 | Catch-up ±7 days | core | CT-SCH-04, existing "Late wake…" | — | — | — | TODO |
-| BHV-49 | DST, computer-local | core | existing DST checks, CT-SES-07 | — | — | — | TODO |
-| BHV-50 | Follow-schedule toggle (page + tray in sync) | ui | — | HS-03, HS-04 | MAN | MAN | TODO |
-| BHV-51 | Stations page | ui | — | HS-01 | MAN | MAN | TODO |
-| BHV-52 | Station add/edit validation | ui | — | HS-02 | — | — | TODO |
-| BHV-53 | Station delete (confirm, cleanup, forget) | ui, core | CT-PB-26 | HS-02, HS-03 | — | — | TODO |
-| BHV-54 | Settings import/export (absent; OQ-2) | spec | — | — | — | — | TODO |
-| BHV-55 | Schedule page | ui | — | HS-01 | MAN | MAN | TODO |
-| BHV-56 | Slot add/edit validation | ui | — | HS-02 | — | — | TODO |
-| BHV-57 | Slot conflict | core, ui | CT-SCH-07, existing conflict checks | HS-02 | — | — | TODO |
-| BHV-58 | Delete slot (OQ-10) | ui | — | HS-02 | — | — | TODO |
-| BHV-59 | Launch at login (transactional status) | platform, ui | — | HS-11 | MAN | MAN | TODO |
-| BHV-60 | Start-in-tray setting | ui | — | HS-06 | — | — | TODO |
-| BHV-61 | Fallback picker | ui, core | CT-PB-36 | HS-02 | — | — | TODO |
-| BHV-62 | About shows the real version | ui | — | HS-13 | — | — | TODO |
-| BHV-63 | Open settings folder | platform | — | HS-12 | MAN | MAN | TODO |
-| BHV-64 | Message/confirm dialogs, safe owner | ui | — | HS-07 | MAN | MAN | TODO |
-| BHV-65 | Accessibility names, keyboard defaults | ui | — | HS-02 | MAN | MAN | TODO |
-| BHV-66 | Smoke harness replaced before WPF removal | test | — | HS-* | SMK | SMK | TODO |
+| BHV-01 | First launch defaults | core, ui | CT-SET-07 | HS-01 | SMK | SMK | TODO: HS-01, then SMK (CT-SET-07 green) |
+| BHV-02 | Restore settings | core | CT-SET-03, CT-SET-04, CT-SET-08 | HS-01 | SMK | SMK | TODO: HS-01, then SMK (unit green) |
+| BHV-03 | Corrupt-settings recovery | core, ui | CT-SET-02, CT-SET-05, CT-SET-06, CT-SET-10 | HS-07 | MAN | MAN | TODO: HS-07, then MAN (unit green) |
+| BHV-04 | Startup failure dialog + log | ui, platform | — | HS-08 | MAN | MAN | TODO: HS-08, then MAN |
+| BHV-05 | Canonical data directory | platform | — | HS-18 | SMK | SMK | TODO: SMK only (HS-18 green on both OSes) |
+| BHV-06 | Log location, structured + redacted | platform | CT-LOG-01..04 | HS-10 | SMK | SMK | TODO: SMK only (CT-LOG-01..04, HS-10 green) |
+| BHV-07 | Single instance, primary acquisition | platform | — | CT-SI-01, CT-SI-09, CT-SI-11 | SMK | SMK | TODO: SMK only (CT-SI-01/09/11 green on both OSes) |
+| BHV-08 | Second launch activates the first | platform, ui | — | CT-SI-02..08, CT-SI-10, CT-SI-13, HS-09 | MAN | MAN | NATIVE-PENDING (NC-06, NC-17; CT-SI-*, HS-09 green on both OSes) |
+| BHV-09 | Start in tray (`--tray` / setting) | ui | — | HS-06 | MAN | MAN | TODO: HS-06, then MAN |
+| BHV-10 | Startup schedule catch-up | core | CT-PB-01 | HS-14 | SMK | SMK | TODO: HS-14, then SMK (CT-PB-01 green) |
+| BHV-11 | Quit (clean teardown) | ui, platform | CT-PB-35 | HS-04, HS-08 | SMK | SMK | TODO: HS-04, HS-08, then SMK (CT-PB-35 green) |
+| BHV-12 | Close to tray | ui | — | HS-05 | MAN | MAN | TODO: HS-05, then MAN |
+| BHV-13 | Minimize hides | ui | — | HS-05 | MAN | MAN | TODO: HS-05, then MAN |
+| BHV-14 | Hide-to-tray button (+ Windows balloon, OQ-3) | ui | — | HS-05 | MAN | MAN | TODO: HS-05, then MAN |
+| BHV-15 | Show window / bring to front | ui | — | HS-05 | MAN | MAN | TODO: HS-05, then MAN |
+| BHV-16 | Save failure dialog, atomic save | core, ui | CT-SET-09 | HS-07 | — | — | TODO: HS-07 (CT-SET-09 green) |
+| BHV-17 | Save triggers (incl. tray commands, OQ-11) | ui | — | HS-04 | — | — | TODO: HS-04 |
+| BHV-18 | Mac Reopen activation (LSUIElement) | ui | — | — | N/A | MAN | NATIVE-PENDING (NC-17; no automatable column) |
+| BHV-19 | Tray icon assets (.ico / template) | ui, release | — | HS-15 | MAN | MAN | TODO: HS-15 icon-asset assertion (release), then NC-01, NC-12 |
+| BHV-20 | Tray click semantics per OS | ui | — | — | MAN | MAN | NATIVE-PENDING (NC-01, NC-12; no automatable column) |
+| BHV-21 | Tray menu items + command routing | ui | — | HS-04 | MAN | MAN | TODO: HS-04, then MAN |
+| BHV-22 | Tray menu refresh, identity preserved | ui | — | HS-03 | SMK | SMK | TODO: HS-03, then SMK |
+| BHV-23 | Tray tooltip text | ui | — | HS-13 | MAN | MAN | TODO: HS-13, then MAN |
+| BHV-24 | Window shell, tabs, theme (D1) | ui | — | HS-01 | MAN | MAN | TODO: HS-01, then MAN |
+| BHV-25 | Player card rendering | ui | — | HS-13 | SMK | SMK | TODO: HS-13, then SMK |
+| BHV-26 | Play/Pause toggle resolution | core, ui | CT-PB-24 | HS-04 | SMK | SMK | TODO: HS-04, then SMK (CT-PB-24 green) |
+| BHV-27 | Skip / next station | core | CT-PB-25 | HS-04 | SMK | SMK | TODO: HS-04, then SMK (CT-PB-25 green) |
+| BHV-28 | Volume clamp, forward, mute at 0, persist | core, ui | CT-PB-23 | HS-13 | SMK | SMK | TODO: HS-13, then SMK (CT-PB-23 green) |
+| BHV-29 | Footer UP NEXT / LOCAL TIME | ui | CT-PB-39 | HS-13 | MAN | MAN | TODO: HS-13, then MAN (CT-PB-39 green) |
+| BHV-30 | Manual play | core | CT-PB-03, CT-SM-02 | HS-14 | SMK | SMK | TODO: HS-14, then SMK (unit green) |
+| BHV-31 | Live state + texts | core | CT-PB-02 | HS-14 | SMK | SMK | TODO: HS-14, then SMK (CT-PB-02 green) |
+| BHV-32 | Now-playing metadata (optional) | core, playback | CT-PB-37 | — | SMK | SMK | TODO: SMK only (CT-PB-37 green; macOS always shows the tag, D26) |
+| BHV-33 | Pause (user stop) texts + cancellation | core | CT-PB-20, CT-PB-38 | HS-14 | SMK | SMK | TODO: HS-14, then SMK (unit green) |
+| BHV-34 | Stream error / end → failure (once per attempt) | core | CT-PB-05, CT-PB-17, CT-PB-18 | — | SMK (recovery) | SMK (recovery) | TODO: SMK `--recovery-test` only (unit green) |
+| BHV-35 | Retry backoff 3/6/30 s, countdown, never gives up | core | CT-PB-05, CT-PB-06, CT-PB-08 | — | SMK (recovery) | SMK (recovery) | TODO: SMK `--recovery-test` only (unit green) |
+| BHV-36 | Fallback after 3 failures | core | CT-PB-07, CT-PB-09 | — | SMK (recovery) | SMK (recovery) | TODO: SMK `--recovery-test` only (unit green) |
+| BHV-37 | Fallback re-tries primary after 120 s; alternation | core | CT-PB-10, CT-PB-11, CT-PB-12 | — | MAN | MAN | NATIVE-PENDING (NC-03, NC-11; unit green) |
+| BHV-38 | 60 s stable playback resets failures (primary only) | core | CT-PB-13, CT-PB-14 | — | — | — | GREEN (CT-PB-13, CT-PB-14; CI `36088138439`) |
+| BHV-39 | 25 s stall watchdog | core, playback | CT-PB-15, CT-PB-16 | — | MAN | MAN | NATIVE-PENDING (NC-03; unit green; macOS real-engine watchdog shown by the adapter harness, corpus T9/T10/T14) |
+| BHV-40 | Engine selection + lifetime (LibVLC Win / AVPlayer mac) | playback | — | HS-15, HS-17 | SMK | SMK | TODO: HS-17 in CI (playback, test); HS-15 engine part green; then SMK |
+| BHV-41 | Stale callbacks discarded | core | CT-PB-19, CT-PB-22, CT-PB-40 | — | — | — | GREEN (CT-PB-19, CT-PB-22, CT-PB-40; CI `36088138439`) |
+| BHV-42 | Sleep/wake recovery (layered) | core, platform | CT-PB-29..34 | HS-16 | MAN | MAN | NATIVE-PENDING (NC-02, NC-08; CT-PB-29..34 green, HS-16 green on both OSes) |
+| BHV-43 | Dispose prevents further playback | core | CT-PB-35, CT-SM-17 | HS-14 | — | — | TODO: HS-14 (CT-PB-35, CT-SM-17 green) |
+| BHV-44 | Scheduled switch (even when paused) | core | CT-PB-04, CT-SES-02 | HS-14 | SMK | SMK | TODO: HS-14, then SMK (unit green) |
+| BHV-45 | Manual hold within slot | core | CT-PB-03, CT-SES-02 | — | SMK | SMK | TODO: SMK only (unit green) |
+| BHV-46 | Pause holds within slot | core | CT-PB-04, CT-PB-31 | — | SMK | SMK | TODO: SMK only (unit green) |
+| BHV-47 | Forced refresh replays current slot [QUIRK] | core | CT-PB-27, CT-SES-05 | — | — | — | GREEN (CT-PB-27, CT-SES-05; CI `36088138439`) |
+| BHV-48 | Catch-up ±7 days | core | CT-SCH-04, existing "Late wake…" | — | — | — | GREEN (CT-SCH-04, legacy "Late wake…"; CI `36088138439`) |
+| BHV-49 | DST, computer-local | core | existing DST checks, CT-SES-07 | — | — | — | GREEN (legacy DST checks, CT-SES-07; CI `36088138439` (UTC runners) and dev box (CEST)) |
+| BHV-50 | Follow-schedule toggle (page + tray in sync) | ui | — | HS-03, HS-04 | MAN | MAN | TODO: HS-03, HS-04, then MAN |
+| BHV-51 | Stations page | ui | — | HS-01 | MAN | MAN | TODO: HS-01, then MAN |
+| BHV-52 | Station add/edit validation | ui | — | HS-02 | — | — | TODO: HS-02 |
+| BHV-53 | Station delete (confirm, cleanup, forget) | ui, core | CT-PB-26 | HS-02, HS-03 | — | — | TODO: HS-02, HS-03 (CT-PB-26 green) |
+| BHV-54 | Settings import/export (absent; OQ-2) | spec | — | — | — | — | GREEN (spec: absent in both front-ends and in `DialShift.App` at `82a9900`; out of scope per OQ-2) |
+| BHV-55 | Schedule page | ui | — | HS-01 | MAN | MAN | TODO: HS-01, then MAN |
+| BHV-56 | Slot add/edit validation | ui | — | HS-02 | — | — | TODO: HS-02 |
+| BHV-57 | Slot conflict | core, ui | CT-SCH-07, existing conflict checks | HS-02 | — | — | TODO: HS-02 (unit green) |
+| BHV-58 | Delete slot (OQ-10) | ui | — | HS-02 | — | — | TODO: HS-02 |
+| BHV-59 | Launch at login (transactional status) | platform, ui | — | HS-11, HS-13 | MAN | MAN | TODO: HS-13, checkbox bound to the verified status (ui); HS-11 green on both OSes; then NC-04, NC-10 |
+| BHV-60 | Start-in-tray setting | ui | — | HS-06 | — | — | TODO: HS-06 |
+| BHV-61 | Fallback picker | ui, core | CT-PB-36 | HS-02 | — | — | TODO: HS-02 (CT-PB-36 green) |
+| BHV-62 | About shows the real version | ui | — | HS-13 | — | — | TODO: HS-13 |
+| BHV-63 | Open settings folder | platform | — | HS-12 | MAN | MAN | NATIVE-PENDING (NC-01, NC-17; HS-12 green on both OSes) |
+| BHV-64 | Message/confirm dialogs, safe owner | ui | — | HS-07 | MAN | MAN | TODO: HS-07, then MAN |
+| BHV-65 | Accessibility names, keyboard defaults | ui | — | HS-02 | MAN | MAN | TODO: HS-02, then MAN |
+| BHV-66 | Smoke harness replaced before WPF removal | test | — | HS-* | SMK | SMK | TODO: `--smoke-test` harness in progress (test) |
 
 ### 3.2 Brief 1 §11 matrix rows
 
 | ID | Behavior | Owner lane | Unit | Headless integration | Native Windows smoke | Native macOS smoke | Status |
 |---|---|---|---|---|---|---|---|
-| MX-01 | Settings persistence | core | CT-SET-* | HS-01, HS-02 | SMK | SMK | TODO |
-| MX-02 | Schedule evaluation | core | CT-SCH-*, CT-SES-*, TZ-* | HS-14 | SMK | SMK | TODO |
-| MX-03 | Retry and fallback | core | CT-PB-05..14 | HS-17 | SMK (recovery) | SMK (recovery) | TODO |
-| MX-04 | Tray/menu actions | ui | Limited: view-model command tests | HS-04 | MAN | MAN | TODO |
-| MX-05 | Tray menu identity (no crash on edit/refresh) | ui | — | HS-03 | SMK | SMK | TODO |
-| MX-06 | Second-instance activation | platform | — | CT-SI-*, HS-09 | MAN | MAN | TODO |
-| MX-07 | Launch at login | platform | — | HS-11 (contract test) | MAN | MAN | TODO |
-| MX-08 | Sleep/wake recovery | core, platform | CT-PB-29..34 (gap logic) | HS-16 (limited) | MAN | MAN | TODO |
-| MX-09 | Playback coordinator vs fake engine | core, test | CT-PB-*, CT-SM-* | HS-14 | SMK | SMK | TODO |
-| MX-10 | Windows LibVLC playback | playback | — | HS-17 (limited: engine contract with an unreachable URL) | SMK + corpus | N/A | TODO |
-| MX-11 | macOS AVPlayer playback | playback | — | HS-17 (limited) | N/A | SMK + corpus | TODO |
-| MX-12 | Native ARM64 macOS playback | playback, release | — | HS-15 (arm64 Mach-O, no libvlc) | N/A | MAN (Apple Silicon gate, SP-01/SP-02) | TODO |
-| MX-13 | Media compatibility corpus | playback | — | Limited | MAN | MAN | TODO |
-| MX-14 | Redacted diagnostic logging | platform, core | CT-LOG-01..04 | HS-10 | SMK | SMK | TODO |
-| MX-15 | App upgrade/move + launch-at-login recovery | platform | — | HS-11 (stale-path status) | MAN | MAN | TODO |
+| MX-01 | Settings persistence | core | CT-SET-* | HS-01, HS-02 | SMK | SMK | TODO: HS-01, HS-02, then SMK (CT-SET-* green) |
+| MX-02 | Schedule evaluation | core | CT-SCH-*, CT-SES-*, TZ-* | HS-14 | SMK | SMK | TODO: TZ-* (Phase 2), HS-14 (CT-SCH/SES green) |
+| MX-03 | Retry and fallback | core | CT-PB-05..14 | HS-17 | SMK (recovery) | SMK (recovery) | TODO: HS-17 in CI, then SMK (CT-PB-05..14 green) |
+| MX-04 | Tray/menu actions | ui | Limited: view-model command tests | HS-04 | MAN | MAN | TODO: view-model command tests, HS-04 (ui, test) |
+| MX-05 | Tray menu identity (no crash on edit/refresh) | ui | — | HS-03 | SMK | SMK | TODO: HS-03, then SMK |
+| MX-06 | Second-instance activation | platform | — | CT-SI-*, HS-09 | MAN | MAN | NATIVE-PENDING (NC-06, NC-13, NC-17; CT-SI-*, HS-09 green on both OSes) |
+| MX-07 | Launch at login | platform | — | HS-11 (contract test) | MAN | MAN | NATIVE-PENDING (NC-04, NC-10; HS-11 green on both OSes) |
+| MX-08 | Sleep/wake recovery | core, platform | CT-PB-29..34 (gap logic) | HS-16 (limited) | MAN | MAN | NATIVE-PENDING (NC-02, NC-08; CT-PB-29..34, HS-16 green) |
+| MX-09 | Playback coordinator vs fake engine | core, test | CT-PB-*, CT-SM-* | HS-14 | SMK | SMK | TODO: HS-14 (CT-PB-*, CT-SM-* green) |
+| MX-10 | Windows LibVLC playback | playback | — | HS-17 (limited: engine contract with an unreachable URL) | SMK + corpus | N/A | TODO: HS-17 in CI (playback, test), then NC-03, NC-15 |
+| MX-11 | macOS AVPlayer playback | playback | — | HS-17 (limited) | N/A | SMK + corpus | TODO: HS-17 in CI, SMK; then NC-11, NC-16. The adapter-harness corpus on macOS 26.5 is recorded in `docs/spikes.md` |
+| MX-12 | Native ARM64 macOS playback | playback, release | — | HS-15 (arm64 Mach-O, no libvlc) | N/A | MAN (Apple Silicon gate, SP-01/SP-02) | NATIVE-PENDING (NC-07; HS-15 arm64 Mach-O and no libvlc green via `verify-mac-app.sh` in CI; SP-01 green) |
+| MX-13 | Media compatibility corpus | playback | — | Limited | MAN | MAN | NATIVE-PENDING (NC-03, NC-11, NC-15, NC-16; the macOS 26.5 corpus is recorded) |
+| MX-14 | Redacted diagnostic logging | platform, core | CT-LOG-01..04 | HS-10 | SMK | SMK | TODO: SMK only (CT-LOG-01..04, HS-10 green) |
+| MX-15 | App upgrade/move + launch-at-login recovery | platform | — | HS-11 (stale-path status) | MAN | MAN | NATIVE-PENDING (NC-04, NC-10; HS-11 stale-path checks green on both OSes) |
 
 ### 3.3 Definition of done, spikes, packaging, decisions, quality gates
 
 | ID | Item | Owner lane | Verification | Status |
 |---|---|---|---|---|
-| DOD-01 | One Avalonia UI is the only maintained front-end (WPF and `DialShift.Mac` deleted; `DialShift.slnx` lists Core, Tests, App) | release | Repo tree, `DialShift.slnx`, and a grep for `System.Windows`, `WinForms`, `DialShift.Mac` and `UseWPF` returns nothing | TODO |
-| DOD-02 | No Avalonia/WPF/WinForms/OS/filesystem-location/pipe/process/UI-dispatch reference from `DialShift.Core` | spec | Grep `DialShift.Core/**` for `using Avalonia`, `System.Windows`, `Microsoft.Win32`, `System.IO.Pipes`, `System.Diagnostics.Process`, `Environment.GetFolderPath`, `Dispatcher` returns nothing. `DialShift.Core.csproj` has no `PackageReference`. Re-run at every Core change | GREEN at `e875c8e` (spec grep: no matches, no `PackageReference`) |
-| DOD-03 | Windows and macOS compile, test and publish in CI | release | GitHub Actions on the private remote, matrix `windows-latest` + `macos-latest` | TODO |
-| DOD-04 | Both packages launch, retain settings, show tray, play/stop/retry, obey schedule, exit cleanly | test | SMK on both OSes plus §9 | TODO |
-| DOD-05 | A second launch activates the existing instance on both OSes | platform | CT-SI-*, HS-09, MAN | TODO |
-| DOD-06 | Launch at login enabled, disabled and verified on both | platform | HS-11 plus MAN NC-04/NC-10 | TODO |
-| DOD-07 | Sleep/wake verified by the manual native checklist | platform | NC-02/NC-08 | TODO |
-| DOD-08 | Apple Silicon status published honestly (D2, D13) | release | README and release notes say "native osx-arm64 (AVPlayer)"; no Intel artifact is produced; the last Intel/Rosetta build is only at tag `legacy-last-known-good` (D13) | TODO |
-| DOD-09 | Structured, redacted logs with version, RID/arch, engine, transitions, startup-registration outcome, wake outcome, recoverable failures | platform | HS-10 | TODO |
-| DOD-10 | Legacy app removed only after equivalent checks pass (D8) | release | All §4 rows GREEN or NATIVE-PENDING before the deletion commit | TODO |
-| SP-01 | AVPlayer spike, checkpoint 1 (feasibility): compiles; start, stop, volume; plays the core MP3/AAC/HLS corpus on an M-series Mac | playback | Run on this Apple Silicon dev box. "Audio came out once" is not a pass | TODO |
-| SP-02 | AVPlayer spike, checkpoint 2 (reliability): repeated source changes, wake/reconnect, stop-while-connecting, second-instance activation, clean exit, clean-machine `.app` install | playback | Dev box plus NC-07 | TODO |
-| SP-03 | Windows `SystemEvents` spike: package resolves in `net10.0` without the `-windows` TFM; subscribe after the message loop; deterministic unsubscribe; timer-gap retained | playback, platform | CI `windows-latest` compile, plus NC-02 runtime | TODO |
-| SP-04 | macOS `NSWorkspace.DidWakeNotification` spike: all five §4.4 criteria (D3) | playback, platform | Dev box plus NC-08 (lid close) | TODO |
-| PK-01 | `DialShift.App` RIDs are `win-x64;osx-arm64` and never `osx-x64` (D2, D13) | release | csproj review plus HS-15. The csproj part is verified (`RuntimeIdentifiers` = `win-x64;osx-arm64` at `d83f946`); HS-15 is pending | TODO |
-| PK-02 | LibVLC packages only for `win-x64`; the macOS package contains no `libvlc*` dylibs | release, playback | HS-15 (`find … -name 'libvlc*'` is empty) | TODO |
-| PK-03 | macOS `.app`: `Info.plist` with `CFBundleIdentifier=com.tsiger.dialshift`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement=true`; exec bit set; arm64 Mach-O slice; ad-hoc signed | release | `plutil -p`, `lipo -archs`, `codesign -dv` in CI (macos-latest) | TODO |
-| PK-04 | Icons: `.ico`, macOS template PNG, `.icns` (D4) | release, ui | Asset presence plus HS-15 | TODO |
-| PK-05 | Windows artifact = `.zip` of the `win-x64` publish directory (D7) | release | CI artifact | TODO |
+| DOD-01 | One Avalonia UI is the only maintained front-end (WPF and `DialShift.Mac` deleted; `DialShift.slnx` lists Core, Tests, App) | release | Repo tree, `DialShift.slnx`, and a grep for `System.Windows`, `WinForms`, `DialShift.Mac` and `UseWPF` returns nothing | TODO: WPF `DialShift/` is still in the tree and in `DialShift.slnx` (release, D8 gate). The grep must allow `System.Windows.Input` in `ViewModels/RelayCommand.cs`, which is the cross-platform `ICommand` |
+| DOD-02 | No Avalonia/WPF/WinForms/OS/filesystem-location/pipe/process/UI-dispatch reference from `DialShift.Core` | spec | Grep `DialShift.Core/**` for `using Avalonia`, `System.Windows`, `Microsoft.Win32`, `System.IO.Pipes`, `System.Diagnostics.Process`, `Environment.GetFolderPath`, `Dispatcher` returns nothing. `DialShift.Core.csproj` has no `PackageReference`. Re-run at every Core change | GREEN (re-run at `82a9900`: no matches, no `PackageReference`) |
+| DOD-03 | Windows and macOS compile, test and publish in CI | release | GitHub Actions on the private remote, matrix `windows-latest` + `macos-latest` | GREEN (CI `36088138439` at `e5d70e2`: both jobs build with `-warnaserror`, test (windows 695 passed / 9 skipped, macos 743 / 3), package and verify) |
+| DOD-04 | Both packages launch, retain settings, show tray, play/stop/retry, obey schedule, exit cleanly | test | SMK on both OSes plus §9 | TODO: SMK harness (test) plus §9 |
+| DOD-05 | A second launch activates the existing instance on both OSes | platform | CT-SI-*, HS-09, MAN | NATIVE-PENDING (NC-06, NC-07, NC-17; CT-SI-*, HS-09 green on both OSes) |
+| DOD-06 | Launch at login enabled, disabled and verified on both | platform | HS-11 plus MAN NC-04/NC-10 | NATIVE-PENDING (NC-04, NC-10; HS-11 green on both OSes) |
+| DOD-07 | Sleep/wake verified by the manual native checklist | platform | NC-02/NC-08 | NATIVE-PENDING (NC-02, NC-08) |
+| DOD-08 | Apple Silicon status published honestly (D2, D13) | release | README and release notes say "native osx-arm64 (AVPlayer)"; no Intel artifact is produced; the last Intel/Rosetta build is only at tag `legacy-last-known-good` (D13) | TODO: the README must name tag `legacy-last-known-good` as the last Intel build and drop "playback via AVPlayer is pending" (`README.md:78`) (release) |
+| DOD-09 | Structured, redacted logs with version, RID/arch, engine, transitions, startup-registration outcome, wake outcome, recoverable failures | platform | HS-10 | TODO: `startup_registration.result` is emitted (`SettingsPageViewModel.cs:125,161`) but not asserted; add it to HS-13 or SMK (test). `app.start` fields: HS-10 green; coordinator transitions, failures and wake: CT-LOG (core) green |
+| DOD-10 | Legacy app removed only after equivalent checks pass (D8) | release | All §4 rows GREEN or NATIVE-PENDING before the deletion commit | TODO: release, after the §4 rows |
+| SP-01 | AVPlayer spike, checkpoint 1 (feasibility): compiles; start, stop, volume; plays the core MP3/AAC/HLS corpus on an M-series Mac | playback | Run on this Apple Silicon dev box. "Audio came out once" is not a pass | GREEN (checkpoint A PASS and the production-adapter corpus on macOS 26.5 arm64, `docs/spikes.md`) |
+| SP-02 | AVPlayer spike, checkpoint 2 (reliability): repeated source changes, wake/reconnect, stop-while-connecting, second-instance activation, clean exit, clean-machine `.app` install | playback | Dev box plus NC-07 | NATIVE-PENDING (NC-07, NC-08; checkpoint B PASS; second-instance protocol green (CT-SI-*)) |
+| SP-03 | Windows `SystemEvents` spike: package resolves in `net10.0` without the `-windows` TFM; subscribe after the message loop; deterministic unsubscribe; timer-gap retained | playback, platform | CI `windows-latest` compile, plus NC-02 runtime | NATIVE-PENDING (NC-02; compile PASS; HS-16 Windows green on `windows-latest`) |
+| SP-04 | macOS `NSWorkspace.DidWakeNotification` spike: all five §4.4 criteria (D3) | playback, platform | Dev box plus NC-08 (lid close) | NATIVE-PENDING (NC-08; criteria 1, 3, 4, 5 PASS; HS-16 macOS green) |
+| PK-01 | `DialShift.App` RIDs are `win-x64;osx-arm64` and never `osx-x64` (D2, D13) | release | csproj review plus HS-15. The csproj part is verified (`RuntimeIdentifiers` = `win-x64;osx-arm64` at `d83f946`); the HS-15 part is covered by `verify-mac-app.sh` in CI | GREEN (csproj `win-x64;osx-arm64`; no `osx-x64` in any csproj, script or workflow at `82a9900`; `lipo -archs` = arm64 in CI `36088138439`) |
+| PK-02 | LibVLC packages only for `win-x64`; the macOS package contains no `libvlc*` dylibs | release, playback | HS-15 (`find … -name 'libvlc*'` is empty) | GREEN (`verify-mac-app.sh` (no `libvlc*`/VLC) and `verify-win-package.ps1` (`libvlc\win-x64` only) in CI `36088138439`) |
+| PK-03 | macOS `.app`: `Info.plist` with `CFBundleIdentifier=com.tsiger.dialshift`, `CFBundleDisplayName`, `CFBundleIconFile`, `LSUIElement=true`; exec bit set; arm64 Mach-O slice; ad-hoc signed | release | `plutil -p`, `lipo -archs`, `codesign -dv` in CI (macos-latest) | GREEN (`verify-mac-app.sh` in CI `36088138439`: plist keys including `LSMinimumSystemVersion` 14.0 (D22) and ATS media-only (D32), exec bit, arm64, ad-hoc signature) |
+| PK-04 | Icons: `.ico`, macOS template PNG, `.icns` (D4) | release, ui | Asset presence plus HS-15 | TODO: `tray.png` (44×44, D34) and `.ico` presence are not yet asserted by HS-15 (release). `.icns` is asserted by `verify-mac-app.sh`; rendering is NC-12 |
+| PK-05 | Windows artifact = `.zip` of the `win-x64` publish directory (D7) | release | CI artifact | GREEN (CI artifact `DialShift-win-x64`, verified by `verify-win-package.ps1` in CI `36088138439`) |
 | PK-06 | Avalonia 12.1.2 in the App project (D6) | ui, release | csproj; record the actual version here. **Actual: 12.1.2** for `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent` (D19) | GREEN (csproj at `d83f946`) |
-| PK-07 | README, THIRD-PARTY-NOTICES (conditional LibVLC wording), `data/README` updated | release | Docs review in the same change | TODO |
-| QG-01 | No dead code: grep for stale references after each retirement | spec | Grep list in DOD-01/DOD-02 plus obsolete platform branches | TODO |
-| QG-02 | Docs updated in the same change as code (this matrix included) | spec | Per-lane review | TODO |
-| QG-03 | Best UI/UX: consistent theme, clear status, fast tray, no dead-end dialogs | ui, spec | HS-01 screenshots reviewed; §9 native UX pass | TODO |
-| QG-04 | Test-and-fix until prod-ready | all | This matrix fully GREEN or NATIVE-PENDING | TODO |
+| PK-07 | README, THIRD-PARTY-NOTICES (conditional LibVLC wording), `data/README` updated | release | Docs review in the same change | TODO: README: D26 metadata limits and the stale AVPlayer status (`README.md:78`) (release). Notices and licenses are present in both packages (verify scripts) |
+| QG-01 | No dead code: grep for stale references after each retirement | spec | Grep list in DOD-01/DOD-02 plus obsolete platform branches | TODO: re-run after the WPF retirement (spec). The legacy views and `RadioController` were deleted in `4ef9515`; at `82a9900` the only mentions are provenance comments |
+| QG-02 | Docs updated in the same change as code (this matrix included) | spec | Per-lane review | TODO: ongoing per-lane review (spec) |
+| QG-03 | Best UI/UX: consistent theme, clear status, fast tray, no dead-end dialogs | ui, spec | HS-01 screenshots reviewed; §9 native UX pass | TODO: HS-01 screenshots and the §9 native UX pass (ui, spec) |
+| QG-04 | Test-and-fix until prod-ready | all | This matrix fully GREEN or NATIVE-PENDING | TODO: this matrix fully GREEN or NATIVE-PENDING (all) |
 
 ---
 
@@ -389,7 +402,7 @@ Phase 2 starts only after Phase 1 builds, tests and publishes green. The Phase 2
 | QA-B3 | **BLOCKING** | Ambiguous (fall-back) wall time fires once, at the earlier daylight instant: `zoneWall − GetAmbiguousTimeOffsets(zoneWall).Max()` | core, test | TZ-05, a **differing-zone** ambiguous case (Europe/Athens slot, America/New_York computer) | TODO |
 | QA-B4 | **BLOCKING** | Only IANA ids are stored. The picker maps `GetSystemTimeZones()` through `TryConvertWindowsIdToIanaId`. Resolution is IANA-first with a `TryConvertIanaIdToWindowsId` fallback. There is never a comparison to `TimeZoneInfo.Local.Id` | ui, core | TZ-14 on CI `windows-latest` plus a unit test for the canonicalization helper; grep for `TimeZoneInfo.Local.Id` returns nothing | TODO |
 | QA-N1 | non-blocking | The resume path differs by OS (Mac timer gap vs Windows `SystemEvents`) | core, platform | The layered design routes both into one recovery path: CT-PB-29/30 cover both sources. TZ-12 on both OSes (NC-02, NC-08) | TODO |
-| QA-N2 | non-blocking | The existing DST tests are already machine-independent | test | Keep them unchanged; run CI on hosts in different zones (the runners' zones differ) | TODO |
+| QA-N2 | non-blocking | The existing DST tests are already machine-independent | test | Keep them unchanged; run CI on hosts in different zones (the runners' zones differ) | GREEN (the legacy DST checks are unmodified and pass on the CI runners in UTC, CI `36088138439`, and on the dev box in CEST, +02:00) |
 | QA-N3 | non-blocking | Never bump `Settings.Version`. An invalid `TimeZone` string must not reach the `.unreadable-*` path | core | CT-SET-02 (version guard); TZ-08; Phase 2 pin: `"TimeZone": 123` hazard documented (CT-SET-11) | TODO |
 | QA-N4 | non-blocking | Per-(zone, localZone, zoneDate, time) memo with day-change invalidation. The real staleness is the OS tzdata snapshot, so a restart is required on a zone change | core | Unit test for memo invalidation across midnight; README restart note (D12) | TODO |
 | QA-N5 | non-blocking | Conflicts normalize the zone (`IsNullOrWhiteSpace → ""`, `Trim`) and compare the **resolved** `zone?.Id`. This is an approximation and is documented | core | TZ-09, TZ-10; `null` vs `" "` rejected; case-variant id rejected | TODO |
@@ -428,7 +441,9 @@ The test lane writes these **before code moves** (brief 1 §12 step 2), in `Dial
 
 ### 7.0 Implementation status
 
-"Implemented" means written and passing locally (`dotnet run --project DialShift.Tests`, 110 checks, 4/4 suites green at `e875c8e`). A row becomes CI evidence when DOD-03 is green.
+"Implemented" means written and passing both locally and in CI. `dotnet run --project DialShift.Tests -c Release` reports **743 passed, 3 skipped, 16/16 suites** on macOS arm64 at `e5d70e2`. CI run `36088138439` (`e5d70e2`) reports windows-latest **695 / 9 skipped** and macos-latest **743 / 3**. The skips are the checks for the other OS: Windows skips the Unix socket and `chmod` checks and the macOS HS-11/12/16 halves, and macOS skips the Windows halves. DOD-03 is green, so every "Implemented" row below is CI evidence.
+
+Per suite on macOS (passed / skipped): Scheduler 33, ScheduleSession 25, SettingsStore 23, RetryPolicy 23, PlaybackCoordinator 186, PlaybackStateMachine 116, PlaybackProperty 6, PlaybackRace 3, Fakes 36, SingleInstance 127, FileAppLog 68, AppPaths 19, StartupRegistration 41 / 1, FileReveal 19 / 1, MonotonicClock 7, PowerEvents 11 / 1.
 
 | IDs | Status | Location |
 |---|---|---|
@@ -438,8 +453,19 @@ The test lane writes these **before code moves** (brief 1 §12 step 2), in `Dial
 | CT-SET-01..10 | Implemented | `DialShift.Tests/Core/SettingsStoreTests.cs` |
 | CT-SET-11 | TODO (Phase 2) | — |
 | §7.1 harness fakes | Implemented, with self-tests | `DialShift.Tests/Fakes/` |
-| CT-PB-01..40, CT-SM-01..22 | TODO (test lane writing them now) | — |
-| CT-SI-*, CT-LOG-*, HS-* | TODO | — |
+| CT-PB-01..40, plus the adversarial checks (ADV-*) and CT-LOG (core) | Implemented (`7ea767d`) | `DialShift.Tests/Core/PlaybackCoordinatorTests.cs`, `CoordinatorRig.cs` |
+| CT-SM-01..22, including the property (seed 42) and race suites | Implemented (`7ea767d`) | `DialShift.Tests/Core/PlaybackStateMachineTests.cs` |
+| RetryPolicy (§5.1) | Implemented | `DialShift.Tests/Core/RetryPolicyTests.cs` |
+| CT-SI-01..13 (CT-SI-03 = HS-09, process level through a child test process), SI-D1, stale-socket recovery | Implemented (`a0f5f8f`, `895e141`) | `DialShift.Tests/App/SingleInstanceTests.cs` |
+| CT-LOG-01..04, LOG-D1 (two processes), §8.2.7 never-throws | Implemented (`a0f5f8f`, `895e141`) | `DialShift.Tests/App/FileAppLogTests.cs` |
+| HS-10 (`app.start` fields and redaction on disk), HS-18 | Implemented | `DialShift.Tests/App/FileAppLogTests.cs`, `AppPathsTests.cs` |
+| HS-11, HS-12, HS-16 (the macOS half runs on macOS, the Windows half on `windows-latest`), §8.2.8 clocks | Implemented | `DialShift.Tests/Platform/` |
+| HS-15 | Partial. `scripts/verify-mac-app.sh` and `verify-win-package.ps1` run in CI on the downloadable zips: arm64-only Mach-O, no VLC on macOS, `libvlc\win-x64` only, Info.plist keys, `.icns`, ad-hoc signature, x64 GUI PE. **Missing:** a template `tray.png` / `.ico` presence assertion (PK-04) | `scripts/`, `.github/workflows/ci.yml` |
+| HS-17 | Not in CI. The real engines were exercised against the full corpus by the out-of-repo playback harness (`docs/spikes.md`, "Adapter (production)" column) | — |
+| HS-01..08, HS-13, HS-14 | TODO (test, ui); the `--smoke-test` harness (BHV-66) is in progress | — |
+| TZ-* | TODO (Phase 2) | — |
+
+Known test hazards (HZ-07, HZ-08) are tracked in §7.11.
 
 Characterization surprises found while writing these are tracked in §7.10.
 
@@ -631,17 +657,34 @@ HS tests run in CI on both OSes and use `DIALSHIFT_DATA_DIR` and fake engines.
 
 ### 7.10 Characterization and review findings (tracked)
 
-Findings from the Phase 1 characterization suites (`CF-*`) and from the spec review of the core lane (`CR-*`). The `[quirk]` checks named below pin the current behavior until the listed fix lands, and flip in the same change as the fix.
+Findings from the Phase 1 characterization suites (`CF-*`), from the spec review of the core lane (`CR-*`), and from the platform-lane verification (SI-D1, LOG-D1). The `[quirk]` checks named below pin the current behavior until the listed fix lands, and flip in the same change as the fix.
 
 | ID | Severity | Finding | Recommendation | Owner lane | Phase | Status |
 |---|---|---|---|---|---|---|
 | CF-01 | low | `Occurrence.Key` is culture-dependent: it formats `At` with the current culture, so `:` becomes the culture's time separator, and a non-Gregorian calendar changes `yyyy`. Harmless in-process today (keys are never persisted and the culture does not change mid-session), but not the invariant format CT-SCH-02 specifies. Pinned by `[quirk] CT-SCH-02 Key follows CurrentCulture's time separator`. | Format with `CultureInfo.InvariantCulture` (`yyyy-MM-dd'T'HH':'mm`) in Phase 2, since `Scheduler` and `Occurrence` are changed then anyway. No migration is needed because keys are in-memory only. | core | 2 | TODO |
 | CF-02 | non-blocking | A backward wall-clock jump suppresses older slots until real time passes the last fired slot (`current.At < last.At` in `ScheduleSession.TakeChange`). This is the same root cause as QA-N8. Pinned by `[quirk] Backward clock jump: Tue 09:00 slot is suppressed`. | Apply the Phase 2 fix from brief 2 §7.8: key the dedup on `Occurrence.Key`/zone-wall identity, or reset `last` on a zone change. The fix must keep the intended guard (`[quirk] Backward clock jump: Mon 12:00 does not replay last week's Wed slot` stays), and flips the Tue 09:00 check together with CT-SES-08 (QA-N8). | core | 2 | TODO |
 | CF-03 | low | `SettingsStore.Warning` is never cleared: a later successful `Load` on the same store keeps the old warning. No user impact today, because the App loads once per process. Pinned by `[quirk] Warning is never cleared by a later successful Load on the same store`. | Reset `Warning = null` at the start of `Load`. Batch it with the Phase 2 `SettingsStore` change for QA-N3/CT-SET-11. | core | 2 | TODO |
-| CF-04 | low | If a `settings.json.unreadable-<yyyyMMddHHmmssfff>` backup with the same millisecond name already exists, `File.Copy` throws `IOException` from inside the recovery `catch`, so it escapes `Load` (see the BHV-03 quirk). | In Phase 1 the ui/platform lanes' startup-failure path (BHV-04, HS-08) turns the escape into a dialog and a log instead of a crash. The Core fix in Phase 2 is a collision-free backup name (retry with a suffix) plus a test. | core (fix); ui, platform (Phase 1 mitigation) | 2 (fix), 1 (mitigation) | TODO |
-| CR-01 | low (latent) | `PlaybackCoordinator.Open` increments `startsIssued` and sets `currentSessionId` (`PlaybackCoordinator.cs:310`) **before** it builds the `StreamSource`/`Uri` and enqueues the start (`:314`). An exception in between would permanently shift the "N-th start is session N" mapping (D16), so every later session's events would be dropped as stale. More generally, a transition that throws after `NewOperation()` leaves an active attempt with `currentSessionId == 0`, which the stall watchdog (`:360`) never fails, so the coordinator would stay in `Connecting` until the next user or schedule action. This is unreachable today because `SettingsStore.ValidUrl` and `new Uri` agree. | Build the command first, then assign the id and enqueue, so that nothing can throw between the increment and the enqueue. | core | 1 | TODO |
-| CR-02 | low | `DisposeAsync` awaits the engine's `StopAsync` completion (`PlaybackCoordinator.cs:767`) with no bound, so an adapter whose stop hangs blocks quit forever. | The App's quit path (BHV-11) awaits coordinator disposal with a timeout (about 3 s), then logs `app.exit` with a timeout flag and continues the teardown. | ui | 1 | TODO |
-| CR-03 | nit | `playback.state` logs `session={startsIssued}`, the last issued id, rather than the current session. In Stopped, Failed and Suspended it names the previous attempt. | Keep it, and document it as "last issued session" in §8.2.7, or log `currentSessionId`. | core | 1 | TODO |
+| CF-04 | low | If a `settings.json.unreadable-<yyyyMMddHHmmssfff>` backup with the same millisecond name already exists, `File.Copy` throws `IOException` from inside the recovery `catch`, so it escapes `Load` (see the BHV-03 quirk). | In Phase 1 the ui/platform lanes' startup-failure path (BHV-04, HS-08) turns the escape into a dialog and a log instead of a crash. The Core fix in Phase 2 is a collision-free backup name (retry with a suffix) plus a test. | core (fix); ui, platform (Phase 1 mitigation) | 2 (fix), 1 (mitigation) | TODO. The Phase 1 mitigation is in place in `4ef9515`: `Settings` is resolved inside `App.StartAsync`'s try block, so an escaping `Load` exception goes to `FailStartupAsync` (dialog, `app.startup_failed`, exit 1). The check is pending HS-08 |
+| CR-01 | low (latent) | `PlaybackCoordinator.Open` increments `startsIssued` and sets `currentSessionId` (`PlaybackCoordinator.cs:310`) **before** it builds the `StreamSource`/`Uri` and enqueues the start (`:314`). An exception in between would permanently shift the "N-th start is session N" mapping (D16), so every later session's events would be dropped as stale. More generally, a transition that throws after `NewOperation()` leaves an active attempt with `currentSessionId == 0`, which the stall watchdog (`:360`) never fails, so the coordinator would stay in `Connecting` until the next user or schedule action. This is unreachable today because `SettingsStore.ValidUrl` and `new Uri` agree. | Build the command first, then assign the id and enqueue, so that nothing can throw between the increment and the enqueue. | core | 1 | GREEN. Fixed in `af816ad`: `Open` validates the URL and builds the `EngineCommand` before it commits `startsIssued`/`currentSessionId` (`PlaybackCoordinator.cs:326–332`), and fault recovery never leaves `Connecting` stuck. Covered by ADV-09 (synchronous and faulted `StartAsync`) and ADV-16 (invalid URL never reaches the engine) |
+| CR-02 | low | `DisposeAsync` awaits the engine's `StopAsync` completion (`PlaybackCoordinator.cs:767`) with no bound, so an adapter whose stop hangs blocks quit forever. | The App's quit path (BHV-11) awaits coordinator disposal with a timeout (about 3 s), then logs `app.exit` with a timeout flag and continues the teardown. | ui | 1 | FIXED in `4ef9515`, test pending. `PlaybackHost.StopAsync` bounds coordinator disposal at 3 s (`DisposeTimeout`) and logs `app.quit.dispose_timeout`. `App.TeardownAsync` also bounds the single-instance and provider disposal at 2 s each and logs `app.exit … clean=false`, so the worst-case quit is about 7 s. The automated check is HS-14 (test) |
+| CR-03 | nit | `playback.state` logs `session={startsIssued}`, the last issued id, rather than the current session. In Stopped, Failed and Suspended it names the previous attempt. | Keep it, and document it as "last issued session" in §8.2.7, or log `currentSessionId`. | core | 1 | GREEN. Fixed in `af816ad`: `playback.state` logs `session={currentSessionId}` (`PlaybackCoordinator.cs:613`), which is 0 when no session is live |
+| SI-D1 | medium | On Unix, all server instances of a pipe share one ref-counted listening socket. When the handled instance was disposed before the next was created, the socket closed, and a second launch that connected in that gap was dropped (no activation, exit 2). | Keep a listening instance armed at all times; bound concurrent handlers (D24). | platform | 1 | GREEN. Fixed in `e3ceaa2`, and a default check since `895e141`: "SI-D1 an activation arriving while the previous connection is torn down is still served (5 of 5)", plus CT-SI-12 re-bind mode checks |
+| LOG-D1 | medium | Two processes (the primary and a second launch) appending to `dialshift.log` overwrote each other's lines, because .NET `FileMode.Append` is not `O_APPEND`, and two rotations could race and lose `dialshift.log.1`. | A cross-process lock file around the size check, rotate and append, with a bounded wait (D25). | platform | 1 | GREEN. Fixed in `e3ceaa2`, and a default check since `895e141`: LOG-D1 two-process tests (4 000 lines, none lost or torn; per-process order kept across rotations) |
+
+### 7.11 Integration hazards (tracked)
+
+These are risks found by the test lane during integration, and by the spec review of the integration merge. Each one is mitigated, accepted with a reason, or open with an owner.
+
+| ID | Severity | Hazard | Disposition | Owner lane | Status |
+|---|---|---|---|---|---|
+| HZ-01 | high (if it happened) | **A used engine never plays.** If an engine that was already started (for example resolved from the container elsewhere) were handed to the coordinator, its session ids would not match the coordinator's N-th-start mapping (D16). Every event would be discarded as stale and nothing would ever play. | **Mitigated by D23:** the single-use `PlaybackEngineFactory` is the only source, `IPlaybackEngine` is never registered, and a second `Create()` throws. The "fresh engine" rule is in the `IPlaybackEngine` contract remarks. | playback | Mitigated |
+| HZ-02 | medium | **Shutdown hang.** An adapter whose stop never completes would block quit forever. | **Mitigated by CR-02:** quit is bounded (3 s for playback, 2 s for single instance, 2 s for the provider). | ui | Mitigated; test pending HS-14 |
+| HZ-03 | low | **Duplicate snapshot on a synchronous `StartAsync` throw.** When an adapter throws synchronously from `StartAsync`, the failure reaches the coordinator through the pump's faulted-task path, and subscribers can see a duplicate `SnapshotChanged` for that transition. | **Accepted.** The contract forbids throwing for stream problems, both adapters report failures through `Failed`, and snapshot consumers are idempotent (the view models render the latest value). | core | Accepted |
+| HZ-04 | low | **A Windows `Resume` that arrives more than 10 s late causes a second reconnect.** If the tick gap has already detected the wake and the recovery completed more than 10 s (D15) before `SystemEvents` delivers `PowerModes.Resume`, a second recovery runs. That is one extra reconnect after a 2 s settle. | **Accepted.** The cost is a brief audio restart. NC-02 records the observed delay between wake and `Resume`; revisit D15 if it is routinely more than 10 s. | platform | Accepted |
+| HZ-05 | medium | **A blocking `StartAsync`.** The coordinator's pump invokes `StartAsync` synchronously, usually on the UI thread, and issues the next command (typically the superseding stop) only after it returns. | **Contract rule added** to `IPlaybackEngine` ("StartAsync returns promptly"). Both adapters comply by design: AVPlayer posts to the main queue, and LibVLC creates the player after the previous one is released on a pool thread. | playback | Mitigated (contract) |
+| HZ-06 | low | **About 100–200 ms activation gap at startup.** `Program.Main` starts the single-instance listener before Avalonia, but `App.Run` subscribes to `ActivationRequested` only when the desktop lifetime starts. A second launch in that window is acknowledged (it exits 0), but nothing shows the window. That matters only when the first instance starts with `--tray`. | **Accepted and documented here.** The window is a fraction of a second at process start, and relaunching shows the window. | ui, platform | Accepted |
+| HZ-07 | low | **CT-LOG (core) fails when the checkout path contains `/private`.** The sentinel list includes `"/private"`, and the `playback.engine_error` entry carries an exception stack trace with build-time source paths. A checkout under `/private/tmp` or `/private/var/folders` (the macOS temp dirs) therefore fails with "no coordinator log entry contains …". Reproduced at `e5d70e2`; passes with `-p:PathMap=<repo>=/src` and in the normal checkout. | Use sentinels that cannot occur in a path (for example `/private-alpha`), or assert only on `msg` and on the exception message rather than the full stack text. | test | TODO |
+| HZ-08 | low | **Flaky macOS clock check on hosted runners.** "§8.2.8 mac CLOCK_MONOTONIC: GetElapsedTime over a 200 ms sleep is 200 ms ±50 ms" failed in CI run `36086991425` (`b09dd03`; 738 passed, 1 failed) because the runner overslept, then passed on the rerun at `e5d70e2`. | Assert a lower bound (≥ 200 ms), and keep the relative check against `Stopwatch` over the same interval, which already exists. Drop the absolute upper bound. | test | TODO |
 
 ---
 
@@ -653,15 +696,15 @@ These are defined in `DialShift.Core/Playback/Contracts/`, namespace `DialShift.
 
 | File | Contents |
 |---|---|
-| `IPlaybackEngine.cs` | Adapters must tolerate overlapping calls (stop-while-connecting, D16). `StreamSource(Uri Url, string DisplayName)`; `PlaybackEngineState {Idle, Opening, Buffering, Playing, Ended, Stopped}`; `PlaybackFailureKind {NetworkUnavailable, HttpError, TlsFailure, UnsupportedFormat, InvalidUrl, Stalled, EndOfStream, Unknown}`; `PlaybackEngineStateChangedEventArgs(long SessionId, PlaybackEngineState State)`; `PlaybackEngineFailedEventArgs(long SessionId, PlaybackFailureKind Kind, string? Diagnostic = null)`; `IPlaybackEngine : IAsyncDisposable` with `StateChanged`, `Failed`, `StartAsync(StreamSource, double volume, CancellationToken)`, `StopAsync(CancellationToken)`, `SetVolumeAsync(double, CancellationToken)`. The session-id counter rule, the "successful start = `StateChanged(Playing)`" rule, the volume 0.0–1.0 rule (`Settings.Volume / 100.0`, 0 mutes) and the threading rules are documented on the interface. |
-| `ITrackMetadataProvider.cs` | Optional capability: `string? CurrentTitle { get; }`, `event EventHandler? MetadataChanged`. |
+| `IPlaybackEngine.cs` | Adapters must tolerate overlapping calls (stop-while-connecting, D16). `StreamSource(Uri Url, string DisplayName)`; `PlaybackEngineState {Idle, Opening, Buffering, Playing, Ended, Stopped}`; `PlaybackFailureKind {NetworkUnavailable, HttpError, TlsFailure, UnsupportedFormat, InvalidUrl, Stalled, EndOfStream, Unknown}`; `PlaybackEngineStateChangedEventArgs(long SessionId, PlaybackEngineState State)`; `PlaybackEngineFailedEventArgs(long SessionId, PlaybackFailureKind Kind, string? Diagnostic = null)`; `IPlaybackEngine : IAsyncDisposable` with `StateChanged`, `Failed`, `StartAsync(StreamSource, double volume, CancellationToken)`, `StopAsync(CancellationToken)`, `SetVolumeAsync(double, CancellationToken)`. The session-id counter rule, the "successful start = `StateChanged(Playing)`" rule, the volume 0.0–1.0 rule (`Settings.Volume / 100.0`, 0 mutes), the threading rules, "StartAsync returns promptly" (HZ-05) and the fresh-engine ownership rule (D17, D23) are documented on the interface. |
+| `ITrackMetadataProvider.cs` | Optional capability: `string? CurrentTitle { get; }`, `event EventHandler? MetadataChanged`. Per D26, it is implemented by `LibVlcPlaybackEngine` only (titles for `http://` streams only) and not by `MacAvPlayerPlaybackEngine`. |
 | `IClock.cs` | `IClock { DateTimeOffset UtcNow { get; } }` and `SystemClock.Instance`. |
 | `IMonotonicClock.cs` | `IMonotonicClock { long GetTimestamp(); TimeSpan GetElapsedTime(long, long); }` and `StopwatchMonotonicClock.Instance`, the Core default for tests. Production injects a per-OS **sleep-inclusive** clock (§8.2.8, D14), because `Stopwatch` on macOS stops during sleep. |
 | `IAppLog.cs` | `IAppLog { Info(eventName, message); Warn(eventName, message, ex?); Error(eventName, message, ex?) }` with the redaction rule, and `NullAppLog.Instance`. |
 | `PlaybackStatus.cs` | The `PlaybackStatus` enum (8 states, brief 1 §5.1) and the `PlaybackSnapshot` record: `Status`, `DesiredStationId/Name`, `CurrentStationId/Name`, `IsActive`, `IsPlaying`, `IsFallback`, `StatusText`, `TrackText`, `RetryInSeconds`, `Next`, `NextStationName`, `Volume`; plus `PlaybackSnapshot.Initial(volume)`. |
 | `IPlaybackCoordinator.cs` | `Snapshot`, `SnapshotChanged`, `PlayAsync(Guid)`, `ToggleAsync()`, `StopAsync()`, `NextStationAsync()`, `SetVolumeAsync(int)`, `StartScheduleAsync()`, `RefreshScheduleAsync()`, `OnTickAsync(CancellationToken)`, `NotifyWakeAsync()`, `NotifySettingsChangedAsync()`, `ForgetStationAsync(Guid)`, and `IAsyncDisposable`. The input→state mapping is in its remarks and in §5.2. Its remarks also carry the 10 s wake debounce (D15), engine ownership (D17) and the UI-thread rule for the tick loop and `Settings` mutation (D18). |
 
-**Engine-selection rule** (composition root only): Windows gets `LibVlcPlaybackEngine`, macOS gets `MacAvPlayerPlaybackEngine`, and anything else fails with a clear startup error. `DialShift.App` never selects LibVLC on macOS.
+**Engine-selection rule** (composition root only): Windows gets `LibVlcPlaybackEngine`, macOS gets `MacAvPlayerPlaybackEngine`, and anything else fails with a clear startup error. `DialShift.App` never selects LibVLC on macOS. Implemented in `4ef9515` as the single-use `PlaybackEngineFactory` (D23, `Services/PlaybackServices.cs`). `AddDialShiftPlayback` registers only the factory, the coordinator registration is the only caller of `Create()`, and a second call throws.
 
 ### 8.2 App and platform contracts (specification)
 
@@ -716,10 +759,10 @@ public interface ISystemPowerEvents : IDisposable
 ```
 
 - `Start()` is idempotent and is called after the Avalonia desktop lifetime and message loop exist.
-- `Resumed` is raised on an arbitrary thread; the App forwards it to `IPlaybackCoordinator.NotifyWakeAsync()`.
+- `Resumed` is raised on an arbitrary thread; the App forwards it to `IPlaybackCoordinator.NotifyWakeAsync()`. In practice (D30), macOS raises it synchronously on the posting thread, which is the main thread for a real wake, and Windows raises it on the `SystemEvents` thread.
 - `Dispose()` unsubscribes deterministically. Nothing is raised after dispose.
 - Windows: `SystemEvents.PowerModeChanged` with `PowerModes.Resume` (SP-03).
-- macOS: `NSWorkspace.DidWakeNotification` only if SP-04 passes (D3). Otherwise a no-op implementation, and the coordinator's monotonic tick gap covers wake.
+- macOS: `NSWorkspace.DidWakeNotification` only if SP-04 passes (D3). Otherwise a no-op implementation, and the coordinator's monotonic tick gap covers wake. SP-04 was adopted, pending NC-08. `MacPowerEvents` uses the shared `Interop/NotificationObserver` (runtime class `DialShiftNotificationObserver`, D27).
 - Registration failure is logged as `power_events.unavailable` and never fatal.
 
 #### 8.2.3 `IFileRevealService`
@@ -793,8 +836,9 @@ public interface ISingleInstanceService : IAsyncDisposable
 
 **Options**
 
-- Server and client both use `PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous`. The server uses `maxNumberOfServerInstances: 1` in `PipeTransmissionMode.Byte`.
-- On `net10.0` the macOS socket mode comes from the process umask. Validate it (CT-SI-12, NC-13); do not claim `0600`.
+- Server and client both use `PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous`, in `PipeTransmissionMode.Byte`.
+- **Superseded by D24 (SI-D1).** The server keeps one instance **armed**, created before an accepted connection is handed off. It handles at most **2** connections at once (D31), so `maxNumberOfServerInstances` is 3. It adds `PipeOptions.FirstPipeInstance` only on a real bind (no live instance of its own), and after every create or re-bind it tightens the Unix socket to owner-only.
+- On `net10.0` the macOS socket mode comes from the process umask. The service therefore removes group/other bits itself and logs the observed mode once (`single_instance.socket`). CT-SI-12 asserts 0600 after start and after a re-bind; NC-13 confirms it under LaunchServices.
 
 **Lock and lifecycle**
 
@@ -804,13 +848,14 @@ public interface ISingleInstanceService : IAsyncDisposable
   - lock acquired but the server fails to start → release the lock, log `single_instance.server_failed`, return `Failed`. The app then shows the startup-failure dialog and exits.
 - The listener loop **never stops** on a per-connection exception. It logs, backs off 1 s and continues. Only disposal stops it.
 
-**Second-instance exit codes**
+**Process exit codes** (D29, `DialShift.App/LaunchOptions.cs` `ExitCodes`)
 
-| Code | Meaning |
-|---|---|
-| 0 | `Activated` |
-| 2 | `Rejected` / `NoResponse` (logged as `single_instance.activate_failed`) |
-| 3 | `Failed` to start primary |
+| Code | Constant | Meaning |
+|---|---|---|
+| 0 | `Success` | Normal quit, or a second launch that got `Activated` |
+| 1 | `StartupFailed` | Startup failure (dialog shown); also an invalid `DIALSHIFT_DATA_DIR`, or an exception escaping the UI toolkit |
+| 2 | `ActivationFailed` | Second launch got `Rejected` / `NoResponse` (logged as `single_instance.activate_failed`) |
+| 3 | `SingleInstanceFailed` | Lock acquired but the activation pipe failed to start (`Failed`); the startup-failure dialog is shown |
 
 #### 8.2.5 `IUiDispatcher` and `IDialogService`
 
@@ -881,6 +926,7 @@ The App implementation of `IAppLog` is `FileAppLog` plus `StreamUrlRedactor`, bo
 - JSON Lines, one object per line: `{"ts":"<DateTimeOffset ISO-8601>","level":"info|warn|error","event":"<dotted.name>","msg":"<redacted>","ex":"<redacted type: message + stack>"}`.
 - UTF-8 without BOM.
 - Thread-safe (a single lock, append-only). **Never throws**: logging failures are swallowed.
+- **Cross-process (D25, LOG-D1).** The primary and a second launch share the file. Each size check, rotation and append also holds `<per-user temp>/DialShift-log-<16 hex>.lock` (`FileShare.None`, never deleted). A writer waits at most 250 ms; after that it appends without the lock and without rotating.
 - Rotation: before a write that would push the file past **1 MiB**, rename it to `dialshift.log.1` (replacing the old one).
 
 **Redaction rules**
@@ -896,7 +942,7 @@ The App implementation of `IAppLog` is `FileAppLog` plus `StreamUrlRedactor`, bo
 | Event | Content |
 |---|---|
 | `app.start` | version, `RuntimeInformation.RuntimeIdentifier`, `ProcessArchitecture`, OS description, engine name, data-dir source |
-| `playback.state` | each coordinator transition: from→to, station name, session id |
+| `playback.state` | each coordinator transition: from→to, station name, current session id (0 when none live; CR-03) |
 | `playback.failed` | kind, attempt, retry delay, fallback flag |
 | `schedule.fired` | — |
 | `startup_registration.result` | — |
@@ -912,7 +958,7 @@ The App implementation of `IAppLog` is `FileAppLog` plus `StreamUrlRedactor`, bo
 Location: `DialShift.App/Platform/` (per-OS files chosen by the platform lane), namespace `DialShift.App.Platform`. Each class implements `DialShift.Core.Playback.IMonotonicClock`. The composition root injects the one for the current OS into `PlaybackCoordinator`, which uses it for every policy timer.
 
 - **macOS:** `clock_gettime_nsec_np(CLOCK_MONOTONIC)` from `libSystem` (`CLOCK_MONOTONIC_RAW` is equally acceptable). Timestamps are nanoseconds; `GetElapsedTime(a, b) = TimeSpan.FromTicks((b − a) / 100)`.
-- **Windows:** a source that keeps counting through sleep. `Stopwatch`/QPC is unverified. `QueryInterruptTime` and `GetTickCount64` (`Environment.TickCount64`) are documented as including sleep; `QueryUnbiasedInterruptTime` is not. The choice must be confirmed on hardware (NC-02) before it is relied on.
+- **Windows:** a source that keeps counting through sleep. `Stopwatch`/QPC is unverified. `QueryInterruptTime` and `GetTickCount64` (`Environment.TickCount64`) are documented as including sleep; `QueryUnbiasedInterruptTime` is not. Implemented: `WindowsMonotonicClock` uses `Environment.TickCount64` (`GetTickCount64`), which is documented as sleep-inclusive. Its behavior across sleep must still be confirmed on hardware (NC-02).
 - Other OSes: `StopwatchMonotonicClock` (the app fails at startup there anyway, §8.1).
 - Tests: unit checks that timestamps never decrease and that `GetElapsedTime` converts units correctly. The sleep behavior itself is native-only (NC-02, NC-08).
 
@@ -920,28 +966,31 @@ Location: `DialShift.App/Platform/` (per-OS files chosen by the platform lane), 
 
 ## 9. Remaining native checks
 
-These cannot be verified on this Apple Silicon Mac development box by automation. They are tracked as `MAN` cells above, and a row whose only open item is here is `NATIVE-PENDING`.
+These cannot be verified by automation in this environment: an Apple Silicon Mac dev box (macOS 26.5) plus GitHub Actions on the **private** remote (`spyroskotsakis/dialshift-dev`). They appear as `MAN` cells above, and as the Windows `SMK` cells. A row whose only open items are here is `NATIVE-PENDING`.
 
-GitHub Actions on the **private** remote (`spyroskotsakis/dialshift-dev`) **is available**. The `windows-latest` and `macos-latest` (Apple Silicon) runners can run compile, `DialShift.Tests`, publish, HS-* headless tests, the PK-* artifact inspections and CT-SI-12. They do not replace the items below.
+CI (`windows-latest`, `macos-latest` on Apple Silicon) already covers compile, `DialShift.Tests` (including CT-SI-12 and the Windows halves of HS-11/12/16), publishing, and packaging verification of the downloadable zips. It cannot sleep a runner, sign in interactively, show a tray, or play audio.
 
-The macOS items NC-10 to NC-12 **can** be exercised manually on this dev box for non-clean-machine evidence. Only the clean-machine and lid-close parts (NC-07, NC-08) need other hardware.
+Each check is run from the **CI artifact** (the zip a user downloads), not from a dev build, with `dialshift.log` kept as evidence. "Pass" means every listed observation holds. Record the result (date, OS build, hardware, artifact run id, pass/fail with notes) in the Status column.
 
-| ID | Check | Why it cannot run here | Covers |
-|---|---|---|---|
-| NC-01 | Windows native UI smoke: `DialShift.exe --smoke-test` and `--recovery-test` on a Windows desktop; tray left-click opens, right-click menu, every menu item, close-to-tray, quit, start in tray. A GUI run on the `windows-latest` runner may be attempted but is not relied on. | Needs a Windows interactive desktop | BHV-09, 11–15, 19–23; MX-04/05; DOD-04 |
-| NC-02 | Windows `SystemEvents.PowerModeChanged` runtime: real sleep then resume while playing and while paused, and resume into a new slot (TZ-12 Windows path). Also confirm that the Windows `IMonotonicClock` counts through sleep, so the tick gap fires with power events disabled (D14) | Needs Windows hardware sleep | BHV-42; MX-08; SP-03; QA-N1; TZ-12; D14 |
-| NC-03 | Windows LibVLC real playback plus the media corpus (MP3, AAC, HLS, redirect, HTTPS failure, unreachable host, malformed URL, captive-portal-like) | Needs Windows audio and desktop | MX-10, MX-13 |
-| NC-04 | Windows launch at login at a real sign-in; then move or upgrade the exe and confirm the stale-path status and re-enable | Needs Windows sign-in | BHV-59; MX-07, MX-15; DOD-06 |
-| NC-05 | Windows SmartScreen / Authenticode behavior of the `.zip` artifact (release only, D7) | Needs a signing certificate and clean Windows | D7 |
-| NC-06 | Windows second-launch activation brings the window to the foreground despite focus-stealing rules (Start menu, Explorer double-click) | Needs a Windows desktop | BHV-08, BHV-15; MX-06 |
-| NC-07 | **Clean-machine Apple Silicon install** of `DialShift.app` with no Rosetta installed and no developer tools: first launch of an ad-hoc-signed app (right-click → Open), tray appears, playback, quit/reopen, second-instance activation with `LSUIElement` | Needs a clean Apple Silicon Mac | SP-02; MX-12; DOD-04, DOD-08 |
-| NC-08 | **Lid-close** sleep/wake on Apple Silicon: `NSWorkspace` spike criterion 2 (D3) and timer-gap recovery on the sleep-inclusive clock (D14); resume into a zone-shifted slot (TZ-12 macOS path) | Needs a physical lid close with a monitoring run | SP-04; BHV-42; MX-08; QA-N1; TZ-12; D14 |
-| NC-09 | **Gatekeeper** / Developer ID signing + notarization acceptance (release only, D7) | Needs an Apple Developer ID and notarization credentials | D7; PK-03 |
-| NC-10 | macOS LaunchAgent at a real login (logout/login), and after moving `DialShift.app` | Needs a login session cycle (possible on the dev box manually) | BHV-59; MX-07, MX-15 |
-| NC-11 | macOS AVPlayer media corpus including HLS, TLS failure, redirects, unavailable network, captive portal | Needs network manipulation (possible on the dev box manually) | MX-11, MX-13; SP-01 |
-| NC-12 | Menu-bar template icon renders correctly in light and dark menu bars; tray menu updates after edits with no native crash | Visual check (possible on the dev box manually) | BHV-19, BHV-22; MX-05 |
-| NC-13 | macOS pipe socket path and permissions when launched through LaunchServices/launchd (not a terminal), confirming the umask-derived mode (brief 1 §7.5) | Production launch environment | BHV-08; CT-SI-12 |
-| NC-14 | Intel Mac: **not applicable**. No `osx-x64` artifact is produced; the last Intel/Rosetta build exists only at tag `legacy-last-known-good` (D13) | No Intel hardware; policy | D2, D13 |
+| ID | Check: procedure and pass criteria | Why it cannot run here | Covers | Status |
+|---|---|---|---|---|
+| NC-01 | **Windows native UI smoke and tray.** On a Windows 11 x64 desktop, run `DialShift.exe --smoke-test` and `--smoke-test --recovery-test` (harness from BHV-66). Then check by hand: tray **left-click opens** the window; **right-click** shows the menu, and every item works (Open, Play/Pause, Next station, Stations ▸, Follow schedule check state, Volume ±10, Quit); close-to-tray and minimize hide the window while audio continues; the hide button works; `--tray` and "Start in tray" start with **no window flash**; "Open settings folder" opens Explorer at the data dir; save-failure and confirm dialogs are owned by the window. **Pass:** smoke exits 0; every step matches the §2 texts; Quit leaves `app.exit code=0 clean=true` and no process. | Needs an interactive Windows desktop with a notification area | BHV-09, 11–15, 19–25, 50, 63, 64; MX-04, MX-05; DOD-04; Windows `SMK` cells | Open |
+| NC-02 | **Windows `SystemEvents` delivery and real sleep.** On Windows hardware, while playing, sleep for at least 30 s (Start → Sleep; on a laptop also lid close), then wake. Repeat while paused inside a slot, and across a slot boundary (TZ-12). Then repeat with power events forced unavailable, so that only the `GetTickCount64` tick gap can detect the wake (D14). **Pass:** `power_events.started` at startup (after the message loop); on each wake, `power_events.resumed` and one `wake.detected` (`os` or `tick_gap`), then exactly one `wake.recovery` and one reconnect. The exception is a `Resume` arriving more than 10 s after the recovery completed (HZ-04): record that delay. A paused app stays paused; a slot that started during sleep plays; with power events off the tick gap still recovers; quit unsubscribes with no `SystemEvents` hang. | Needs Windows hardware sleep; a hosted runner can't be suspended | BHV-42; MX-08; SP-03; QA-N1; TZ-12; D14; D30; HZ-04; DOD-07 | Open |
+| NC-03 | **Windows LibVLC real playback and corpus.** Run the `docs/spikes.md` corpus (C1–C15, T1–T15) against the Windows build (`VideoLAN.LibVLC.Windows` 3.0.23.1), and fill the "LibVLC (Windows)" column (time to Playing or Failed, and the kind). Also: the recovery policy with the real engine (3/6/30 s retries, fallback after 3 failures, primary re-check at 120 s, alternation), the 25 s watchdog on a hanging server (T14), ICY titles shown for an `http://` Icecast station, and the tag shown for `https://` (D26). **Pass:** kinds match the Adapter column or the difference is explained; no crash; no audio after Stop. | Needs Windows audio | MX-10, MX-13; BHV-32, BHV-37, BHV-39 | Open |
+| NC-15 | **LibVLC fast-switch stress on real Windows.** 7 runs of 160 rapid station switches (0–300 ms apart), plus 50 Skip presses and a Stop in the middle of a connect. **Pass:** no crash in any run (the SIGILL seen under Rosetta must not reproduce natively); at most one audible player at any time; working set flat (±20 MB) after the first run; the final station plays. | Needs native Windows; the only data so far is x86_64 LibVLC under Rosetta | MX-10; BHV-40 | Open |
+| NC-04 | **Windows launch at login.** Enable it, sign out and in: DialShift starts in the tray, with no window. Move the extracted folder (or replace it with a newer build) and sign in again: the Settings checkbox shows **off** with the stale diagnostic, and turning it on repairs it. **Pass:** `startup_registration.result` lines match each step; the HKCU `Run` value is `"<exe>" --tray`. | Needs a real Windows sign-in | BHV-59; MX-07, MX-15; DOD-06 | Open |
+| NC-05 | Windows SmartScreen / Authenticode behavior of the `.zip` artifact (release only, D7) | Needs a signing certificate and a clean Windows machine | D7 | Open (release) |
+| NC-06 | **Windows second-launch foreground.** With the app hidden in the tray, launch it again from the Start menu and from an Explorer double-click, both while another app has focus. **Pass:** the existing window comes to the **foreground** (not just a flashing taskbar button); the second process exits 0; the log has `single_instance.activated`. | Needs a Windows desktop with focus rules | BHV-08, BHV-15; MX-06; DOD-05 | Open |
+| NC-07 | **Clean-machine Apple Silicon install plus Gatekeeper first launch.** On an Apple Silicon Mac with no Rosetta and no developer tools, unzip the CI `DialShift-osx-arm64-*` artifact, move it to `/Applications`, and open it (ad-hoc signed: right-click → Open, or System Settings → Open Anyway). **Pass:** the menu-bar icon appears with no Dock icon; an `https://` **and** an `http://` station play (ATS media exception, T16, D32); Quit, then relaunch; a second launch activates the window; `app.start` shows `rid=osx-arm64 arch=Arm64 engine=MacAvPlayerPlaybackEngine`; no Rosetta prompt ever appears. | Needs a clean Apple Silicon Mac | SP-02; MX-12; DOD-04, DOD-05, DOD-08; D32 | Open |
+| NC-08 | **macOS lid-close wake.** While playing, close the lid for at least 60 s, then open it. Repeat while paused, across a slot boundary (TZ-12 macOS path), and with the wake observer forced unavailable (tick gap on `CLOCK_MONOTONIC` only, D14). **Pass:** `power_events.resumed` on wake (the main thread, D30); exactly one `wake.recovery` per wake; paused stays paused; a new slot plays; the tick gap alone recovers when the observer is off. | Needs a physical lid close | SP-04; BHV-42; MX-08; QA-N1; TZ-12; D3, D14, D30; DOD-07 | Open |
+| NC-09 | Gatekeeper with Developer ID signing and notarization (release only, D7): `spctl -a -vv` reports "accepted, source=Notarized Developer ID"; first launch shows no warning | Needs an Apple Developer ID and notarization credentials | D7; PK-03 | Open (release) |
+| NC-10 | **macOS LaunchAgent at a real login.** Enable it, log out and in: DialShift starts in the menu bar with no window (`open -a <bundle> --args --tray`). Move `DialShift.app` elsewhere and log in again: the checkbox shows **off** with the stale diagnostic, and re-enabling repairs it. **Pass:** `~/Library/LaunchAgents/com.tsiger.dialshift.plist` passes `plutil -lint` and targets the current bundle; no second instance is spawned. | Needs a login-session cycle (possible on the dev box, by hand) | BHV-59; MX-07, MX-15; DOD-06 | Open |
+| NC-11 | **macOS AVPlayer under real network faults.** From the bundled app: Wi-Fi off in the middle of a stream, then on (retry, then recovery); a real captive portal; fallback alternation with the real engine (BHV-37). **Pass:** failures are classified as in the corpus; the retry and fallback timings match §5.1; no audio after Stop. | Needs network manipulation (possible on the dev box, by hand) | MX-11, MX-13; SP-01; BHV-37 | Open |
+| NC-12 | **Menu-bar template icon.** The 44×44 `tray.png` (D34) renders sharp at 17 pt in light and dark menu bars, and follows highlight inversion. The tray menu updates after station and slot edits with no native crash. | A visual check (possible on the dev box, by hand) | BHV-19, BHV-22; MX-05; PK-04; D34 | Open |
+| NC-13 | **Socket permissions under LaunchServices.** Launch the bundled app via `open DialShift.app`, and again via the LaunchAgent at login (not from a terminal). **Pass:** `stat -f %Lp "$TMPDIR"/CoreFxPipe_DialShift-*` prints `600`; the log has `single_instance.socket` with the observed mode; a second `open` activates. | Needs the production launch environment | BHV-08; CT-SI-12; MX-06; D24 | Open |
+| NC-14 | Intel Mac: **not applicable**. No `osx-x64` artifact is produced; the last Intel/Rosetta build exists only at tag `legacy-last-known-good` (D13) | No Intel hardware; policy | D2, D13 | N/A |
+| NC-16 | **AVPlayer format corpus on macOS 14** (the minimum, D22). Run the corpus (C1–C15, T1–T15) from the bundled app on macOS 14.x Apple Silicon. **Pass:** MP3, AAC and HLS play. Any other format that fails (Ogg Vorbis, Opus, FLAC-in-Ogg, `.aacp`) goes into the README capability list. If MP3/AAC/HLS fail, raise `LSMinimumSystemVersion` by a new decision. | Needs a macOS 14 machine; the dev box runs 26.5 | MX-11, MX-13; D22 | Open |
+| NC-17 | **macOS native UI pass of the bundled app** (dev box, by hand, until SMK covers it): Finder double-click or `open` on the running app shows the window (Reopen, BHV-18); a second launch activates it and exits 0; clicking the menu-bar icon shows the menu (BHV-20); "Open settings folder" reveals the data dir in Finder (BHV-63); start in tray shows no window flash (BHV-09). **Pass:** each observation holds, and the log records each action. | A manual desktop check (it needs the bundled app and a menu bar, and no harness exists yet) | BHV-08, 09, 18, 20, 63; MX-06; DOD-05 | Open |
 
 ---
 

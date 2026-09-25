@@ -36,7 +36,7 @@ Spike code is throwaway and lives outside the repo (session scratchpad):
    - Windows: whether `Stopwatch`/QPC counts through sleep is **unverified**. `GetTickCount64`/`Environment.TickCount64` is interrupt-time based and documented as sleep-biased (unlike `QueryUnbiasedInterruptTime`). Add a native Windows check.
 
    Keep the P/Invoke in `DialShift.App` platform code and inject it through `IMonotonicClock` (or a dedicated `IWakeGapClock`). Retry backoff and the stall watchdog may keep using `Stopwatch`. CT-PB-30 stays valid because it runs on a fake clock.
-2. **The macOS `.app` Info.plist MUST contain `NSAppTransportSecurity` / `NSAllowsArbitraryLoadsForMedia = true`.** Inside a bundle without it, every cleartext `http://` stream fails at once. `dotnet run` binaries have no bundle and do not enforce ATS, which hides the problem. 3,570 of the 8,307 `stream_url` values in `data/canonical/*.csv` (43 %) are `http://`. Upstream's `package-macos.py` sets this key; the repo's `scripts/build-mac-app.sh` does not yet (harmless for LibVLC, fatal for AVPlayer). Measured with the same published arm64 binary in two signed bundles:
+2. **The macOS `.app` Info.plist MUST contain `NSAppTransportSecurity` / `NSAllowsArbitraryLoadsForMedia = true`.** Inside a bundle without it, every cleartext `http://` stream fails at once. `dotnet run` binaries have no bundle and do not enforce ATS, which hides the problem. 3,570 of the 8,307 `stream_url` values in `data/canonical/*.csv` (43 %) are `http://`. Upstream's `package-macos.py` sets this key. **Resolved (D32):** `scripts/build-mac-app.sh` now writes `NSAppTransportSecurity` → `NSAllowsArbitraryLoadsForMedia` = true (media only, never `NSAllowsArbitraryLoads`), and `scripts/verify-mac-app.sh` asserts both in CI on the downloadable zip. Measured with the same published arm64 binary in two signed bundles:
    ```
    === ats-default
    INFO U1  http://ice1.somafm.com/groovesalad-128-mp3  FAILS after 0.10s -> TlsFailure; AVFoundationErrorDomain -11800 "The operation could not be completed" <- NSOSStatusErrorDomain -1022
@@ -46,12 +46,12 @@ Spike code is throwaway and lives outside the repo (session scratchpad):
    PASS U1  http://ice1.somafm.com/groovesalad-128-mp3  PLAYS (Playing after 1.11s, +2.1s)
    PASS U2  http://st01.dlf.de/dlf/01/128/mp3/stream.mp3  PLAYS (Playing after 1.15s, +2.0s)
    ```
-   Loopback (`127.0.0.1`) is exempt from ATS. Add a packaging assertion (release-engineer) and a native macOS smoke that plays one `http://` stream from the **bundled** app.
+   Loopback (`127.0.0.1`) is exempt from ATS. The packaging assertion is in place (above). A native check that plays one `http://` stream from the **bundled** app is still open: NC-07 and NC-17 in the acceptance matrix.
 3. **AVPlayer and NSWorkspace both need the process main run loop to be serviced.** With the main thread blocked, AVPlayer never leaves `Unknown`: no playback and **no errors** (connection refused goes unreported for 15 s and more). System NSWorkspace notifications are never delivered either. The Avalonia app satisfies this, because the NSApplication loop runs on the main thread. Implications:
    - A frozen UI thread freezes AVPlayer state reporting.
    - Adapter integration tests cannot run as ordinary xunit tests on pool threads. They need a harness that pumps the main CFRunLoop (as the spike does), or they must run inside the app's native smoke.
 4. **URL path extension beats Content-Type in AVFoundation.** An MP3 stream served at a path ending in `.pls` or `.m3u` (`Content-Type: audio/mpeg`) fails with `CoreMediaErrorDomain -12646` after 3–11 s. AVFoundation parses it as a playlist. `AVURLAssetOverrideMIMETypeKey = audio/mpeg` does **not** help (tested). The same server at `/;` plays. This affects some of the about 27 catalog URLs with `.pls`/`.m3u` paths (real PLS/M3U playlist files play fine). The fix belongs in the catalog pipeline: probe the Content-Type and store a playable URL or a per-engine flag. It does not belong in the adapter.
-5. **More formats than the brief assumed.** On macOS 26.5, AVPlayer also played Ogg Vorbis, Opus (after a 302), FLAC-in-Ogg, `.aacp`, Shoutcast v1 `ICY 200 OK` and v2 `/;` streams, and real PLS/M3U playlist files. The brief (§4.3) says "MP3/AAC/HLS covered". This is **only verified on macOS 26.5**. Before advertising it, re-run the corpus on the minimum supported macOS (upstream uses `LSMinimumSystemVersion` 14.0).
+5. **More formats than the brief assumed.** On macOS 26.5, AVPlayer also played Ogg Vorbis, Opus (after a 302), FLAC-in-Ogg, `.aacp`, Shoutcast v1 `ICY 200 OK` and v2 `/;` streams, and real PLS/M3U playlist files. The brief (§4.3) says "MP3/AAC/HLS covered". This is **only verified on macOS 26.5**. Before advertising it, re-run the corpus on the minimum supported macOS. **D22** set `LSMinimumSystemVersion` to 14.0 (as upstream), and the macOS 14 corpus run is native check NC-16.
 
 ---
 
@@ -134,6 +134,8 @@ All of B ran in one process, in worker mode, and was then repeated (`out-b-worke
 | Dirty exit | exit while Playing, engine not disposed, observers still registered | Exit status 0 in 3/3 runs, worker and main modes. No crash reports |
 
 The two harness "FAIL" labels in the raw log are B9 and B9c. They record that my expected kind was wrong, not an engine defect. AVPlayer surfaces no fast error for these cases, and the coordinator watchdog covers them (see the normalization table).
+
+**Observer class name for leak checks.** The spike's runtime classes were `DialShiftAVPlayerObserver` (this spike) and `DialShiftWakeObserver` (spike 3). Production uses **one** process-global class, **`DialShiftNotificationObserver`** (`DialShift.App/Interop/NotificationObserver.cs`, D27). It is shared by `MacAvPlayerPlaybackEngine` and `MacPowerEvents`. Future `heap <pid>` leak checks must count `DialShiftNotificationObserver`. Expect one instance per live engine plus one per started `MacPowerEvents`, and 0 after quit.
 
 **Replace the item or create a new player?** Both were exercised: B1/B1b used 120 replaces on one player, and B3 used 10 new players. **Recommendation:** one `AVPlayer` per engine instance, plus a new `AVPlayerItem` per `StartAsync` via `replaceCurrentItemWithPlayerItem:`.
 - Observers stay registered exactly once for the engine's lifetime.
@@ -240,7 +242,7 @@ Constants are read with `NativeLibrary.GetExport` + `Marshal.ReadIntPtr`:
 Measured time-to-failure: refused/DNS/401/403/500/redirect-loop/ATS 0.1–0.4 s; 404 0.3–1.3 s; TLS 0.7–4.9 s; playlist-extension 3–11 s; garbage 16 s; hang and HTTP/1.0 HTML never. The coordinator's watchdog is therefore mandatory on macOS.
 
 **Capability differences to document (README / release notes).**
-- No track-title metadata; the spike did not read ICY metadata.
+- **No track-title metadata on macOS (D26).** The spike did not read ICY metadata. The production adapter harness then tried `AVPlayerItemMetadataOutput`. It delivered `icy`/`StreamTitle` reliably only for a **Shoutcast v2** server, and **never** for Icecast MP3/AAC or HLS streams. `MacAvPlayerPlaybackEngine` therefore does not implement `ITrackMetadataProvider`, and macOS always shows the station tag. On Windows, `LibVlcPlaybackEngine` offers `Meta(NowPlaying)` titles only for **`http://`** streams: LibVLC 3's `https://` access module does not send `Icy-MetaData`, so https stations show the tag there too.
 - The format list above (OS-version dependent).
 - `.pls`/`.m3u`-named raw streams fail.
 - `http://` needs the ATS media exception.
@@ -307,7 +309,7 @@ e9a89fe267a0 27432 systemevents-osx-arm64  <- stub selected
 `MacPowerEvents`:
 1. Loads AppKit with `NativeLibrary.TryLoad`.
 2. Reads `NSWorkspaceDidWakeNotification` (and `NSWorkspaceWillSleepNotification`) through `TryGetExport`.
-3. Registers the runtime class `DialShiftWakeObserver` **once per process**: `objc_lookUpClass` first, then `objc_allocateClassPair(NSObject)` + `class_addMethod(onWake:/onSleep:, "v@:@")` with `[UnmanagedCallersOnly]` function pointers + `objc_registerClassPair`.
+3. Registers the runtime class `DialShiftWakeObserver` **once per process** (renamed in production: the shared `DialShiftNotificationObserver`, D27): `objc_lookUpClass` first, then `objc_allocateClassPair(NSObject)` + `class_addMethod(onWake:/onSleep:, "v@:@")` with `[UnmanagedCallersOnly]` function pointers + `objc_registerClassPair`.
 4. Calls `alloc/init` for one observer, then `addObserver:selector:name:object:` on `[[NSWorkspace sharedWorkspace] notificationCenter]`.
 
 `Dispose` calls `removeObserver:`, then releases the observer. `TryStart()` never throws; every failure returns false and sets `LastFailure`.
@@ -342,7 +344,7 @@ N2 used a **real, system-originated** NSWorkspace notification. A 2 MB disk imag
 [SupportedOSPlatform("macos")]
 internal sealed class MacPowerEvents : ISystemPowerEvents
 {
-    public event EventHandler? Resumed;       // raised on the main thread; the App forwards to NotifyWakeAsync()
+    public event EventHandler? Resumed;       // raised on the posting thread (main for real wakes, D30); the App forwards to NotifyWakeAsync()
     public void Start();                      // idempotent; on any failure logs power_events.unavailable and returns
     public void Dispose();                    // removeObserver: then release; idempotent
 }
@@ -395,6 +397,6 @@ The **Adapter (production)** column is the integrated result: the production `Ma
 | T13 | local `/stall.mp3` | MP3 | server stops sending, keeps socket | `PlaybackStalled` (main thread), Waiting forever → Buffering, then coordinator watchdog | AV: plays, then Buffering, then failed-to-play-to-end (`CoreMedia -16830`) → Unknown at 17.2 s · VLC†: plays, then Buffering (no time progress for 5 s), coordinator watchdog Stalled at 36.2 s | Windows CI/native pending |
 | T14 | local `/hang` | n/a | accepts, never answers | No error in 45 s → coordinator watchdog | AV: coordinator watchdog Stalled at 25.8 s · VLC†: coordinator watchdog Stalled at 25.7 s | Windows CI/native pending |
 | T15 | `"not a url"`, `"http://"`, `"ht tp://…"`, `ftp://…`, `file:///…`, `""` | n/a | malformed URL | Managed `Uri` validation → InvalidUrl in ≤1 ms (raw to NSURL: nil or `-1002`) | Both: the coordinator rejects the station before any engine call (InvalidUrl, retry countdown 3 s then 6 s). Engine-level `ftp://` source: Failed(InvalidUrl), raised off the call stack | Windows CI/native pending |
-| T16 | any `http://` inside a `.app` without the ATS key | any | ATS | 0.1 s → TlsFailure (`-1022`) | Not re-run (needs the bundled `.app`) · n/a for LibVLC | n/a (LibVLC does not use ATS) |
+| T16 | any `http://` inside a `.app` without the ATS key | any | ATS | 0.1 s → TlsFailure (`-1022`) | Not re-run (needs the bundled `.app`). Packaging now sets the key (D32), and the native check is NC-07/NC-17 · n/a for LibVLC | n/a (LibVLC does not use ATS) |
 
 Not covered here: a real offline network (Wi-Fi off) and a real captive portal. Both are native manual checks.
