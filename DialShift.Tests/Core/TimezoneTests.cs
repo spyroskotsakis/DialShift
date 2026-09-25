@@ -60,6 +60,7 @@ public static class TimezoneTests
         NextFor();
         CtSet11NumericTimeZone();
         await CoordinatorFiresZonedSlot();
+        await Row12WakeIntoZonedSlot();
     }
 
     // ─── helpers ───
@@ -816,5 +817,171 @@ public static class TimezoneTests
         rig.Playing();
         await rig.Step(60);
         Check("Coordinator: the zoned slot fires once", rig.StartCount == 2 && rig.LogCount("schedule.fired") == 2);
+    }
+
+    // ─── Row 12 (TZ-12): sleep and resume into a zone-shifted slot (CT-PB-32 zoned variant) ───
+
+    /// <summary>
+    /// The wake sources. <c>os</c>: the OS notification (Windows <c>SystemEvents</c> / macOS <c>NSWorkspace</c>, both
+    /// <c>NotifyWakeAsync</c>) after the wall clock and the sleep-inclusive monotonic clock (D14) both moved by the sleep,
+    /// so the next tick also sees the gap. <c>tick_gap 15s</c>: no OS notification; the wall clock moves by the sleep and
+    /// the monotonic clock by exactly the 15 s threshold. <c>tick_gap full</c>: the same with the whole sleep as the gap.
+    /// </summary>
+    private static readonly string[] WakePaths = ["os", "tick_gap 15s", "tick_gap full"];
+
+    private static string WakeSource(string path) => path.StartsWith("tick_gap", StringComparison.Ordinal) ? "tick_gap" : "os";
+
+    /// <summary>Sleeps from the rig's current instant until <paramref name="wakeUtc"/>, then wakes through <paramref name="path"/>.</summary>
+    private static async Task SleepAndWake(CoordinatorRig rig, string path, DateTime wakeUtc)
+    {
+        var slept = new DateTimeOffset(wakeUtc, TimeSpan.Zero) - rig.Clock.UtcNow;
+        switch (path)
+        {
+            case "os":
+                rig.Clock.Advance(slept);
+                rig.Mono.Advance(slept);
+                await rig.Coordinator.NotifyWakeAsync();
+                break;
+            case "tick_gap 15s":
+                await rig.Jump(PlaybackCoordinator.WakeGapThreshold, wall: slept);
+                break;
+            case "tick_gap full":
+                await rig.Jump(slept);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(path), path, null);
+        }
+    }
+
+    private static async Task Row12WakeIntoZonedSlot()
+    {
+        foreach (var path in WakePaths)
+        {
+            // September: Athens EEST (+3), New York EDT (−4). Mon 08:00 Athens = 05:00Z = Mon 01:00 New York.
+            await Row12Case("Sep", path, start: W(2026, 9, 13, 23, 30), local: ("23:00", Sun), zoned: ("08:00", Mon),
+                fireLocal: W(2026, 9, 14, 1, 0), wakeUtc: U(2026, 9, 14, 5, 5));
+            await Row12Case("Sep", path, start: W(2026, 9, 13, 23, 30), local: ("23:00", Sun), zoned: ("08:00", Mon),
+                fireLocal: W(2026, 9, 14, 1, 0), wakeUtc: U(2026, 9, 14, 5, 5), paused: true);
+
+            // Athens fall-back day (Sun 2026-10-25, 04:00 EEST → 03:00 EET at 01:00Z; New York stays EDT until Nov 1):
+            // Sun 08:00 Athens = 06:00Z = 02:00 New York, one hour later than last week's 01:00. The sleep starts before
+            // the Athens transition. The first wake, at 01:30 New York (past last week's instant), must not fire it.
+            await Row12Case("Athens fall-back day", path, start: W(2026, 10, 24, 20, 30), local: ("20:00", Sat), zoned: ("08:00", Sun),
+                fireLocal: W(2026, 10, 25, 2, 0), wakeUtc: U(2026, 10, 25, 6, 5), earlyWakeUtc: U(2026, 10, 25, 5, 30));
+
+            // Athens spring-forward day (Sun 2026-03-29, 03:00 EET → 04:00 EEST at 01:00Z; New York already EDT since Mar 8):
+            // Sun 08:00 Athens = 05:00Z = 01:00 New York, one hour earlier than last week's 02:00. The first wake, at 00:50
+            // New York, is before it; the second, at 01:30, is before last week's instant but after this week's.
+            await Row12Case("Athens spring-forward day", path, start: W(2026, 3, 28, 20, 30), local: ("20:00", Sat), zoned: ("08:00", Sun),
+                fireLocal: W(2026, 3, 29, 1, 0), wakeUtc: U(2026, 3, 29, 5, 30), earlyWakeUtc: U(2026, 3, 29, 4, 50));
+
+            // A slot inside the Athens spring gap: Sun 03:30 Athens fires at the first valid instant, 04:00 EEST = 01:00Z,
+            // which is Sat 21:00 in New York (it crosses midnight backwards).
+            await Row12Case("Athens spring gap (Sun 03:30 Athens)", path, start: W(2026, 3, 28, 20, 30), local: ("20:00", Sat), zoned: ("03:30", Sun),
+                fireLocal: W(2026, 3, 28, 21, 0), wakeUtc: U(2026, 3, 29, 1, 10));
+
+            // A slot in the Athens fall overlap: Sun 03:30 Athens happens at 00:30Z (EEST) and again at 01:30Z (EET). QA-B3:
+            // the earlier instant, Sat 20:30 New York. The sleep spans both; the wake fires it once and the repeat never fires.
+            await Row12Case("Athens fall overlap (Sun 03:30 Athens)", path, start: W(2026, 10, 24, 20, 10), local: ("20:00", Sat), zoned: ("03:30", Sun),
+                fireLocal: W(2026, 10, 24, 20, 30), wakeUtc: U(2026, 10, 25, 1, 45));
+
+            // Stopped by the user within the zoned slot: a wake keeps it stopped.
+            await Row12StoppedInZonedSlot("Sep", path, start: W(2026, 9, 14, 1, 30), zoned: ("08:00", Mon), wakeUtc: U(2026, 9, 14, 7, 30));
+            // ...also when the sleep spans the Athens fall-back, so the slot's wall time 03:30 Athens recurs (01:30Z) during it.
+            await Row12StoppedInZonedSlot("Athens fall overlap (Sun 03:30 Athens)", path, start: W(2026, 10, 24, 20, 40), zoned: ("03:30", Sun),
+                wakeUtc: U(2026, 10, 25, 1, 45));
+        }
+    }
+
+    /// <summary>
+    /// New York computer (injected). Alpha has a local slot that is current at <paramref name="start"/>; Bravo has the
+    /// Europe/Athens slot, which resolves to <paramref name="fireLocal"/> in New York. The computer sleeps across that
+    /// instant (optionally waking once before it) and wakes at <paramref name="wakeUtc"/>: Bravo opens exactly once and
+    /// <c>schedule.fired</c> names the zone. <paramref name="paused"/>: the user stopped Alpha before the sleep.
+    /// </summary>
+    private static async Task Row12Case(string name, string path, DateTime start, (string Time, DayOfWeek Day) local, (string Time, DayOfWeek Day) zoned,
+        DateTime fireLocal, DateTime wakeUtc, DateTime? earlyWakeUtc = null, bool paused = false)
+    {
+        var tag = $"TZ-12 {name} [{path}{(paused ? ", paused" : "")}]";
+        var source = WakeSource(path);
+        await using var rig = CoordinatorRig.Create(schedule: true, slots: false, zone: NewYork, localNow: start);
+        var zonedEntry = new ScheduleEntry { StationId = rig.B.Id, Time = zoned.Time, TimeZone = "Europe/Athens", Days = [zoned.Day] };
+        rig.Settings.Schedule.AddRange([new ScheduleEntry { StationId = rig.A.Id, Time = local.Time, Days = [local.Day] }, zonedEntry]);
+        await rig.Coordinator.StartScheduleAsync();
+        rig.Playing();
+        await rig.Step(1);
+        var fireUtc = TimeZoneInfo.ConvertTimeToUtc(fireLocal, NewYork);
+        Check($"{tag} before sleep: the local slot plays Alpha; Next is the Athens slot at {fireLocal:ddd HH:mm} New York ({fireUtc:HH:mm}Z)",
+            rig.StartCount == 1 && rig.LastStart.Source.DisplayName == "Alpha" && rig.S.Next is { } next && next.Entry == zonedEntry
+            && next.At == fireLocal && next.Zone?.Id == Athens.Id && rig.Clock.UtcNow.UtcDateTime < fireUtc && wakeUtc > fireUtc);
+        if (paused) await rig.Coordinator.StopAsync();
+
+        if (earlyWakeUtc is { } early)
+        {
+            await SleepAndWake(rig, path, early);
+            await rig.Step(2);
+            if (!paused) rig.Playing();
+            await rig.Step(30);
+            Check($"{tag} a wake at {WallIn(NewYork, early):HH:mm} New York, before the Athens slot's instant this day, fires nothing: "
+                + (paused ? "still paused" : "Alpha reconnects once"),
+                early < fireUtc && rig.LogCount("schedule.fired") == 1 && rig.LastStart.Source.DisplayName == "Alpha"
+                && (paused
+                    ? rig.StartCount == 1 && !rig.S.IsActive && rig.LogCount("wake.recovery") == 0
+                    : rig.StartCount == 2 && rig.Status == PlaybackStatus.Playing && rig.LogCount("wake.recovery") == 1
+                      && rig.Log.Entries.Last(e => e.EventName == "wake.recovery").Message.Contains("outcome=reconnecting", StringComparison.Ordinal)));
+        }
+
+        var starts = rig.StartCount;
+        var recoveries = rig.LogCount("wake.recovery");
+        await SleepAndWake(rig, path, wakeUtc);
+        var wakeIndex = rig.Log.Entries.ToList().FindLastIndex(e => e.EventName == "wake.detected" && e.Message.Contains("source=" + source, StringComparison.Ordinal));
+        if (!paused)
+            Check($"{tag} woken at {WallIn(NewYork, wakeUtc):HH:mm} New York (source={source}): suspended, nothing opened before the settle",
+                wakeIndex >= 0 && rig.Status == PlaybackStatus.SuspendedBySystem && rig.StartCount == starts && rig.LogCount("schedule.fired") == 1);
+        await rig.Step(2);
+        var fired = rig.Log.Entries.Select((e, i) => (e, i)).Where(x => x.e.EventName == "schedule.fired").ToList();
+        Check($"{tag} after the wake: exactly ONE start, of Bravo (the Athens slot); schedule.fired names \"{zoned.Time} {Athens.Id}\""
+            + (paused ? "" : "; wake.recovery = schedule_slot_started"),
+            wakeIndex >= 0 && rig.StartCount == starts + 1 && rig.LastStart.Source.DisplayName == "Bravo" && rig.S.DesiredStationId == rig.B.Id && rig.S.IsActive
+            && fired.Count == 2 && fired[1].i > wakeIndex
+            && fired[1].e.Message.Contains($"Slot {zoned.Time} {Athens.Id} starts 'Bravo'", StringComparison.Ordinal)
+            && !fired[0].e.Message.Contains('/', StringComparison.Ordinal)
+            && (paused
+                ? rig.LogCount("wake.recovery") == recoveries
+                : rig.LogCount("wake.recovery") == recoveries + 1
+                  && rig.Log.Entries.Last(e => e.EventName == "wake.recovery").Message.Contains("outcome=schedule_slot_started", StringComparison.Ordinal)));
+        rig.Playing();
+        await rig.Step(60);
+        Check($"{tag} it opens once: a minute later still one start of Bravo, Playing, no second schedule.fired or recovery",
+            rig.StartCount == starts + 1 && rig.Status == PlaybackStatus.Playing && rig.LogCount("schedule.fired") == 2
+            && rig.LogCount("wake.recovery") == recoveries + (paused ? 0 : 1));
+    }
+
+    /// <summary>
+    /// CT-PB-31 zoned: the Athens slot is current at <paramref name="start"/> (Bravo), the user stops it, and the computer
+    /// sleeps until <paramref name="wakeUtc"/>, still within that slot. The wake keeps it stopped: no engine call, no fire.
+    /// </summary>
+    private static async Task Row12StoppedInZonedSlot(string name, string path, DateTime start, (string Time, DayOfWeek Day) zoned, DateTime wakeUtc)
+    {
+        var tag = $"TZ-12 {name} [{path}] stopped within the zoned slot";
+        var source = WakeSource(path);
+        await using var rig = CoordinatorRig.Create(schedule: true, slots: false, zone: NewYork, localNow: start);
+        var zonedEntry = new ScheduleEntry { StationId = rig.B.Id, Time = zoned.Time, TimeZone = "Europe/Athens", Days = [zoned.Day] };
+        rig.Settings.Schedule.Add(zonedEntry);
+        await rig.Coordinator.StartScheduleAsync();
+        rig.Playing();
+        await rig.Step(1);
+        Check($"{tag}: before sleep the Athens slot plays Bravo",
+            rig.StartCount == 1 && rig.LastStart.Source.DisplayName == "Bravo" && rig.LogCount("schedule.fired") == 1
+            && rig.Log.Entries.Single(e => e.EventName == "schedule.fired").Message.Contains($"Slot {zoned.Time} {Athens.Id}", StringComparison.Ordinal));
+        await rig.Coordinator.StopAsync();
+        await SleepAndWake(rig, path, wakeUtc);
+        await rig.Step(5);
+        await rig.Jump(TimeSpan.FromSeconds(30));
+        await rig.Step(5);
+        Check($"{tag}: a wake at {WallIn(NewYork, wakeUtc):HH:mm} New York (source={source}) keeps it stopped (no start, no engine call, no fire)",
+            rig.Log.Entries.Any(e => e.EventName == "wake.detected" && e.Message.Contains("source=" + source, StringComparison.Ordinal))
+            && rig.StartCount == 1 && rig.Status == PlaybackStatus.ScheduledWaiting && !rig.S.IsActive
+            && rig.Engine.CallLog.SequenceEqual(["start:1", "stop"]) && rig.LogCount("schedule.fired") == 1 && rig.LogCount("wake.recovery") == 0);
     }
 }
