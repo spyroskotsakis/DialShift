@@ -1,5 +1,6 @@
 using System.Globalization;
 using DialShift.Core;
+using DialShift.Core.Catalog;
 using DialShift.Core.Playback;
 
 namespace DialShift.App.ViewModels;
@@ -79,6 +80,59 @@ public static class UiText
 
     /// <summary>Startup-failure dialog (BHV-04, HS-08), the legacy Windows app's wording.</summary>
     public static string StartupFailed(string reason, string logFile) => $"DialShift couldn't start. {reason}\n\nDetails: {logFile}";
+
+    /// <summary>
+    /// The monogram of a station tile and of a catalog result without a logo: the first character, upper-case invariant
+    /// ("?" for an empty name). A character outside the Basic Multilingual Plane (a surrogate pair) is kept whole.
+    /// </summary>
+    public static string Initial(string name)
+    {
+        if (name.Length == 0) return "?";
+        var length = name.Length > 1 && char.IsSurrogatePair(name[0], name[1]) ? 2 : 1;
+        return name[..length].ToUpperInvariant();
+    }
+
+    // ─── Station catalog in the Add dialog (brief 3, docs/catalog-contracts.md §5.3) ───
+
+    public const string SearchPlaceholder = "Search by name, frequency or city…";
+    public const string CatalogLoading = "Loading the station catalog…";
+    public const string CatalogUnavailable = "Catalog unavailable — enter stream details manually";
+    public const string CatalogNoMatch = "No stations match — adjust filters or enter the stream manually";
+    public const string ManualEntrySeparator = "Or enter stream details manually";
+
+    /// <summary>The detail pane before any result is highlighted or picked.</summary>
+    public const string CatalogDetailPlaceholder = "Point at a result or pick one to see its details and notes here.";
+
+    /// <summary>The catalog status line: "8274 stations · catalog updated 2026-09-25" (the UTC date of generated_utc, CAT-17),
+    /// or "8274 stations" when the file has no usable date.</summary>
+    public static string CatalogStatus(int count, DateTimeOffset? generatedUtc)
+    {
+        var stations = count.ToString(CultureInfo.InvariantCulture) + (count == 1 ? " station" : " stations");
+        return generatedUtc is { } generated
+            ? $"{stations} · catalog updated {generated.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"
+            : stations;
+    }
+
+    /// <summary>The results footer: "" for no match, "1 match", "214 matches" when all are shown, else "Showing 50 of 214 matches".</summary>
+    public static string ResultCount(int shown, int total)
+    {
+        if (total <= 0) return "";
+        var totalText = total.ToString(CultureInfo.InvariantCulture);
+        if (shown >= total) return total == 1 ? "1 match" : totalText + " matches";
+        return $"Showing {shown.ToString(CultureInfo.InvariantCulture)} of {totalText} matches";
+    }
+
+    /// <summary>
+    /// A catalog frequency as shown (§5.4, D79): "101.5 FM" for an FM value, "1593 kHz" for a medium-wave one, the raw value
+    /// otherwise, "" when empty. The band is <see cref="StationCatalogQuery.BandOf"/>, the one a search token selects.
+    /// </summary>
+    public static string FrequencyText(string frequencyFm) =>
+        frequencyFm.Length == 0 ? "" : StationCatalogQuery.BandOf(frequencyFm) switch
+        {
+            FrequencyBand.Fm => frequencyFm + " FM",
+            FrequencyBand.Kilohertz => frequencyFm + " kHz",
+            _ => frequencyFm
+        };
 
     public static string DeleteStationQuestion(Station station, int slotCount) =>
         $"Delete {station.Name}" + (slotCount > 0 ? $" and its {slotCount} schedule slot(s)?" : "?");
