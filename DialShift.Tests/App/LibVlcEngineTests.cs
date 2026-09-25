@@ -369,7 +369,10 @@ public static partial class LibVlcEngineTests
         var entries = rig.Log.Entries;
         var diagnostics = entries.Count(e => e.Message.Contains("diagnostic=libvlc", StringComparison.Ordinal));
         Check($"HS-17 LV-11 LibVLC failure diagnostics reached the log ({diagnostics} of {entries.Count} entries)", diagnostics > 0);
-        var leaks = entries.Where(e => rig.Secrets.Any(s => e.Text.Contains(s, StringComparison.OrdinalIgnoreCase))).Select(e => e.EventName).ToList();
+        // A redacted URL ends in "/…" (scheme://host:port/…); only what follows the host may not appear, so the marker is
+        // removed before looking for ":port/" or ".invalid/" followed by a real path.
+        var leaks = entries.Where(e => rig.Secrets.Any(s => e.Text.Replace("/" + StreamUrlRedactor.Ellipsis, "", StringComparison.Ordinal).Contains(s, StringComparison.OrdinalIgnoreCase)))
+            .Select(e => e.EventName).ToList();
         Check($"HS-17 LV-11 no log entry contains the password, the token, or a URL beyond scheme://host:port (leaking events: [{string.Join(", ", leaks)}])",
             leaks.Count == 0);
     }

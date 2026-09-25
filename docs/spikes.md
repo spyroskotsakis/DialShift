@@ -138,7 +138,7 @@ The two harness "FAIL" labels in the raw log are B9 and B9c. They record that my
 **Observer class name for leak checks.** The spike's runtime classes were `DialShiftAVPlayerObserver` (this spike) and `DialShiftWakeObserver` (spike 3). Production uses **one** process-global class, **`DialShiftNotificationObserver`** (`DialShift.App/Interop/NotificationObserver.cs`, D27). It is shared by `MacAvPlayerPlaybackEngine` and `MacPowerEvents`. Future `heap <pid>` leak checks must count `DialShiftNotificationObserver`. Expect one instance per live engine plus one per started `MacPowerEvents`, and 0 after quit.
 
 **Replace the item or create a new player?** Both were exercised: B1/B1b used 120 replaces on one player, and B3 used 10 new players. **Recommendation:** one `AVPlayer` per engine instance, plus a new `AVPlayerItem` per `StartAsync` via `replaceCurrentItemWithPlayerItem:`.
-- Observers stay registered exactly once for the engine's lifetime.
+- Observers stay registered exactly once for the engine's lifetime. Production registers them at the first session start; if that fails (logged once per attempt as `playback.observer_unavailable`), the partial registration is removed, the session runs on the 250 ms poll alone, and the next session start retries. The poll still detects item/player Failed with its NSError, end of stream (the unrequested pause after playing) and stalls (no progress for 2 s). It cannot recover the NSError of failed-to-play-to-end, which then surfaces as end of stream or as Buffering until the coordinator's stall watchdog fires.
 - Volume persists, and fewer native objects are churned.
 - Memory was flat over 120 changes.
 

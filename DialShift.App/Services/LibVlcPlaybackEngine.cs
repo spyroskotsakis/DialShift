@@ -134,7 +134,7 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
             ObjectDisposedException.ThrowIf(disposeRequested, this);
             id = ++sessionCounter; // contract: synchronously on entry, before any await or event
             currentSession = ct.IsCancellationRequested ? 0 : id;
-            desiredVolume = StreamDiagnostics.ClampVolume(volume);
+            desiredVolume = EngineInput.ClampVolume(volume);
             previous = active;
             active = null;
             titleCleared = title is not null;
@@ -145,8 +145,8 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         if (titleCleared) events.Post(RaiseMetadataChanged);
         ArgumentNullException.ThrowIfNull(source);
         ct.ThrowIfCancellationRequested();
-        var origin = StreamDiagnostics.Origin(source.Url);
-        if (!StreamDiagnostics.IsPlayable(source.Url))
+        var origin = StreamUrlRedactor.RedactUrl(source.Url);
+        if (!EngineInput.IsPlayable(source.Url))
         {
             ReportFailure(id, PlaybackFailureKind.InvalidUrl, $"libvlc: only absolute http(s) URLs are accepted; source={origin}");
             return;
@@ -258,7 +258,7 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         lock (gate)
         {
             if (disposeRequested) return Task.CompletedTask;
-            value = desiredVolume = StreamDiagnostics.ClampVolume(volume);
+            value = desiredVolume = EngineInput.ClampVolume(volume);
             session = active;
         }
         if (session is not null) ApplyVolume(session, value);
@@ -551,7 +551,7 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
             if (disposeRequested || currentSession != id || lastFailedSession >= id) return;
             lastFailedSession = id; // at most one failure per session
         }
-        Failed?.Invoke(this, new PlaybackEngineFailedEventArgs(id, kind, StreamDiagnostics.Redact(diagnostic, maxLength: 400)));
+        Failed?.Invoke(this, new PlaybackEngineFailedEventArgs(id, kind, StreamUrlRedactor.RedactDiagnostic(diagnostic, maxLength: 400)));
     });
 
     private void RaiseStopped(long id)
@@ -574,7 +574,7 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
     private void OnLibVlcLog(object? sender, LogEventArgs e)
     {
         if (e.Level < LogLevel.Warning) return;
-        var line = new LogLine(Stopwatch.GetTimestamp(), ClassifyLogMessage(e.Message), e.Module ?? "?", StreamDiagnostics.Redact(e.Message, maxLength: 160));
+        var line = new LogLine(Stopwatch.GetTimestamp(), ClassifyLogMessage(e.Message), e.Module ?? "?", StreamUrlRedactor.RedactDiagnostic(e.Message, maxLength: 160));
         lock (logLock)
         {
             recentLogLines.Enqueue(line);
