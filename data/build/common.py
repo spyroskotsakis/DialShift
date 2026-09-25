@@ -80,7 +80,10 @@ def city_aliases(value, source):
     """A YAML `city_aliases` block checked as a mapping of non-empty strings to non-empty strings
     whose keys are already in norm() form (missing or empty = {}). A bad block is a hard error
     naming source: an unquoted key like `no:` (YAML reads it as a boolean) or a key with capitals,
-    accents or punctuation would otherwise never match and fail silently."""
+    accents or punctuation would otherwise never match and fail silently. So is a chain, a city
+    whose own norm() is another key mapping elsewhere (`thueringen: Thüringen` beside
+    `thuringen: Thuringia`): norm_city runs again on the aliased city in the final dedupe, so the
+    rows would carry one city and be deduped under another."""
     if value is None:
         return {}
     if not isinstance(value, dict):
@@ -95,6 +98,11 @@ def city_aliases(value, source):
     if unnormalized:
         raise ValueError(f'{source}: city_aliases keys must be in normalized form (lowercase, no '
                          'accents or punctuation) or they never match: ' + ', '.join(unnormalized))
+    chains = [f'{k!r}: {v!r} (but {norm(v)!r}: {value[norm(v)]!r})' for k, v in value.items()
+              if value.get(norm(v), v) != v]
+    if chains:
+        raise ValueError(f'{source}: city_aliases must not chain: a city whose normalized form is itself '
+                         'a key must be that key\'s city too (map both keys to one city): ' + ', '.join(chains))
     return dict(value)
 
 # ---------------------------------------------------------------- languages (data/languages.yaml)
@@ -194,6 +202,10 @@ def language_table(value, source):
     return table
 
 # ---------------------------------------------------------------- row helpers
+# The provenance label of a radio-browser extra's notes: build_stations writes f'{RB_TAGS_LABEL} {tags}'
+# (radio-browser's raw comma-joined tag list) and app_catalog formats that note for the app.
+RB_TAGS_LABEL = 'tags:'
+
 def row_score(r):
     """Which of two duplicate rows to keep: prefer a frequency, a curated source, then more votes."""
     return (bool(r.get('frequency_fm')), str(r.get('source', '')).startswith('curated'),

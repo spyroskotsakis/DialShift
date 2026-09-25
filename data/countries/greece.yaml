@@ -19,6 +19,15 @@ city_aliases:
   piraeus: Piraeus
   piraias: Piraeus
   chalkida: Chalkida
+  # one spelling per place in the City filter (D86): transliteration variants of the same place
+  argolida: Argolis
+  halkidiki: Chalkidiki
+  kefalonia: Kefallonia
+  laconia: Lakonia
+  lesvos: Lesbos
+  nafpli: Nafplio
+  rethimno: Rethymno
+  sparta: Sparti
 national_programmes:
 - id: first programme
   match_names:

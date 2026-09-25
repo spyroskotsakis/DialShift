@@ -12,6 +12,30 @@ city_aliases:
   dusseldorf: Düsseldorf
   nuernberg: Nuremberg
   stuttgart: Stuttgart
+  # one spelling per place in the City filter (D86): typos, ue/ü and hyphen variants of radio-browser states
+  hanover: Hannover
+  berlim: Berlin
+  berlin brandenburg: Berlin-Brandenburg
+  babaria: Bavaria
+  baxern: Bayern
+  augsburg mp3 192 kbits: Augsburg
+  augsburg mp3 192kbits: Augsburg
+  baden wurttemberg: Baden-Württemberg
+  baden wuerttemberg: Baden-Württemberg
+  baden wuertemberg: Baden-Württemberg
+  mecklenburg vorpommern: Mecklenburg-Vorpommern
+  niedersachcen: Niedersachsen
+  nordrhein westfalen: Nordrhein-Westfalen
+  north rhine westphalia: North Rhine-Westphalia
+  sachsen anstalt: Sachsen-Anhalt
+  saxonia: Saxony
+  sachsonia: Saxony
+  sassonia: Saxony
+  schleswig holstein: Schleswig-Holstein
+  schleswig holtstein: Schleswig-Holstein
+  thuringen: Thuringia
+  thueringen: Thuringia
+  thunringia: Thuringia
 focus:
   city: Munich
   label: Munich

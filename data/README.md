@@ -80,8 +80,11 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   `""`; `internet_only` is `true` only for `Yes`; `bitrate` is a positive integer or `null`;
   `votes` an integer ≥ 0 or `null`; Wikipedia `_emphasis_` markers are dropped from notes, and a
   note that is only a source label (`tags:`, `curated:`, …) followed by nothing or punctuation, or
-  that has no letter or digit at all, becomes `""` (the CSVs and the XLSX keep the pipeline's
-  label); logos that are not http(s) become `""`.
+  that has no letter or digit at all, becomes `""`; a radio-browser tag note (`tags: music,variety`)
+  is shown readably as `Tags: music, variety` (split on `,` and `;`, each tag trimmed with single
+  spaces, a tag without a letter or digit such as a bare `#` dropped, repeats dropped ignoring case,
+  first spelling kept); every other note is kept as it is. The CSVs and the XLSX keep the pipeline's
+  raw note; logos that are not http(s) become `""`.
 - **Language (D84):** a list of single language names joined with `", "` (`English, German, Low
   German`), or `""`. The raw value is split on `,` and `;` only (never on `-`, `/` or `.`), and each
   token is looked up in `languages.yaml` (below) in any case: a canonical name stays itself, an alias
@@ -89,12 +92,13 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   JSON is normalized: the CSVs and the XLSX keep the raw value.
 - **Validation (hard failure, same run):** schema version, the 18 keys and their types, non-empty
   name and country, valid stream URL, no duplicate `(name, country, stream_url)`, the count equals
-  the Working rows that pass the URL rule, 1–10,000 entries, and every `language` a clean list
-  (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key). On any problem
+  the Working rows that pass the URL rule, 1–10,000 entries, every `language` a clean list
+  (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key), and no note
+  still in the raw `tags:` form. On any problem
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
   example
-  `app-catalog: working=8281 url_excluded=7 duplicates_removed=0 exported=8274 -> data/output/app-catalog.json`
+  `app-catalog: working=8280 url_excluded=7 duplicates_removed=0 exported=8273 -> data/output/app-catalog.json`
   and `app-catalog: languages=42 unknown=0`.
 - **Language table (`languages.yaml`):** `languages` (canonical names: a language's usual English
   name), `aliases` (key → one name or a list: spellings, typos, native names, and dialects or
@@ -162,8 +166,19 @@ notes · source`
    never match, so the build stops on one and names the file, the key and the form to write.
    Only alias a spelling that really means that city: a region key such as
    `auvergne rhone alpes: Lyon` would move every station in the region to Lyon. The block is
-   optional (`france.yaml` has none). Quote a key YAML reads as a boolean or a number
+   optional. Quote a key YAML reads as a boolean or a number
    (`'no': …`): the build stops on a block that is not all non-empty strings.
+   Use it too for **one spelling per place** in the app's City filter: map every spelling of a
+   place (typos, `ue`/`ü`, hyphen or accent variants: `thueringen`, `thuringen`, `thunringia` →
+   `Thuringia`) to the spelling most of its rows already have. Map a group to **one** city, and
+   when the city's own normalized form is a key, that key must give the same city (`thuringen`,
+   the form of `Thüringen`, maps to `Thuringia` too): the final dedupe normalizes the aliased city
+   again, so the build stops on such a chain and names both keys. Leave a place alone when the
+   spellings may be two places (`Korinthia`, the regional unit, and `Korinthos`, its town) or the
+   target is itself ambiguous, and never alias a city named by a `curated` entry to something
+   else: its pinned URL only applies in its own city. An alias can merge two rows that were the
+   same station under two spellings (the final dedupe then keeps the richer one); check the row
+   counts the build prints.
    `language_default` is the CSV language of a station whose source gives none. The optional
    `language_replace` maps a whole radio-browser language value, written lower case with single
    spaces, to the language the CSV gets instead (`greece.yaml`: `ancient greek: Greek`); the build
