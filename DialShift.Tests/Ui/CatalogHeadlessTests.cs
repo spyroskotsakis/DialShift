@@ -52,6 +52,7 @@ internal static partial class CatalogHeadlessTests
         await Headless.RunAsync(TitleBarCloseIsCancel);
         await Headless.RunAsync(DetailPaneScrollsFromTheSearchBox);
         await Headless.RunAsync(TilesAndDetailPane);
+        await Headless.RunAsync(FooterDividerAndStatusInk);
         await Headless.RunAsync(HighlightContrast);
         await Headless.RunAsync(FilterDropDowns);
         await Headless.RunAsync(LongNameFrequencyColumn);
