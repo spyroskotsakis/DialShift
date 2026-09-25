@@ -110,7 +110,10 @@ public sealed partial class CatalogProvider : ICatalogProvider
 
     private async Task<CatalogLoadResult> ReadAsync(Stopwatch clock)
     {
-        if (location.Path is not { } path) return Unavailable(location.Problem ?? $"{PathOverrideVariable} has no path.");
+        if (location.Problem is { } problem) return Unavailable(problem);
+        // §4.2: Path is set whenever Problem is not (ResolveLocation builds nothing else). A hand-built location that breaks
+        // this still never throws: File.Exists(null) is false, so it ends as "the file does not exist."
+        var path = location.Path!;
         if (Directory.Exists(path)) return Unavailable("the path is a directory, not a file.");
         if (!File.Exists(path)) return Unavailable("the file does not exist.");
         // Before opening: opening a FIFO that has no writer blocks until one appears, which may be never.

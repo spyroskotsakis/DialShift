@@ -38,6 +38,8 @@ public sealed class SmokeRunner
 
     private const string StationName = "Smoke test station";
     private const string EditedStationName = "Smoke test station (edited)";
+    /// <summary>What the catalog screenshot searches for: a word that many catalog names and genres contain.</summary>
+    private const string CatalogSearchQuery = "radio";
 
     private static readonly TimeSpan PlayTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan PlayHold = TimeSpan.FromSeconds(2);
@@ -637,6 +639,7 @@ public sealed class SmokeRunner
             ("Screenshot: Schedule page", "schedule.png", file => CapturePageAsync(MainPage.Schedule, file)),
             ("Screenshot: Settings page", "settings.png", file => CapturePageAsync(MainPage.Settings, file)),
             ("Screenshot: station editor", "station-editor.png", CaptureStationEditorAsync),
+            ("Screenshot: add station with catalog results", "station-editor-add.png", CaptureCatalogSearchAsync),
             ("Screenshot: schedule editor", "schedule-editor.png", CaptureScheduleEditorAsync),
             ("Screenshot: compact 780×650", "compact.png", CaptureCompactAsync)
         };
@@ -681,6 +684,36 @@ public sealed class SmokeRunner
         {
             SmokeUi.Click(dialog, ((StationEditorViewModel)dialog.DataContext!).CancelCommand);
             await SmokeUi.CompleteAsync(command, "Station editor (screenshot)");
+        }
+    }
+
+    /// <summary>The Add dialog with the loaded catalog searched for <see cref="CatalogSearchQuery"/> and its results open.
+    /// Cancelled afterwards, so nothing is saved.</summary>
+    private async Task<string> CaptureCatalogSearchAsync(string file)
+    {
+        var command = viewModel.Stations.AddCommand.ExecuteAsync();
+        var dialog = await SmokeUi.WaitForWindowAsync<StationEditorDialog>();
+        var editor = (StationEditorViewModel)dialog.DataContext!;
+        try
+        {
+            var (available, _) = await SmokeUi.WaitUntilAsync(() => editor.IsCatalogAvailable, CatalogTimeout);
+            if (!available) throw new InvalidOperationException($"The catalog did not load within {CatalogTimeout.TotalSeconds:0} s: {editor.CatalogStatusText}");
+            SmokeUi.Type(dialog.SearchBox, CatalogSearchQuery);
+            var (shown, _) = await SmokeUi.WaitUntilAsync(
+                () => editor.PendingSearch.IsCompleted && editor.IsResultsOpen && editor.Results.Count > 0, CatalogTimeout);
+            if (!shown)
+                throw new InvalidOperationException($"No results for \"{CatalogSearchQuery}\" within {CatalogTimeout.TotalSeconds:0} s " +
+                    $"(open={editor.IsResultsOpen}, rows={editor.Results.Count}).");
+            // One layout and render pass for the results overlay.
+            await Task.Delay(300);
+            // At 1:1: on a Retina screen, Avalonia 12.1.2's RenderTargetBitmap applies the scale to the ListBox rows twice (they
+            // land outside the bitmap); the rows' on-screen layout is right. The other shots keep the screen scale.
+            return Describe(SmokeUi.Capture(dialog, file, scale: 1), file) + $" ({editor.TotalCountText} for \"{CatalogSearchQuery}\")";
+        }
+        finally
+        {
+            SmokeUi.Click(dialog, editor.CancelCommand);
+            await SmokeUi.CompleteAsync(command, "Add station with catalog results (screenshot)");
         }
     }
 
