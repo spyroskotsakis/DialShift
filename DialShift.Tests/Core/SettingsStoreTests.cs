@@ -33,6 +33,7 @@ public static class SettingsStoreTests
         SameMillisecondRecoveries(Path.Combine(root, "CF-04-collision"));
         NoBackupNameFree(Path.Combine(root, "CF-04-exhausted"));
         ReadOnlyDirectory(Path.Combine(root, "CF-04-readonly"));
+        DottedTimesCanonicalized(Path.Combine(root, "dotted-times"));
         Directory.Delete(root, recursive: true);
     }
 
@@ -272,6 +273,31 @@ public static class SettingsStoreTests
         var backups = Backups(directory);
         Check($"{name}: once writable, the next Save preserves the original first, then writes defaults",
             backups.Length == 1 && File.ReadAllText(backups[0]) == corrupt && store.Load().Stations.Count == 3 && store.Warning == null);
+    }
+
+    /// <summary>
+    /// CT-SET-12 (D54): earlier builds wrote <c>08.30</c> on cultures whose time separator is <c>.</c>. Load canonicalizes
+    /// every parseable time in memory without rewriting the file; an unparseable time loads as it is, with no recovery.
+    /// </summary>
+    private static void DottedTimesCanonicalized(string directory)
+    {
+        var document = Baseline();
+        var slots = document["Schedule"]!.AsArray();
+        var first = slots[0]!.AsObject();
+        first["Time"] = "08.30";
+        JsonObject Copy(string time) => JsonNode.Parse(first.ToJsonString())!.AsObject().Also(n => { n["Id"] = Guid.NewGuid(); n["Time"] = time; });
+        slots.Add(Copy("21:05"));
+        slots.Add(Copy("8.30"));
+        var store = StoreWith(directory, document);
+        var before = File.ReadAllText(store.FilePath);
+        var loaded = store.Load();
+        Check("CT-SET-12 a stored 08.30 loads as 08:30; 21:05 and an unparseable 8.30 load unchanged; no warning, no backup",
+            store.Warning == null && Backups(directory).Length == 0 && loaded.Schedule.Select(e => e.Time).SequenceEqual(["08:30", "21:05", "8.30"]));
+        Check("CT-SET-12 Load does not rewrite the file", File.ReadAllText(store.FilePath) == before);
+        store.Save(loaded);
+        Check("CT-SET-12 the next Save persists the canonical 08:30 and keeps the unparseable time as it was",
+            !File.ReadAllText(store.FilePath).Contains("08.30", StringComparison.Ordinal)
+            && store.Load().Schedule.Select(e => e.Time).SequenceEqual(["08:30", "21:05", "8.30"]));
     }
 
     private static bool CanCreateFile(string directory)
