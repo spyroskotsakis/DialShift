@@ -486,7 +486,7 @@ internal static class CatalogLogoLoaderTests
         }
 
         var first = await Load("logo.png");
-        Check("CAT-10 a 128 × 96 PNG decodes to DecodeSize (64) pixels wide, aspect kept (64 × 48)",
+        Check("CAT-10 a 128 × 96 PNG decodes with its longest side DecodeSize (64), aspect kept (64 × 48)",
             first is { PixelSize.Width: CatalogLogoLoader.DecodeSize, PixelSize.Height: 48 });
         var hit = loader.LoadAsync(Url("logo.png"), CancellationToken.None);
         Check("CAT-10 a decoded logo is cached: the next call returns a completed task with the same Bitmap, without a request",
