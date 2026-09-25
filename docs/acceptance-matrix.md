@@ -971,6 +971,7 @@ The App implementation of `IAppLog` is `FileAppLog` plus `StreamUrlRedactor`, bo
 | `settings.recovered` / `settings.save_failed` | — |
 | `single_instance.*` | — |
 | `app.startup_failed` | — |
+| `app.render_timer_fallback` | macOS, warn: no `CVDisplayLink` at startup (displays asleep, lid closed); the `CVReturn` code. Rendering runs on a 60 fps timer that idles when nothing changes, until the next start (`MacRenderTimerFallback`, suite `RenderTimerFallback`) |
 | `app.exit` | — |
 
 #### 8.2.8 Sleep-inclusive `IMonotonicClock` (D14)

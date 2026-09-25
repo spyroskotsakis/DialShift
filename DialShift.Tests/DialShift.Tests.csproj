@@ -1,5 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <!-- RenderTimerFallbackTests reads and swaps AvaloniaLocator bindings and builds render loops, the [PrivateApi] surface
+       the App's macOS render timer fallback uses (see DialShift.App.csproj); pinned to the same exact Avalonia version. -->
+  <PropertyGroup>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);AVA3001</MSBuildWarningsAsMessages>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DialShift.Core\DialShift.Core.csproj"/>
     <!-- Headless integration tests of the App's platform layer (CT-SI, CT-LOG, HS-*). Built without a RID, like CI;

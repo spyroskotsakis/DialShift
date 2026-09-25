@@ -1,4 +1,5 @@
 using Avalonia;
+using DialShift.App.Platform.MacOS;
 using DialShift.App.Services;
 using DialShift.App.SingleInstance;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,9 +49,12 @@ internal static class Program
         if (paths.Source == DataDirectorySource.EnvironmentOverride)
             log.Info("app.data_dir_override", $"Using the data directory from {AppPaths.DataDirectoryOverrideVariable}: {paths.DataDirectory}");
 
+        var builder = BuildAvaloniaApp();
+        // A login, restart or launch while every display sleeps must not stop the tray and the schedule from starting.
+        if (OperatingSystem.IsMacOS()) builder = builder.UseRenderTimerFallback(log);
         try
         {
-            return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, lifetime =>
+            return builder.StartWithClassicDesktopLifetime(args, lifetime =>
                 lifetime.Startup += (_, _) => ((App)Application.Current!).Run(lifetime, services, launch, failure));
         }
         catch (Exception ex)

@@ -17,6 +17,13 @@
     <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
     <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
+    <!-- Platform/MacOS/MacRenderTimerFallback.cs needs AvaloniaLocator, RenderLoop and SleepLoopRenderTimer, which
+         Avalonia 12 marks [PrivateApi] and leaves out of its reference assemblies. The opt-in compiles against the real
+         assemblies; it is safe only because every Avalonia package is pinned to one exact version (D6, PK-06), and the
+         fallback must be re-verified on any Avalonia bump. AVA3001 is the opt-in's own reminder of that. -->
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);AVA3001</MSBuildWarningsAsMessages>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
