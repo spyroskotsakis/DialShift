@@ -15,6 +15,8 @@ public static class FakeSelfTests
         await EngineSessionIds();
         await EngineHeldStarts();
         await EngineEventsAndMetadata();
+        await EngineHooksAndCallLog();
+        await PlainEngineHidesMetadata();
         Clocks();
         Log();
     }
@@ -93,6 +95,42 @@ public static class FakeSelfTests
         Check("FakeEngine: a stop resets CurrentTitle to null (contract)", engine.CurrentTitle == null);
         await engine.SetVolumeAsync(-0.5, CancellationToken.None);
         Check("FakeEngine: SetVolumeAsync is recorded raw and applied clamped", engine.VolumeCalls.SequenceEqual([-0.5]) && engine.Volume == 0.0);
+    }
+
+    private static async Task EngineHooksAndCallLog()
+    {
+        var engine = new FakePlaybackEngine();
+        var seen = new List<long>();
+        engine.OnStarted = id => seen.Add(id);
+        await engine.StartAsync(A, 0.5, CancellationToken.None);
+        await engine.SetVolumeAsync(0.25, CancellationToken.None);
+        await engine.StopAsync(CancellationToken.None);
+        Check("FakeEngine: OnStarted runs synchronously inside StartAsync with the session id", seen.SequenceEqual([1L]));
+        Check("FakeEngine: CallLog records start/volume/stop in invocation order", engine.CallLog.SequenceEqual(["start:1", "volume:0.25", "stop"]));
+        engine.StopException = new IOException("stop failed");
+        Check("FakeEngine: StopException faults StopAsync after the stop took effect",
+            await Faults(engine.StopAsync(CancellationToken.None)) is IOException && engine.StopCount == 2);
+        engine.ThrowSynchronously = true;
+        Check("FakeEngine: ThrowSynchronously throws the stop error on the caller's stack", Throws<IOException>(() => engine.StopAsync(CancellationToken.None)));
+        engine.StartException = new InvalidOperationException("start failed");
+        Check("FakeEngine: ThrowSynchronously throws the start error and still consumes the id",
+            Throws<InvalidOperationException>(() => engine.StartAsync(B, 0.5, CancellationToken.None)) && engine.LastSessionId == 2 && seen.Count == 1);
+    }
+
+    private static async Task PlainEngineHidesMetadata()
+    {
+        var inner = new FakePlaybackEngine();
+        await using var plain = new PlainPlaybackEngine(inner);
+        var states = new List<PlaybackEngineStateChangedEventArgs>();
+        var failures = new List<PlaybackEngineFailedEventArgs>();
+        plain.StateChanged += (_, e) => states.Add(e);
+        plain.Failed += (_, e) => failures.Add(e);
+        await plain.StartAsync(A, 0.4, CancellationToken.None);
+        inner.RaiseState(1, PlaybackEngineState.Playing);
+        inner.RaiseFailed(1, PlaybackFailureKind.HttpError);
+        IPlaybackEngine port = plain; // what the coordinator sees
+        Check("PlainEngine: is not an ITrackMetadataProvider", port is not ITrackMetadataProvider);
+        Check("PlainEngine: forwards starts and re-raises events", inner.Starts.Count == 1 && states.Count == 1 && failures.Count == 1);
     }
 
     private static void Clocks()

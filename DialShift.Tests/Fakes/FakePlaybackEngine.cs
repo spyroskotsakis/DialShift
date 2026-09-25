@@ -14,7 +14,11 @@ public sealed record EngineStartCall(long SessionId, StreamSource Source, double
 /// session id (current or stale, from any thread) to simulate callbacks, including stale ones racing past the contract.</item>
 /// <item><b>Slow connect:</b> with <see cref="HoldStarts"/> set, each start's task stays incomplete until
 /// <see cref="ReleaseStart"/>/<see cref="FailStart"/> (or its token is cancelled).</item>
-/// <item><b>Throwing start:</b> <see cref="StartException"/> faults every start while set.</item>
+/// <item><b>Throwing start/stop:</b> <see cref="StartException"/>/<see cref="StopException"/> fault every start/stop while
+/// set (as a faulted task, or thrown synchronously when <see cref="ThrowSynchronously"/> is set).</item>
+/// <item><b>Events inside StartAsync:</b> <see cref="OnStarted"/> runs synchronously at the end of every accepted start, on
+/// the caller's stack, to simulate an adapter that raises events inside <see cref="StartAsync"/> (the contract allows it).</item>
+/// <item><b>Call order:</b> <see cref="CallLog"/> records every start/stop/volume call in invocation order.</item>
 /// </list>
 /// All members are thread-safe.
 /// </summary>
@@ -23,6 +27,7 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
     private readonly object gate = new(); // plain monitor: WaitForStarts uses Monitor.Wait
     private readonly List<EngineStartCall> starts = [];
     private readonly List<double> volumeCalls = [];
+    private readonly List<string> callLog = [];
     private readonly Dictionary<long, TaskCompletionSource> heldStarts = [];
     private long lastSessionId;
     private long? activeSessionId;
@@ -41,6 +46,15 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
     /// <summary>When set, every start faults with this exception (after its session id was assigned).</summary>
     public Exception? StartException { get; set; }
 
+    /// <summary>When set, every stop faults with this exception (the stop still takes effect first).</summary>
+    public Exception? StopException { get; set; }
+
+    /// <summary>When true, <see cref="StartException"/>/<see cref="StopException"/> are thrown synchronously instead of returned as faulted tasks.</summary>
+    public bool ThrowSynchronously { get; set; }
+
+    /// <summary>Runs synchronously (outside the fake's lock) at the end of every start that was accepted, with its session id.</summary>
+    public Action<long>? OnStarted { get; set; }
+
     /// <summary>Id of the most recently requested session; 0 before the first start.</summary>
     public long LastSessionId { get { lock (gate) return lastSessionId; } }
 
@@ -49,6 +63,9 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
 
     public IReadOnlyList<EngineStartCall> Starts { get { lock (gate) return [.. starts]; } }
     public IReadOnlyList<double> VolumeCalls { get { lock (gate) return [.. volumeCalls]; } }
+
+    /// <summary>Every call in invocation order: <c>start:N</c>, <c>stop</c>, <c>volume:V</c> (V formatted invariantly).</summary>
+    public IReadOnlyList<string> CallLog { get { lock (gate) return [.. callLog]; } }
     public int StopCount { get { lock (gate) return stopCount; } }
     public int DisposeCount { get { lock (gate) return disposeCount; } }
     public bool IsDisposed => DisposeCount > 0;
@@ -63,24 +80,35 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
 
     public Task StartAsync(StreamSource source, double volume, CancellationToken ct)
     {
-        TaskCompletionSource held;
+        TaskCompletionSource? held = null;
         long id;
         lock (gate)
         {
             id = ++lastSessionId; // contract: synchronous, on entry, before anything can fail
             if (source is null) return Task.FromException(new ArgumentNullException(nameof(source)));
             starts.Add(new EngineStartCall(id, source, volume));
+            callLog.Add($"start:{id}");
             title = null;
             Monitor.PulseAll(gate);
             if (disposeCount > 0) return Task.FromException(new ObjectDisposedException(nameof(FakePlaybackEngine)));
             activeSessionId = id; // implicitly stops the previous session
             this.volume = Math.Clamp(volume, 0.0, 1.0);
-            if (StartException is { } error) { activeSessionId = null; return Task.FromException(error); }
+            if (StartException is { } error)
+            {
+                activeSessionId = null;
+                if (ThrowSynchronously) throw error;
+                return Task.FromException(error);
+            }
             if (ct.IsCancellationRequested) { activeSessionId = null; return Task.FromCanceled(ct); }
-            if (!HoldStarts) return Task.CompletedTask;
-            held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            heldStarts[id] = held;
+            if (HoldStarts)
+            {
+                held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                heldStarts[id] = held;
+            }
         }
+        OnStarted?.Invoke(id);
+        if (held is null) return Task.CompletedTask;
+        var pending = held;
         ct.Register(() =>
         {
             lock (gate)
@@ -88,9 +116,9 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
                 if (!heldStarts.Remove(id)) return;
                 if (activeSessionId == id) activeSessionId = null; // cancelled start: session stopped silently
             }
-            held.TrySetCanceled(ct);
+            pending.TrySetCanceled(ct);
         });
-        return held.Task;
+        return pending.Task;
     }
 
     /// <summary>Completes a held start successfully. Returns false if no such start is held.</summary>
@@ -110,8 +138,14 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
         lock (gate)
         {
             stopCount++;
+            callLog.Add("stop");
             activeSessionId = null;
             title = null;
+            if (StopException is { } error)
+            {
+                if (ThrowSynchronously) throw error;
+                return Task.FromException(error);
+            }
         }
         return Task.CompletedTask;
     }
@@ -121,6 +155,7 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
         lock (gate)
         {
             volumeCalls.Add(volume);
+            callLog.Add(FormattableString.Invariant($"volume:{volume}"));
             this.volume = Math.Clamp(volume, 0.0, 1.0);
         }
         return Task.CompletedTask;
