@@ -176,8 +176,10 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     private async Task OpenSettingsFolderAsync()
     {
+        // Missing folder (IOException), no access, the file manager couldn't launch, failed or didn't answer in time.
         try { await reveal.RevealInFileManagerAsync(info.DataDirectory); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or
+                                       System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
         {
             Services.Log.Warn("ui.reveal_failed", "Couldn't open the settings folder.", ex);
             await Services.Dialogs.ShowMessageAsync(UiText.OpenFolderFailedTitle, ex.Message);

@@ -52,7 +52,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 |---|---|---|
 | Settings | `%LOCALAPPDATA%\DialShift\settings.json` | `~/Library/Application Support/DialShift/settings.json` |
 | Log | `dialshift.log` in the same folder (rotated to `dialshift.log.1` at 1 MiB) | same |
-| Launch at sign-in | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `DialShift` | `~/Library/LaunchAgents/com.tsiger.dialshift.plist` |
+| Launch at sign-in | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `DialShift`. Settings shows it as off when it's turned off in Task Manager's Startup apps; turning it on in DialShift turns it back on there too. | `~/Library/LaunchAgents/com.tsiger.dialshift.plist`. Settings shows it as off when launchd has it disabled. If macOS Login Items shows DialShift as not allowed, enable it there. |
 
 Writes are atomic. An unreadable settings file is preserved as `settings.json.unreadable-*` before defaults are used. Back up the settings folder to move stations and schedules. Settings move between Windows and macOS: slot time zones are saved as IANA names (such as `Europe/Athens`), which both systems understand. If this computer doesn't recognize a saved zone, the slot runs on local time and shows `(unknown zone)` in the warning color. Editing the slot keeps the saved zone unless you pick another one. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
@@ -151,10 +151,10 @@ DIALSHIFT_DATA_DIR=/tmp/dialshift-dev dotnet run --project DialShift.App -- --tr
 
 | Exit code | Meaning |
 |---|---|
-| 0 | Normal quit, or a second launch that activated the running copy |
-| 1 | Startup failed (after the startup-failure dialog, or a `DIALSHIFT_DATA_DIR` that is not absolute) |
-| 2 | A second launch whose activation request the running copy didn't answer |
-| 3 | The single-instance activation channel couldn't start |
+| 0 | Normal quit, or a second launch whose activation was acknowledged |
+| 1 | Startup failed and the startup-failure dialog was shown (also used for a bad `DIALSHIFT_DATA_DIR` before any UI, and for an exception that escapes the UI toolkit) |
+| 2 | A second launch whose activation was rejected or not answered |
+| 3 | The lock was acquired but the activation channel could not start |
 | 4 | `--smoke-test`: at least one check failed |
 
 ### Native smoke test

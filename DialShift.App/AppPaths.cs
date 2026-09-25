@@ -18,7 +18,6 @@ public sealed class AppPaths
 
     public string DataDirectory { get; }
     public DataDirectorySource Source { get; }
-    public string SettingsFile => Path.Combine(DataDirectory, "settings.json");
     public string LogFile => Path.Combine(DataDirectory, "dialshift.log");
     public string SingleInstanceLockFile => Path.Combine(DataDirectory, ".single-instance.lock");
 

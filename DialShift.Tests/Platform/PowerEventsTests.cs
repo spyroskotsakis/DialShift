@@ -1,9 +1,11 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using DialShift.App.Platform;
 using DialShift.App.Platform.MacOS;
 using DialShift.App.Platform.Windows;
 using DialShift.Tests.Fakes;
+using Microsoft.Win32;
 using static DialShift.Tests.TestHarness;
 
 namespace DialShift.Tests.Platform;
@@ -74,6 +76,11 @@ public static class PowerEventsTests
         Check("HS-16 mac: with every instance disposed no observer is left", resumed1 == 2 && resumed2 == 3);
 
         Check("HS-16 mac: Dispose without Start is harmless", NoThrow(() => new MacPowerEvents(new RecordingAppLog()).Dispose()));
+
+        // NSNotificationCenter delivers on the posting thread, so posting from the pool raises Resumed there.
+        var events3 = new MacPowerEvents(new RecordingAppLog());
+        events3.Start();
+        CheckNoRaiseAfterDispose("mac", events3, () => Wake.Post(Wake.DidWake));
     }
 
     [SupportedOSPlatform("windows")]
@@ -104,6 +111,43 @@ public static class PowerEventsTests
         events1.Start();
         Check("HS-16 win: Start after Dispose is a no-op", log1.Entries.Count(e => e.EventName is "power_events.started" or "power_events.unavailable") == 1);
         Skip("HS-16 win: Resumed on PowerModes.Resume", "SystemEvents delivery needs a message loop and a real resume: native check NC-02");
+
+        // The SystemEvents handler itself, called directly (as SystemEvents would, on its own thread).
+        var events3 = new WindowsPowerEvents(new RecordingAppLog());
+        var handler = typeof(WindowsPowerEvents).GetMethod("OnPowerModeChanged", BindingFlags.Instance | BindingFlags.NonPublic)
+                      ?? throw new CheckFailedException("WindowsPowerEvents.OnPowerModeChanged not found");
+        CheckNoRaiseAfterDispose("win", events3, () => handler.Invoke(events3, [null, new PowerModeChangedEventArgs(PowerModes.Resume)]));
+    }
+
+    /// <summary>
+    /// F8: a raise in progress on another thread finishes before <see cref="IDisposable.Dispose"/> returns, and nothing is
+    /// raised afterwards. <paramref name="raise"/> delivers one wake the way the OS does.
+    /// </summary>
+    private static void CheckNoRaiseAfterDispose(string os, ISystemPowerEvents events, Action raise)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var disposeReturned = 0;
+        var raised = 0;
+        var raisedAfterDispose = 0;
+        events.Resumed += (_, _) =>
+        {
+            if (Volatile.Read(ref disposeReturned) == 1) Interlocked.Increment(ref raisedAfterDispose);
+            Interlocked.Increment(ref raised);
+            entered.Set();
+            release.Wait(TimeSpan.FromSeconds(5));
+        };
+
+        var raising = Task.Run(raise);
+        var inHandler = entered.Wait(TimeSpan.FromSeconds(5));
+        var disposing = Task.Run(() => { events.Dispose(); Volatile.Write(ref disposeReturned, 1); });
+        var disposeWaited = !disposing.Wait(TimeSpan.FromMilliseconds(300));
+        release.Set();
+        var finished = Task.WaitAll([raising, disposing], TimeSpan.FromSeconds(5));
+        raise();
+
+        Check($"F8 {os}: Dispose on another thread waits for a Resumed raise in progress", inHandler && disposeWaited && finished);
+        Check($"F8 {os}: nothing is raised after Dispose returns", Volatile.Read(ref raised) == 1 && Volatile.Read(ref raisedAfterDispose) == 0);
     }
 
     /// <summary>Posts workspace notifications the way AppKit does, via the Objective-C runtime.</summary>

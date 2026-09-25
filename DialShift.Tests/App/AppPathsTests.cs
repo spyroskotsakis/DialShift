@@ -1,4 +1,5 @@
 using DialShift.App;
+using DialShift.Core;
 using static DialShift.Tests.TestHarness;
 
 namespace DialShift.Tests.App;
@@ -23,8 +24,8 @@ public static class AppPathsTests
         Check("HS-18 ... verbatim includes a trailing separator", AppPaths.Resolve(Env(trailing), smokeTest: false).DataDirectory == trailing);
         Check("HS-18 the override wins over --smoke-test", AppPaths.Resolve(Env(overrideDir), smokeTest: true).Source == DataDirectorySource.EnvironmentOverride);
         Check("HS-18 Resolve does not create the directory", !Directory.Exists(overrideDir));
-        Check("HS-18 files: settings.json, dialshift.log, .single-instance.lock in the data dir",
-            fromOverride.SettingsFile == Path.Combine(overrideDir, "settings.json") &&
+        Check("HS-18 files: settings.json (SettingsStore over DataDirectory), dialshift.log, .single-instance.lock in the data dir",
+            new SettingsStore(fromOverride.DataDirectory).FilePath == Path.Combine(overrideDir, "settings.json") &&
             fromOverride.LogFile == Path.Combine(overrideDir, "dialshift.log") &&
             fromOverride.SingleInstanceLockFile == Path.Combine(overrideDir, ".single-instance.lock"));
 

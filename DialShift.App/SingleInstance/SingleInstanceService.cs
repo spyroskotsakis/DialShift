@@ -12,7 +12,15 @@ namespace DialShift.App.SingleInstance;
 /// <remarks>
 /// <para><b>Lock:</b> <see cref="AppPaths.SingleInstanceLockFile"/> in the per-user data directory, opened with
 /// <c>FileShare.None</c> and held until <see cref="DisposeAsync"/>. On macOS .NET implements this with
-/// <c>flock(LOCK_EX|LOCK_NB)</c>, so the OS releases it if the process dies.</para>
+/// <c>flock(LOCK_EX|LOCK_NB)</c>, so the OS releases it if the process dies. Only a sharing/lock violation (Windows)
+/// or <c>EWOULDBLOCK</c> (macOS) means <see cref="SingleInstanceStartResult.AlreadyRunning"/>; any other failure to
+/// create or open it is <see cref="SingleInstanceStartResult.LockFailed"/> (<see cref="IsHeldByAnotherProcess"/>).</para>
+/// <para><b>Startup window:</b> the listener starts before the app subscribes to <see cref="ActivationRequested"/>
+/// (the UI toolkit initializes in between). An activation that arrives while there is no subscriber is kept as one
+/// pending activation (more coalesce into it) and raised for the next subscriber; it is acknowledged <c>ok</c> and
+/// logged as <c>single_instance.activated</c> with "queued", and the replay as <c>single_instance.activation_replayed</c>.
+/// A delivered activation is logged as <c>single_instance.activated</c> with "delivered". After dispose nothing is kept
+/// or raised: a late message is answered <c>rejected</c>.</para>
 /// <para><b>Pipe name:</b> <see cref="DerivePipeName"/>: a hash of the app identity and the normalized data directory,
 /// so it is per-user, stable, and never derived from untrusted input.</para>
 /// <para><b>Server:</b> <c>PipeOptions.CurrentUserOnly | Asynchronous</c>, byte mode, at most
@@ -108,7 +116,33 @@ public sealed class SingleInstanceService : ISingleInstanceService
 
     public string PipeName { get; }
 
-    public event EventHandler? ActivationRequested;
+    /// <summary>Subscribers (guarded by <see cref="gate"/>).</summary>
+    private EventHandler? activationRequested;
+
+    /// <summary>An activation arrived while nobody was subscribed (guarded by <see cref="gate"/>).</summary>
+    private bool activationPending;
+
+    public event EventHandler? ActivationRequested
+    {
+        add
+        {
+            if (value == null) return;
+            bool replay;
+            lock (gate)
+            {
+                activationRequested += value;
+                replay = activationPending && !disposed;
+                activationPending = false;
+            }
+            if (!replay) return;
+            log.Info("single_instance.activation_replayed", "Delivered an activation that arrived before the app was ready.");
+            Dispatch(value);
+        }
+        remove
+        {
+            lock (gate) activationRequested -= value;
+        }
+    }
 
     /// <summary>
     /// <c>"DialShift-"</c> + the first 16 lower-hex characters of
@@ -141,16 +175,17 @@ public sealed class SingleInstanceService : ISingleInstanceService
                 Directory.CreateDirectory(paths.DataDirectory);
                 lockFile = new FileStream(paths.SingleInstanceLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             }
-            catch (IOException)
+            catch (IOException ex) when (IsHeldByAnotherProcess(ex))
             {
-                // Held by the running primary (sharing violation / flock EWOULDBLOCK).
                 log.Info("single_instance.already_running", "Another DialShift instance holds the lock.");
                 return SingleInstanceStartResult.AlreadyRunning;
             }
             catch (Exception ex)
             {
+                // Not contention: the data folder or the lock file itself is unusable (a file in the way, read-only
+                // volume, disk full, access denied). Nobody is known to be running, so this is a startup failure.
                 log.Error("single_instance.lock_failed", $"Couldn't open the single-instance lock at {paths.SingleInstanceLockFile}.", ex);
-                return SingleInstanceStartResult.Failed;
+                return SingleInstanceStartResult.LockFailed;
             }
 
             NamedPipeServerStream firstServer;
@@ -175,6 +210,23 @@ public sealed class SingleInstanceService : ISingleInstanceService
             return SingleInstanceStartResult.Primary;
         }
     }
+
+    // Windows: HRESULT_FROM_WIN32 of ERROR_SHARING_VIOLATION (32) and ERROR_LOCK_VIOLATION (33), which .NET puts in
+    // IOException.HResult when another handle holds the file with FileShare.None.
+    private const int HResultSharingViolation = unchecked((int)0x80070020);
+    private const int HResultLockViolation = unchecked((int)0x80070021);
+
+    // macOS: .NET takes flock(LOCK_EX | LOCK_NB) for FileShare.None and, when it is held, throws IOException with the
+    // raw errno as HResult: EWOULDBLOCK (35 on Darwin; verified with net10.0 on macOS 26). Other errors carry their own
+    // errno (EEXIST 17 when a file is in the way of the data folder, ENOSPC 28 when the disk is full), and access
+    // problems are UnauthorizedAccessException.
+    private const int ErrnoWouldBlockDarwin = 35;
+
+    /// <summary>True only for "another handle holds the lock"; every other I/O error is a real failure.</summary>
+    internal static bool IsHeldByAnotherProcess(IOException ex) =>
+        OperatingSystem.IsWindows()
+            ? ex.HResult is HResultSharingViolation or HResultLockViolation
+            : OperatingSystem.IsMacOS() && ex.HResult == ErrnoWouldBlockDarwin;
 
     public async Task<SingleInstanceActivationResult> ActivateExistingAsync(CancellationToken cancellationToken = default)
     {
@@ -526,8 +578,19 @@ public sealed class SingleInstanceService : ISingleInstanceService
             return;
         }
 
-        log.Info("single_instance.activated", "A second launch asked this instance to show its window.");
-        RaiseActivationRequested();
+        switch (DeliverActivation())
+        {
+            case Delivery.Delivered:
+                log.Info("single_instance.activated", "A second launch asked this instance to show its window: delivered.");
+                break;
+            case Delivery.Queued:
+                log.Info("single_instance.activated", "A second launch asked this instance to show its window: queued until the app subscribes.");
+                break;
+            default:
+                log.Warn("single_instance.rejected", "Rejected an activation that arrived while shutting down.");
+                await TryReplyAsync(server, RejectedReply, deadline.Token).ConfigureAwait(false);
+                return;
+        }
         await TryReplyAsync(server, OkReply, deadline.Token).ConfigureAwait(false);
     }
 
@@ -545,10 +608,28 @@ public sealed class SingleInstanceService : ISingleInstanceService
         }
     }
 
-    private void RaiseActivationRequested()
+    private enum Delivery { Delivered, Queued, ShuttingDown }
+
+    /// <summary>Raises <see cref="ActivationRequested"/>, or keeps it pending while nobody is subscribed.</summary>
+    private Delivery DeliverActivation()
     {
-        var handler = ActivationRequested;
-        if (handler == null) return;
+        EventHandler? handler;
+        lock (gate)
+        {
+            if (disposed) return Delivery.ShuttingDown;
+            handler = activationRequested;
+            if (handler == null)
+            {
+                activationPending = true;
+                return Delivery.Queued;
+            }
+        }
+        Dispatch(handler);
+        return Delivery.Delivered;
+    }
+
+    private void Dispatch(EventHandler handler)
+    {
         // Off the listener so a slow UI handler can't stall the pipe; handler failures are logged, never fatal.
         ThreadPool.QueueUserWorkItem(_ =>
         {

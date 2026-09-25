@@ -10,7 +10,8 @@ namespace DialShift.App.Platform.MacOS;
 /// <remarks>
 /// The path is passed as its own <see cref="ProcessStartInfo.ArgumentList"/> entry with <c>UseShellExecute=false</c>:
 /// no shell and no command-string interpolation. The path is made absolute first, so it always starts with '/' and
-/// can never be mistaken for an <c>open</c> option.
+/// can never be mistaken for an <c>open</c> option. A non-zero exit of <c>open</c> throws
+/// <see cref="InvalidOperationException"/>, and no exit within 10 s throws <see cref="TimeoutException"/>.
 /// </remarks>
 [SupportedOSPlatform("macos")]
 public sealed class MacFileRevealService : IFileRevealService
@@ -42,7 +43,16 @@ public sealed class MacFileRevealService : IFileRevealService
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(OpenTimeout);
         var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
-        await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            try { process.Kill(); }
+            catch (Exception) { /* it exited in the meantime */ }
+            throw new TimeoutException($"Finder didn't respond within {OpenTimeout.TotalSeconds:0} seconds.");
+        }
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"Finder could not open the folder: {(await stderr.ConfigureAwait(false)).Trim()}");
     }
