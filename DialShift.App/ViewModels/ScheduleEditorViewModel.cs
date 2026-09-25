@@ -1,3 +1,4 @@
+using System.Globalization;
 using DialShift.App.Services;
 using DialShift.Core;
 
@@ -33,6 +34,13 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
     public const string TimeZonePlaceholder = "Type a city, region or offset, such as Athens or UTC+2";
     public const string BrowseTimeZonesName = "Show all time zones";
 
+    /// <summary>
+    /// Start times the editor accepts: the stored 24-hour <c>HH:mm</c>, and <c>HH.mm</c> as typed where the time separator
+    /// is a dot (da-DK, fi-FI, id-ID and others) and as older builds saved it on those computers. Save always writes
+    /// <c>HH:mm</c>, the only spelling the scheduler reads.
+    /// </summary>
+    private static readonly string[] TimeFormats = ["HH:mm", "HH.mm"];
+
     private readonly Settings settings;
     private readonly IDialogService dialogs;
     private readonly TimeZoneOption initialTimeZone;
@@ -55,7 +63,8 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
         Stations = settings.Stations.ToList();
         label = original?.Label ?? "";
         selectedStation = Stations.FirstOrDefault(s => s.Id == original?.StationId) ?? Stations.FirstOrDefault();
-        time = original?.Time ?? "08:00";
+        // A legacy "08.30" opens as "08:30", so saving writes it back canonically; text that doesn't parse is shown as stored.
+        time = original is null ? "08:00" : TryParseTime(original.Time, out var stored) ? FormatTime(stored) : original.Time;
         enabled = original?.Enabled ?? true;
         TimeZones = TimeZoneChoices.Build(now, original?.TimeZone, out initialTimeZone);
         selectedTimeZone = initialTimeZone;
@@ -118,6 +127,13 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
         item is TimeZoneOption option
         && (string.IsNullOrWhiteSpace(search) || timeZoneLabels.Contains(search) || option.Matches(search));
 
+    /// <summary>Parses a start time as <c>HH:mm</c> or <c>HH.mm</c> (two-digit hours and minutes), whatever the current culture.</summary>
+    public static bool TryParseTime(string? text, out TimeOnly time) =>
+        TimeOnly.TryParseExact(text, TimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
+
+    /// <summary>The stored spelling of a start time: <c>HH:mm</c> with a colon on every culture.</summary>
+    private static string FormatTime(TimeOnly time) => time.ToString("HH:mm", CultureInfo.InvariantCulture);
+
     public RelayCommand WeekdaysCommand { get; }
 
     public RelayCommand WeekendCommand { get; }
@@ -132,7 +148,7 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
     protected override void Save()
     {
         if (SelectedStation is not { } station) { Fail("Choose a station first.", nameof(SelectedStation)); return; }
-        if (!Scheduler.TryTime(Time.Trim(), out var parsed)) { Fail("Use a 24-hour time, such as 08:30 or 21:00.", nameof(Time)); return; }
+        if (!TryParseTime(Time.Trim(), out var parsed)) { Fail("Use a 24-hour time, such as 08:30 or 21:00.", nameof(Time)); return; }
         var days = Days.Where(d => d.IsChecked).Select(d => d.Day).ToList();
         if (days.Count == 0) { Fail("Choose at least one day."); return; }
         if (SelectedTimeZone is not { } zone) { Fail("Choose a time zone from the list, or Local time.", nameof(SelectedTimeZone)); return; }
@@ -142,7 +158,7 @@ public sealed class ScheduleEditorViewModel : EditorViewModel
             Id = Original?.Id ?? Guid.NewGuid(),
             StationId = station.Id,
             Label = Label.Trim(),
-            Time = parsed.ToString("HH:mm"),
+            Time = FormatTime(parsed),
             Days = days,
             Enabled = Enabled,
             // Unchanged picker: keep the stored value exactly, whatever its spelling (no silent rewrite, QA-B4).

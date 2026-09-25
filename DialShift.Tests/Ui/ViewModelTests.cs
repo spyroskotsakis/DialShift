@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using DialShift.App.Platform;
 using DialShift.App.ViewModels;
@@ -29,6 +30,8 @@ public static class ViewModelTests
         await SlotEditorValidation();
         await SlotConflictAndEdit();
         await SlotDeleteFlow();
+        await SlotTimeWithDottedInput();
+        await SlotTimeUnderDotCultures();
         await SettingsPage();
         await LaunchAtLogin();
         await RecoveryNotice();
@@ -494,6 +497,97 @@ public static class ViewModelTests
             rig.Settings.Schedule.Count == 0 && rig.Since(mark) == "settings.commit:Schedule > coordinator.RefreshScheduleAsync" && rig.OnDisk().Schedule.Count == 0 && page.IsEmpty);
     }
 
+    // ─── B2: start times are stored as invariant "HH:mm" whatever the culture ───
+
+    private static async Task SlotTimeWithDottedInput()
+    {
+        await using var rig = UiRig.CreateViewModels();
+        var rec = rig.Recorder!;
+        var page = rig.ViewModel.Schedule;
+
+        rec.ScheduleScripts.Enqueue(editor =>
+        {
+            foreach (var bad in new[] { "8.30", "08,30", "08.3", "24.00", "08.60" })
+            {
+                editor.Time = bad;
+                editor.SaveCommand.Execute(null);
+                Check($"B2 dotted input \"{bad}\" is still rejected", editor.Error == "Use a 24-hour time, such as 08:30 or 21:00." && editor.Result == EditorResult.Cancelled);
+            }
+            editor.Time = "08.30";
+            editor.SaveCommand.Execute(null);
+            return Task.CompletedTask;
+        });
+        await page.AddCommand.ExecuteAsync();
+        Check("B2 typing \"08.30\" saves \"08:30\" (in memory and on disk)",
+            rig.Settings.Schedule.Single().Time == "08:30" && rig.OnDisk().Schedule.Single().Time == "08:30");
+
+        var legacy = new ScheduleEntry { StationId = rig.Settings.Stations[1].Id, Time = "08.45", Days = [DayOfWeek.Monday] };
+        var nine = new ScheduleEntry { StationId = rig.Settings.Stations[1].Id, Time = "09:00", Days = [DayOfWeek.Monday] };
+        rig.Settings.Schedule.AddRange([nine, legacy]);
+        page.Refresh();
+        Check("B2 a legacy \"08.45\" row sorts by its time, between 08:30 and 09:00",
+            page.Slots.Select(r => r.Entry).SequenceEqual([rig.Settings.Schedule[0], legacy, nine]));
+
+        string? shown = null;
+        rec.ScheduleScripts.Enqueue(editor =>
+        {
+            shown = editor.Time;
+            editor.SaveCommand.Execute(null);
+            return Task.CompletedTask;
+        });
+        await page.Slots[1].EditCommand.ExecuteAsync();
+        var resaved = rig.Settings.Schedule.Single(e => e.Id == legacy.Id);
+        Check($"B2 reopening a legacy \"08.45\" slot shows \"08:45\" (was \"{shown}\")", shown == "08:45");
+        Check("B2 saving it untouched writes \"08:45\" and keeps the slot id",
+            resaved.Time == "08:45" && rig.OnDisk().Schedule.Single(e => e.Id == legacy.Id).Time == "08:45");
+    }
+
+    private static async Task SlotTimeUnderDotCultures()
+    {
+        foreach (var name in new[] { "da-DK", "fi-FI" })
+        {
+            var culture = CultureInfo.GetCultureInfo(name);
+            if (new TimeOnly(8, 30).ToString("HH:mm", culture) != "08.30")
+            {
+                Skip($"B2 save under {name}", $"{name} doesn't format HH:mm with a dot here (no ICU culture data)");
+                continue;
+            }
+            var saved = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = culture;
+                // Monday 08:29 UTC; the computer is on UTC, so the new Monday 08:30 slot is a minute away.
+                await using var rig = UiRig.CreateViewModels(realCoordinator: true, now: new DateTimeOffset(2026, 9, 14, 8, 29, 0, TimeSpan.Zero),
+                    seed: s => s.ScheduleEnabled = true);
+                await rig.Coordinator.StartScheduleAsync();
+                rig.Recorder!.ScheduleScripts.Enqueue(editor =>
+                {
+                    editor.Time = "08:30";
+                    editor.SaveCommand.Execute(null);
+                    return Task.CompletedTask;
+                });
+                await rig.ViewModel.Schedule.AddCommand.ExecuteAsync();
+                var slot = rig.Settings.Schedule.Single();
+                Check($"B2 under {name} the slot is stored as \"08:30\" (was \"{slot.Time}\"), in memory and on disk",
+                    slot.Time == "08:30" && rig.OnDisk().Schedule.Single().Time == "08:30");
+                Check($"B2 under {name} UP NEXT reads \"UP NEXT · Mon 08:30  /  Groove Salad\" (was \"{rig.ViewModel.UpNextText}\")",
+                    rig.ViewModel.UpNextText == "UP NEXT · Mon 08:30  /  Groove Salad");
+                Check($"B2 under {name} a zoned row's next start reads \"Next: Mon 08:30 your time\"",
+                    UiText.NextStart(new DateTime(2026, 9, 14, 8, 30, 0), enabled: true) == "Next: Mon 08:30 your time");
+
+                // Saving at 08:29 already catches up last Monday's 08:30 occurrence; the tick must fire this Monday's.
+                var starts = rig.Engine!.Starts.Count;
+                var fired = rig.Log.Entries.Count(e => e.EventName == "schedule.fired");
+                rig.Clock.Advance(TimeSpan.FromMinutes(1));
+                await rig.Real!.OnTickAsync(CancellationToken.None);
+                Check($"B2 under {name} the slot fires at 08:30 and opens its station",
+                    rig.Log.Entries.Count(e => e.EventName == "schedule.fired") == fired + 1 && rig.Engine.WaitForStarts(starts + 1, TimeSpan.FromSeconds(5))
+                    && rig.Engine.Starts[starts].Source.Url.ToString() == rig.Settings.Stations[0].Url);
+            }
+            finally { CultureInfo.CurrentCulture = saved; }
+        }
+    }
+
     // ─── Settings page, launch at login (BHV-59, HS-13, DOD-09) ───
 
     private static async Task SettingsPage()
@@ -506,6 +600,10 @@ public static class ViewModelTests
         Check("HS-02 BHV-61 fallback help text",
             page.FallbackHelp == "Retry a failed stream, then use this station as a fallback. Try the original again every 2 minutes.");
         Check("HS-13 BHV-62 About card: version line and tagline", page.VersionText == "DialShift  /  " + UiRig.Version && page.Tagline.Length > 0);
+        Check("BHV-59 launch-at-login label in each platform's words: Windows \"sign in\", macOS \"log in\"",
+            SettingsPageViewModel.WindowsLaunchAtLoginLabel == "Launch DialShift in the tray when I sign in"
+            && SettingsPageViewModel.MacLaunchAtLoginLabel == "Launch DialShift in the tray when I log in"
+            && page.LaunchAtLoginLabel == (OperatingSystem.IsWindows() ? SettingsPageViewModel.WindowsLaunchAtLoginLabel : SettingsPageViewModel.MacLaunchAtLoginLabel));
     }
 
     private static async Task LaunchAtLogin()

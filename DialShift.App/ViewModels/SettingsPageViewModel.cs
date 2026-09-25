@@ -16,6 +16,10 @@ public sealed class SettingsPageViewModel : PageViewModel
 {
     public const string NoFallbackName = "No fallback · keep retrying";
 
+    /// <summary>The launch-at-login checkbox in each platform's own words: Windows says "sign in", macOS "log in".</summary>
+    public const string WindowsLaunchAtLoginLabel = "Launch DialShift in the tray when I sign in";
+    public const string MacLaunchAtLoginLabel = "Launch DialShift in the tray when I log in";
+
     private readonly IStartupRegistration startup;
     private readonly IFileRevealService reveal;
     private readonly AppInfo info;
@@ -106,7 +110,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         }
     }
 
-    public string LaunchAtLoginLabel => "Launch DialShift in the tray when I sign in";
+    public string LaunchAtLoginLabel => OperatingSystem.IsWindows() ? WindowsLaunchAtLoginLabel : MacLaunchAtLoginLabel;
     public string StartInTrayLabel => "Start in the tray when opened normally";
     public string StartupHelp => "Closing the window keeps your radio running. Choose Quit DialShift in the tray to exit.";
     public string FallbackHelp => "Retry a failed stream, then use this station as a fallback. Try the original again every 2 minutes.";

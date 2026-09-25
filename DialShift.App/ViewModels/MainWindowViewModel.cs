@@ -1,4 +1,3 @@
-using System.Globalization;
 using DialShift.App.Platform;
 using DialShift.App.Services;
 using DialShift.Core.Playback;
@@ -148,7 +147,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string VolumeLabel => $"{(int)volume}%";
 
-    public string UpNextText => UiText.UpNext(settings.Settings.ScheduleEnabled, snapshot, CultureInfo.CurrentCulture);
+    public string UpNextText => UiText.UpNext(settings.Settings.ScheduleEnabled, snapshot);
 
     public string LocalTimeText { get; }
 
