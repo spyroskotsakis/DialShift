@@ -3,6 +3,7 @@
 > **Status: Deferred — not a priority yet. This document is a bootstrap: a ready-to-execute plan for when we want to collapse the two front-ends into one.**
 >
 > **Updated 2026-09-16 — final revision (frozen).** One Avalonia UI, one coordinator, two deliberately small playback adapters (LibVLC on Windows / AVPlayer on macOS), isolated OS capabilities; explicit state machine + cancellation + transition serialization; `IClock`/`IMonotonicClock` split; canonical data locations; AVPlayer adapter acceptance criteria; Intel Mac policy; media compatibility corpus; definition of done + acceptance matrix.
+> **Amended 2026-09-25:** quality gates added to §11 — no dead code left behind; documentation always up to date; best UI/UX; test-and-fix until prod-ready.
 
 ## 1. Context
 
@@ -567,6 +568,13 @@ Everything else — models, scheduler, settings persistence, playback **coordina
 - Apple Silicon status is published honestly: native arm64 **or** Rosetta-required.
 - **Structured, redacted diagnostic logs are written to the canonical per-user data directory (§7.9); logs identify application version, RID/architecture, selected playback engine, significant state transitions, startup-registration outcome, wake-recovery outcome, and recoverable failures — without exposing credentials or full private stream URLs.**
 - The legacy WPF/WinForms app is removed only after equivalent checks pass.
+
+**Quality gates (amended 2026-09-25 — apply to every step and every artifact):**
+
+- **No dead code left behind:** retired projects, files, types, and references are fully removed — never commented out, never left unreferenced. After each retirement step, grep for stale references (WPF, WinForms, `DialShift.Mac`, obsolete platform branches, old single-zone assumptions) and remove them in the same change.
+- **Documentation always up to date:** README, THIRD-PARTY-NOTICES, data/README, this brief, and the acceptance matrix are updated in the SAME change as the code they describe. Docs never lag the implementation; a merge is incomplete while its docs are stale.
+- **Best UI/UX:** the consolidated Avalonia app is clean and polished — consistent theming, clear schedule/status feedback, fast tray interactions, no dead-end dialogs. UI/UX quality is a gate, not a nice-to-have; review every UI change against it.
+- **Prod-ready test-and-fix:** the loop is test → fix → retest, never test → report. Every acceptance-matrix row green, plus native smokes and clean-machine installs passing, before any phase or artifact is declared complete.
 
 **Acceptance matrix** (the behavior inventory as a living test matrix):
 

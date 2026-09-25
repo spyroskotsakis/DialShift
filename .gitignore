@@ -17,3 +17,7 @@ data/.venv/
 # Python bytecode caches
 __pycache__/
 *.pyc
+
+# Claude Code local/personal overrides (never committed)
+.claude/settings.local.json
+CLAUDE.local.md

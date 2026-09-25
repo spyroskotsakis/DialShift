@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet *)",
+      "Bash(git *)",
+      "Bash(data/.venv/bin/python *)",
+      "Bash(scripts/*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git[[:space:]]+push[^\"]*[[:space:]](origin|upstream)([[:space:]]|$)' ; then echo 'BLOCKED: push only to the \"private\" remote (git@github.com:spyroskotsakis/dialshift-dev.git). origin and upstream are read-only.' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

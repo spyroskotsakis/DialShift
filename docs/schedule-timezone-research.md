@@ -2,6 +2,8 @@
 
 > **Status:** Research only — no code changes have been made. This document records (1) exactly how the schedule logic works today, (2) the change needed to let a schedule slot carry its own timezone and fire at the correct **local** time on the computer, and (3) the precise code changes required across `DialShift.Core`, the Windows WPF app, and the macOS Avalonia app, followed by a QA test plan.
 >
+> **Amended 2026-09-25:** quality gates added as §12 — no dead code, docs always current, best UI/UX, prod-ready test-and-fix loop.
+>
 > **QA note:** Sections below were reviewed by a two-pass QA review (one verifying the "how it works today" walkthrough against source, one brute-forcing the proposed algorithm against 51,484,800 sampled instants × 12 entry zones × 8 local zones × 5 times × 3 day-sets). The core algorithm is correct, but the review surfaced **4 blocking defects** and 9 non-blocking corrections, all folded in below and marked **QA-B1..QA-B4** (blocking) and **QA-N1..QA-N9** (non-blocking).
 
 ---
@@ -402,3 +404,14 @@ QA reports each issue with: **scenario**, **expected vs actual**, **repro steps*
 **`RadioController` (both)** — no schedule-logic change expected; verify only (and remember the resume-path difference, **QA-N1**).
 
 **Docs** — update README "Listen"/"Schedule" wording to mention per-slot timezones and the "restart on zone change" caveat.
+
+---
+
+## 12. Quality gates (added 2026-09-25)
+
+Apply to every step and artifact in this brief:
+
+- **No dead code:** UI changes remove the old single-zone assumptions cleanly — no orphaned helpers, no commented-out fallbacks, no unreferenced timezone code paths; grep for stale references in the same change that removes them.
+- **Documentation always up to date:** README schedule/timezone wording, this brief, and the test matrix are updated in the SAME change as the code they describe.
+- **Best UI/UX:** the timezone picker is discoverable and readable — "Local time" sentinel as default, zone + next local fire time visible per slot, "(unknown zone)" surfaced for stale ids, helper text reworded to match behavior.
+- **Prod-ready test-and-fix:** the loop is test → fix → retest, never test → report. The full §9.2 matrix (both resume paths, QA-N1) must be green, and every BLOCKING defect fixed, before the feature ships.
