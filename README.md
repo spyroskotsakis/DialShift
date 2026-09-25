@@ -10,10 +10,10 @@ Optional install: right-click `Install.ps1` in the extracted release and choose 
 
 ## Run on macOS
 
-Apple Silicon only: a native `osx-arm64` build (decision D2). **Status: the AVPlayer playback engine is still pending (spike and adapter in progress), so the macOS build is not yet shippable** and current builds do not play audio. There is no Intel Mac build. Copy `dist/DialShift.app` into `/Applications` (or run it from anywhere), then open it once.
+Apple Silicon only: a native `osx-arm64` build (decision D2). **Status: the single-codebase app (`DialShift.App`) is still being validated, so the macOS build is not yet shippable.** There is no Intel Mac build. Copy `dist/DialShift.app` into `/Applications` (or run it from anywhere), then open it once.
 
 - DialShift is a menu-bar app — there is no Dock icon. Use the tray icon to open the window, play/pause, skip, pick a station, toggle the schedule, adjust volume, or quit.
-- Runs natively on Apple Silicon: no Rosetta 2 and no bundled VLC. Playback will use Apple's AVPlayer.
+- Runs natively on Apple Silicon: no Rosetta 2 and no bundled VLC. Playback uses Apple's AVPlayer.
 - Preferences live at `~/Library/Application Support/DialShift/settings.json`; diagnostic errors go to `dialshift.log` in the same folder. Optional launch at sign-in uses a LaunchAgent, off by default.
 
 ## Listen
@@ -102,6 +102,14 @@ Core checks without external test packages:
 dotnet run --project DialShift.Tests -c Release
 ```
 
+Run `DialShift.App` against a throwaway data folder (developer and CI use only). `DIALSHIFT_DATA_DIR` must be an absolute path; it replaces the settings, log and single-instance lock location. `--smoke-test` without it uses a fresh temporary folder instead.
+
+```bash
+DIALSHIFT_DATA_DIR=/tmp/dialshift-dev dotnet run --project DialShift.App -- --tray
+```
+
+`--tray` starts with the window hidden. A second launch with the same data folder brings the running window to the front and exits 0. It exits 2 if the running copy does not answer, 3 if the activation channel cannot start, and 1 after the startup-failure dialog. SIGTERM and Ctrl+C quit through the same clean path as **Quit DialShift**.
+
 Application integration checks (isolated temporary preferences, muted live playback, no startup changes):
 
 ```powershell
@@ -114,7 +122,7 @@ Writes `results.json` and UI renders, then exits. Live-stream checks require net
 
 - `DialShift.Core`: station/settings models, local persistence, weekly schedule evaluation and occurrence tracking.
 - `DialShift`: Windows WPF interface, native notification icon, LibVLC playback, retry/fallback and Windows startup/resume integration.
-- `DialShift.App`: the single Avalonia interface for `win-x64` and `osx-arm64` (decision D2; no `osx-x64`). It provides the tray/menu-bar icon, retry/fallback and optional LaunchAgent startup on macOS (Windows startup arrives with the platform services), and uses `DialShift.Core` unchanged. Playback is currently LibVLC (Windows only); the macOS AVPlayer engine is pending. It replaces the WPF `DialShift` project as [docs/single-codebase-refactor.md](docs/single-codebase-refactor.md) is carried out.
+- `DialShift.App`: the single Avalonia interface for `win-x64` and `osx-arm64` (decision D2; no `osx-x64`). `Program.cs`, `AppComposition.cs` and `App.axaml.cs` are the composition root: `Microsoft.Extensions.DependencyInjection` wires the platform services (launch at login, power events, file reveal, logging, single instance, sleep-inclusive clock), the playback engine (LibVLC on Windows, AVPlayer on macOS), the `DialShift.Core` playback coordinator, and the MVVM views, tray and dialogs. It replaces the WPF `DialShift` project as [docs/single-codebase-refactor.md](docs/single-codebase-refactor.md) is carried out.
 - `DialShift.Tests`: deterministic scheduling, persistence and validation checks.
 
 Starter stations use SomaFM's published direct stream links: [Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html), [Drone Zone](https://somafm.com/dronezone/directstreamlinks.html), [Secret Agent](https://somafm.com/secretagent/directstreamlinks.html). Streams can change; edit a station to update its URL. Station names belong to their respective owners; DialShift is unaffiliated.

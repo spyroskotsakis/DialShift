@@ -1,7 +1,7 @@
 // LibVlcPlaybackEngine: IPlaybackEngine on LibVLC 3 via LibVLCSharp 3.10.1 (brief 1 §7.8). Windows only at runtime
 // (the VideoLAN.LibVLC.Windows native package ships only in the win-x64 artifact); it compiles in every build.
 //
-// Carried over from the legacy RadioController: LibVLC is created off the UI thread at construction with
+// Carried over from the pre-refactor playback controller: LibVLC is created off the UI thread at construction with
 // "--no-video --no-osd --network-caching=1500 --http-reconnect"; media gets ":no-video"; one MediaPlayer per session;
 // Mute when the volume is 0; "now playing" from Media.Meta(NowPlaying), polled once a second while the input plays (as
 // the legacy tick did); the previous player is stopped and disposed on a pool thread, and the next player is created

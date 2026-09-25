@@ -115,11 +115,16 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     public AsyncRelayCommand OpenSettingsFolderCommand { get; }
 
-    /// <summary>Reads the OS registration once the page exists, so a stale entry (moved or upgraded app) shows as off with its reason.</summary>
+    /// <summary>Reads the OS registration once the page exists, so a stale entry (moved or upgraded app) shows as off with its reason. Logs <c>startup_registration.result</c>.</summary>
     public async Task LoadStartupStatusAsync()
     {
         IsStartupBusy = true;
-        try { await ApplyStatusAsync(await startup.GetStatusAsync()); }
+        try
+        {
+            var status = await startup.GetStatusAsync();
+            Services.Log.Info("startup_registration.result", $"check enabled={status.IsEnabled} stored={Services.Settings.Settings.LaunchAtLogin} diagnostic={status.DiagnosticMessage != null}");
+            await ApplyStatusAsync(status);
+        }
         finally { IsStartupBusy = false; }
     }
 

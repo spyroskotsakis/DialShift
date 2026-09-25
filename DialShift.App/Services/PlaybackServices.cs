@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using DialShift.Core.Playback;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,35 +10,58 @@ namespace DialShift.App.Services;
 public static class PlaybackServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the one <see cref="IPlaybackEngine"/> for this OS as a singleton: Windows → <see cref="LibVlcPlaybackEngine"/>,
-    /// macOS → <see cref="MacAvPlayerPlaybackEngine"/>. Any other OS throws <see cref="PlatformNotSupportedException"/>.
-    /// The engine receives the registered <see cref="IAppLog"/> when there is one.
+    /// Registers the singleton <see cref="PlaybackEngineFactory"/> for this OS. It deliberately does not register an
+    /// <see cref="IPlaybackEngine"/>: see the factory for why. Any OS other than Windows or macOS throws
+    /// <see cref="PlatformNotSupportedException"/>. The engine receives the registered <see cref="IAppLog"/> when there is one.
     /// </summary>
-    /// <remarks>
-    /// Ownership: <see cref="PlaybackCoordinator"/> disposes the engine it is given. The container also tracks the
-    /// singleton; engine disposal is idempotent, but both engines implement only <see cref="IAsyncDisposable"/>, so the
-    /// host must dispose the service provider with <c>DisposeAsync</c> (a synchronous <c>Dispose</c> of the provider
-    /// throws for async-only singletons).
-    /// </remarks>
     public static IServiceCollection AddDialShiftPlayback(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        if (OperatingSystem.IsWindows())
-            services.TryAddSingleton<IPlaybackEngine>(CreateWindowsEngine);
-        else if (OperatingSystem.IsMacOS())
-            services.TryAddSingleton<IPlaybackEngine>(CreateMacEngine);
-        else
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
             throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
+        services.TryAddSingleton(sp => new PlaybackEngineFactory(sp.GetService<IAppLog>() ?? NullAppLog.Instance));
         return services;
     }
+}
 
-    [SupportedOSPlatform("windows")]
-    private static IPlaybackEngine CreateWindowsEngine(IServiceProvider services) => new LibVlcPlaybackEngine(LogFrom(services));
+/// <summary>
+/// Creates the one <see cref="IPlaybackEngine"/> for this OS: Windows → <see cref="LibVlcPlaybackEngine"/>, macOS →
+/// <see cref="MacAvPlayerPlaybackEngine"/>.
+/// </summary>
+/// <remarks>
+/// <para><b>Why a factory and not an <see cref="IPlaybackEngine"/> service (D17).</b> <see cref="PlaybackCoordinator"/> owns
+/// the engine it is given. It maps the engine's session ids to its own queued starts (the N-th start is session N), so it
+/// needs a fresh engine that nobody else has started, and it disposes that engine exactly once. The container therefore
+/// never holds an engine: nothing can resolve one, and disposing the provider never disposes one. The composition root
+/// calls <see cref="Create"/> once, inside its <see cref="IPlaybackCoordinator"/> registration; a second call throws.</para>
+/// </remarks>
+public sealed class PlaybackEngineFactory
+{
+    private readonly IAppLog log;
+    private int created;
 
-    [SupportedOSPlatform("macos")]
-    private static IPlaybackEngine CreateMacEngine(IServiceProvider services) => new MacAvPlayerPlaybackEngine(LogFrom(services));
+    public PlaybackEngineFactory(IAppLog log)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+            throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
+        this.log = log;
+        EngineName = OperatingSystem.IsWindows() ? nameof(LibVlcPlaybackEngine) : nameof(MacAvPlayerPlaybackEngine);
+    }
 
-    private static IAppLog LogFrom(IServiceProvider services) => services.GetService<IAppLog>() ?? NullAppLog.Instance;
+    /// <summary>The engine type this OS uses, for the <c>app.start</c> log line.</summary>
+    public string EngineName { get; }
+
+    /// <summary>Creates the engine. The caller (the coordinator registration) takes ownership.</summary>
+    /// <exception cref="InvalidOperationException">An engine was already created: the coordinator's engine is the only one (D17).</exception>
+    public IPlaybackEngine Create()
+    {
+        if (Interlocked.Exchange(ref created, 1) != 0)
+            throw new InvalidOperationException("The playback engine is created once, for the playback coordinator, which owns it (D17).");
+        if (OperatingSystem.IsWindows()) return new LibVlcPlaybackEngine(log);
+        if (OperatingSystem.IsMacOS()) return new MacAvPlayerPlaybackEngine(log);
+        throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
+    }
 }
 
 /// <summary>

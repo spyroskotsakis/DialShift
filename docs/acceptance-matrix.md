@@ -65,7 +65,7 @@
 | Abbreviation | Source |
 |---|---|
 | `W:` | `DialShift/` (WPF) |
-| `M:` | Legacy `DialShift.Mac/` (Avalonia) at the baseline tag. On this branch the same code lives in `DialShift.App/` with the brief 1 §6 layout: `Program.cs`, `App.axaml.cs`, `AppPaths.cs`, `Views/MainWindow.cs`, `Views/Dialogs/` (`StationDialog`, `ScheduleDialog`, `EditorDialog`, `Message`), `Services/` (`RadioController` until the coordinator is wired in, `IDialogService`, `IUiDispatcher`), `Platform/Abstractions/` and `SingleInstance/`. |
+| `M:` | Legacy `DialShift.Mac/` (Avalonia) at the baseline tag. On this branch it is replaced by `DialShift.App/` with the brief 1 §6 layout: the composition root (`Program.cs`, `AppComposition.cs`, `App.axaml.cs`), `AppPaths.cs`, `Views/` (`MainWindow`, `Pages/`, `Dialogs/`), `ViewModels/`, `Tray/`, `Services/` (engines, `PlaybackHost`, `IDialogService`, `IUiDispatcher`, `FileAppLog`), `Platform/` and `SingleInstance/`. The legacy code-built views and `RadioController` are deleted; references to them below point at the baseline tag. |
 | `C:` | `DialShift.Core/`. The former `Models.cs` is split into `Models/` (`Settings`, `Station`, `ScheduleEntry`, `Occurrence`), `Scheduling/` (`Scheduler`, `ScheduleSession`) and `Settings/` (`SettingsStore`). The coordinator is in `Playback/` (`PlaybackCoordinator`, `RetryPolicy`, `Contracts/`). |
 
 `RadioController` is byte-identical on both front-ends except for the wake preamble (QA-N1) and the dispatcher type. Evidence written as `RC:` applies to both: `DialShift/RadioController.cs` (WPF) and `DialShift.App/Services/RadioController.cs` (the relocated Mac copy, deleted once the coordinator is wired in).

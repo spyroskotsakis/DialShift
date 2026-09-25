@@ -12,11 +12,8 @@ public sealed record TrayIconOptions(Uri IconUri, bool IsTemplateIcon, bool Open
     /// <summary>macOS menu-bar template image: alpha-only artwork, tinted by the system for light and dark menu bars.</summary>
     public static readonly Uri MacTemplateIcon = new("avares://DialShift/Assets/tray.png");
 
-    /// <summary>
-    /// Windows tray icon. The <c>.ico</c> from the release lane is not in the tree yet, so the template PNG stands in;
-    /// switch this URI to <c>Assets/dialshift.ico</c> when it lands (PK-04).
-    /// </summary>
-    public static readonly Uri WindowsIcon = new("avares://DialShift/Assets/tray.png");
+    /// <summary>Windows tray icon: the application <c>.ico</c>, whose small frames are drawn for the notification area (PK-04).</summary>
+    public static readonly Uri WindowsIcon = new("avares://DialShift/Assets/dialshift.ico");
 
     public static TrayIconOptions ForCurrentPlatform() => OperatingSystem.IsMacOS()
         ? new TrayIconOptions(MacTemplateIcon, IsTemplateIcon: true, OpenWindowOnClick: false)
