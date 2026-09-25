@@ -175,10 +175,4 @@ public static class FakeSelfTests
         try { await task.WaitAsync(Timeout); return true; }
         catch { return false; }
     }
-
-    private static bool Throws<T>(Action action) where T : Exception
-    {
-        try { action(); return false; }
-        catch (T) { return true; }
-    }
 }
