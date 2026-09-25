@@ -1,52 +1,10 @@
-using DialShift.Core;
+using DialShift.Tests;
+using DialShift.Tests.Core;
+using DialShift.Tests.Fakes;
 
-var passed = 0;
-void Check(string name, bool condition) { if (!condition) throw new Exception("FAIL: " + name); Console.WriteLine("PASS: " + name); passed++; }
-var settings = Settings.Defaults();
-var first = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday, DayOfWeek.Tuesday] };
-var second = new ScheduleEntry { StationId = settings.Stations[1].Id, Time = "10:00", Days = [DayOfWeek.Monday] };
-settings.Schedule.AddRange([first, second]);
-var monday = new DateTime(2026, 9, 14, 8, 0, 0);
-Check("Exact boundary selects new slot", Scheduler.Evaluate(settings, monday).Current?.Entry.Id == first.Id);
-Check("Next slot is strictly future", Scheduler.Evaluate(settings, monday).Next?.Entry.Id == second.Id);
-Check("Before first slot wraps previous week", Scheduler.Evaluate(settings, monday.AddMinutes(-1)).Current?.At == new DateTime(2026, 9, 8, 8, 0, 0));
-Check("Late wake catches latest slot", Scheduler.Evaluate(settings, monday.AddHours(5)).Current?.Entry.Id == second.Id);
-Check("Midnight continues previous station", Scheduler.Evaluate(settings, monday.Date.AddDays(1)).Current?.Entry.Id == second.Id);
-Check("Next week after final slot", Scheduler.Evaluate(settings, monday.AddDays(5)).Next?.At == monday.AddDays(7));
-second.Enabled = false;
-Check("Disabled slot is ignored", Scheduler.Evaluate(settings, monday.AddHours(5)).Current?.Entry.Id == first.Id);
-second.Enabled = true;
-var candidate = new ScheduleEntry { Time = "08:00", Days = [DayOfWeek.Tuesday] };
-Check("Overlapping day/time conflicts", Scheduler.Conflicts(settings.Schedule, candidate));
-candidate.Days = [DayOfWeek.Friday];
-Check("Different days do not conflict", !Scheduler.Conflicts(settings.Schedule, candidate));
-Check("Editing same entry is allowed", !Scheduler.Conflicts(settings.Schedule, first));
-Check("Invalid time rejected", !Scheduler.TryTime("25:00", out _) && !Scheduler.TryTime("8:00", out _));
-Check("Midnight accepted", Scheduler.TryTime("00:00", out _));
-Check("Unsafe URL scheme rejected", !SettingsStore.ValidUrl("file:///C:/test.mp3") && !SettingsStore.ValidUrl("javascript:alert(1)"));
-Check("HTTPS stream accepted", SettingsStore.ValidUrl("https://example.org/live?a=1"));
-settings.Stations.RemoveAt(1);
-Check("Deleted station ignored", Scheduler.Evaluate(settings, monday.AddHours(5)).Current?.Entry.Id == first.Id);
-settings.Schedule.Add(new() { StationId = settings.Stations[0].Id, Time = "bad", Days = [DayOfWeek.Monday] });
-Check("Malformed slot ignored", Scheduler.Evaluate(settings, monday.AddHours(5)).Current?.Entry.Id == first.Id);
-var noSlots = Settings.Defaults();
-Check("Empty schedule is idle", Scheduler.Evaluate(noSlots, monday) == (null, null));
-var dst = new Settings { Stations = settings.Stations, Schedule = [new() { StationId = settings.Stations[0].Id, Time = "03:30", Days = [DayOfWeek.Sunday] }] };
-Check("Spring jump catches skipped slot", Scheduler.Evaluate(dst, new DateTime(2026, 3, 29, 4, 0, 0)).Current?.At == new DateTime(2026, 3, 29, 3, 30, 0));
-Check("Repeated hour occurrence has stable key", Scheduler.Evaluate(dst, new DateTime(2026, 10, 25, 3, 40, 0)).Current?.Key == Scheduler.Evaluate(dst, new DateTime(2026, 10, 25, 3, 50, 0)).Current?.Key);
-var directory = Path.Combine(Path.GetTempPath(), "DialShift-tests-" + Guid.NewGuid());
-dst.ScheduleEnabled = true;
-var session = new ScheduleSession();
-Check("Session fires DST occurrence once", session.TakeChange(dst, new DateTime(2026, 10, 25, 3, 40, 0)) != null);
-Check("Fall-back does not replay older occurrence", session.TakeChange(dst, new DateTime(2026, 10, 25, 3, 10, 0)) == null);
-Check("Repeated hour does not replay same occurrence", session.TakeChange(dst, new DateTime(2026, 10, 25, 3, 40, 0)) == null);
-Check("Following week still fires", session.TakeChange(dst, new DateTime(2026, 11, 1, 3, 40, 0)) != null);
-var store = new SettingsStore(directory);
-settings.Volume = 42; settings.Stations[0].Name = "Ελληνικό ραδιόφωνο";
-store.Save(settings);
-Check("Unicode/settings round-trip", store.Load().Stations[0].Name == "Ελληνικό ραδιόφωνο" && store.Load().Volume == 42);
-settings.Volume = 30; store.Save(settings);
-Check("Atomic overwrite succeeds", store.Load().Volume == 30 && !File.Exists(store.FilePath + ".tmp"));
-File.WriteAllText(store.FilePath, "broken-json");
-Check("Corrupt settings recovered and preserved", store.Load().Stations.Count > 0 && store.Warning != null && Directory.GetFiles(directory, "*.unreadable-*").Length == 1);
-Console.WriteLine($"\n{passed} checks passed. Test data: {directory}");
+// Deterministic console checks (no test framework). Usage: dotnet run --project DialShift.Tests -- [--filter Scheduler]
+return await TestHarness.RunAsync(args,
+    new TestSuite("Scheduler", SchedulerTests.Run),
+    new TestSuite("ScheduleSession", ScheduleSessionTests.Run),
+    new TestSuite("SettingsStore", SettingsStoreTests.Run),
+    new TestSuite("Fakes", FakeSelfTests.RunAsync));
