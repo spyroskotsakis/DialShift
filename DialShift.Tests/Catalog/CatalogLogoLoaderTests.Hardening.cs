@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
-using System.Reflection;
 using Avalonia.Media.Imaging;
 using DialShift.App.Services;
 using static DialShift.Tests.TestHarness;
@@ -23,9 +22,9 @@ namespace DialShift.Tests.Catalog;
 /// retains (about 90 MiB) and far below the failures they guard against (2.4 GiB before D81; about 340 MiB with four
 /// concurrent decodes). The four large logos load first, before any other large decode in the process, so an allocator
 /// that kept an earlier decode's memory cannot hide a regression.</para>
-/// <para><b>The decode gate</b> is a private static <see cref="SemaphoreSlim"/> with no seam. <see cref="DecodeGate"/>
-/// reaches it by reflection so the test can hold the one slot itself: serialization and cancellation at the gate are then
-/// observed deterministically, with no timing race. A rename fails the suite with a message naming the field.</para>
+/// <para><b>The decode gate</b> is the internal static <see cref="CatalogLogoLoader.Decodes"/>, a test seam: the test
+/// holds the one slot itself, so serialization and cancellation at the gate are observed deterministically, with no
+/// timing race.</para>
 /// </remarks>
 internal static partial class CatalogLogoLoaderTests
 {
@@ -71,12 +70,6 @@ internal static partial class CatalogLogoLoaderTests
 
     /// <summary>True when <paramref name="task"/> completes within <paramref name="limit"/>.</summary>
     private static async Task<bool> CompletesWithinAsync(Task task, TimeSpan limit) => await Task.WhenAny(task, Task.Delay(limit)) == task;
-
-    /// <summary>The loader's process-wide decode gate (D82 (a)), by reflection: there is no seam.</summary>
-    private static SemaphoreSlim DecodeGate() =>
-        typeof(CatalogLogoLoader).GetField("Decodes", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) as SemaphoreSlim
-        ?? throw new InvalidOperationException("CatalogLogoLoader.Decodes, the private static SemaphoreSlim that is the decode gate (D82 (a)), " +
-                                               "was not found: the CAT-10 decode-gate checks reach it by reflection; update them with the rename.");
 
     /// <summary>Samples this process's working set every millisecond on a background thread until <see cref="Stop"/>.</summary>
     private sealed class WorkingSetSampler : IDisposable
@@ -238,6 +231,29 @@ internal static partial class CatalogLogoLoaderTests
 
     // ─── (c) Refused hosts ───
 
+    // Hosts that System.Uri types Dns but whose IDNA-mapped IdnHost is refused, at the call and as a redirect target.
+
+    /// <summary>127.0.0.1, 10.0.0.1 and 192.168.0.1 with ideographic (U+3002), fullwidth (U+FF0E) or halfwidth (U+FF61)
+    /// full stops or fullwidth digits, and with a trailing ideographic full stop.</summary>
+    private static readonly string[] IdnaMappedDotted =
+    [
+        "http://127。0。0。1/logo.png", "http://１２７.０.０.１/logo.png", "http://127．0．0．1/logo.png", "http://127｡0｡0｡1/logo.png",
+        "http://127。0。0。1。/logo.png",
+        "http://10。0。0。1/logo.png", "http://１０.０.０.１/logo.png", "http://10．0．0．1/logo.png", "http://10｡0｡0｡1/logo.png",
+        "http://10。0。0。1。/logo.png",
+        "http://192。168。0。1/logo.png", "http://１９２.１６８.０.１/logo.png", "http://192．168．0．1/logo.png",
+        "http://192｡168｡0｡1/logo.png", "http://192。168。0。1。/logo.png",
+    ];
+
+    /// <summary>Fullwidth shorthand IPv4: 127.1, 2130706433, 0x7f000001 and 0.</summary>
+    private static readonly string[] IdnaMappedShorthand =
+        ["http://１２７.１/logo.png", "http://２１３０７０６４３３/logo.png", "http://０ｘ７ｆ０００００１/logo.png", "http://０/logo.png"];
+
+    /// <summary>localhost in fullwidth letters, and a *.localhost name with an ideographic full stop.</summary>
+    private static readonly string[] IdnaMappedLocalhost = ["http://ｌｏｃａｌｈｏｓｔ/logo.png", "http://foo。localhost/logo.png"];
+
+    private static readonly string[] IdnaMappedRefused = [.. IdnaMappedDotted, .. IdnaMappedShorthand, .. IdnaMappedLocalhost];
+
     private static async Task RefusedHostsAsync()
     {
         var handler = new FakeHandler((_, _) => NotFound());
@@ -278,6 +294,21 @@ internal static partial class CatalogLogoLoaderTests
              "http://[::ffff:127.0.0.1]/logo.png", "http://[::ffff:10.0.0.1]/logo.png", "http://[::ffff:192.168.0.1]/logo.png",
              "http://[0:0:0:0:0:ffff:7f00:1]/logo.png", "http://[::127.0.0.1]/logo.png", "http://[::10.0.0.1]/logo.png"]);
 
+        // IDNA (UTS 46) maps U+3002, U+FF0E and U+FF61 to '.', and fullwidth digits and letters to ASCII, so System.Uri
+        // types these hosts Dns while their IdnHost, the host SocketsHttpHandler connects to, is a private dotted quad or
+        // a localhost name (measured on macOS: a GET for http://127。0。0。1:port/ reached a listener on 127.0.0.1).
+        var typedDns = IdnaMappedRefused.Where(u => !Uri.TryCreate(u, UriKind.Absolute, out var uri) || uri.HostNameType != UriHostNameType.Dns).ToList();
+        if (typedDns.Count > 0) Console.WriteLine("  not typed Dns by System.Uri: " + string.Join(", ", typedDns));
+        Check("CAT-10 (c) every IDNA-mapped spelling below is typed Dns by System.Uri, so the checks exercise the mapped-host rule, " +
+              "not the literal-address one", typedDns.Count == 0);
+        Refused("loopback and private IPv4 spelled with ideographic, fullwidth or halfwidth full stops or fullwidth digits, judged as the " +
+                "address IDNA maps them to (127。0。0。1, １２７.０.０.１, 127．0．0．1, 127｡0｡0｡1, a trailing 。, and the same for 10.0.0.1 and " +
+                "192.168.0.1)",
+            IdnaMappedDotted);
+        Refused("fullwidth shorthand IPv4, judged as the address IDNA and IPAddress make of it (１２７.１, ２１３０７０６４３３, ０ｘ７ｆ０００００１, ０)",
+            IdnaMappedShorthand);
+        Refused("localhost names after IDNA mapping (ｌｏｃａｌｈｏｓｔ, foo。localhost)", IdnaMappedLocalhost);
+
         async Task Requested(string what, string[] urls)
         {
             var results = await Task.WhenAll(urls.Select(u => loader.LoadAsync(u, CancellationToken.None))).WaitAsync(Bound);
@@ -302,20 +333,9 @@ internal static partial class CatalogLogoLoaderTests
         await Requested("an IPv4-compatible address with a public IPv4 part (::8.8.8.8) is requested: judged by that IPv4 part like " +
                         "::ffff:8.8.8.8, as implemented at f3a9567 (contracts §4.3 and D82 (b) say refused whatever the IPv4 part)",
             ["http://[::8.8.8.8]/logo.png"]);
-
-        // IDNA maps U+3002 and U+FF0E to '.' and fullwidth digits to ASCII, so System.Uri types these hosts Dns while their
-        // IdnHost, the host SocketsHttpHandler connects to, is a private dotted quad (measured on macOS: a GET for
-        // http://127。0。0。1:port/ reached a listener on 127.0.0.1). Only the localhost names are checked for a Dns host.
-        string[] mapped = ["http://127。0。0。1/logo.png", "http://１２７.０.０.１/logo.png",
-                           "http://127．0．0．1/logo.png", "http://１０.０.０.１/logo.png",
-                           "http://１９２.１６８.０.１/logo.png"];
-        var denotePrivate = mapped.All(u => Uri.TryCreate(u, UriKind.Absolute, out var uri) && uri.HostNameType == UriHostNameType.Dns
-                                            && IPAddress.TryParse(uri.IdnHost, out var address) && address.GetAddressBytes()[0] is 127 or 10 or 192);
-        var mappedResults = await Task.WhenAll(mapped.Select(u => loader.LoadAsync(u, CancellationToken.None))).WaitAsync(Bound);
-        Check("[quirk] CAT-10 (c) a host that is a loopback or private IPv4 address only after IDNA mapping (ideographic or fullwidth full stops, " +
-              "fullwidth digits: 127.0.0.1, 10.0.0.1 and 192.168.0.1 spelled so) IS requested: System.Uri types it Dns and only the localhost " +
-              "names are checked, while its IdnHost, which SocketsHttpHandler connects to, is the dotted quad (a D81 defect; flips with the fix)",
-            denotePrivate && mappedResults.All(r => r is null) && mapped.All(u => handler.Count(u) == 1));
+        await Requested("public hosts that are IDNs or map to a public name or address (bücher.example, ｅｘａｍｐｌｅ.org, ８.８.８.８, " +
+                        "example。org) are requested: the mapping refuses only what maps to a refused host",
+            ["http://bücher.example/logo.png", "http://ｅｘａｍｐｌｅ.org/logo.png", "http://８.８.８.８/logo.png", "http://example。org/logo.png"]);
     }
 
     // ─── (d) Redirects ───
@@ -372,6 +392,30 @@ internal static partial class CatalogLogoLoaderTests
                 if (run.Logo is not null || !run.Requested.SequenceEqual([start]) || !run.Cached) wrong.Add($"{target} (requested {string.Join(" → ", run.Requested)})");
             }
             if (wrong.Count > 0) Console.WriteLine("  followed, not null or not cached: " + string.Join("; ", wrong));
+            var mappedWrong = new List<string>();
+            foreach (var target in IdnaMappedRefused)
+            {
+                var start = http + "mapped.png";
+                var run = await FollowAsync(start, new Dictionary<string, Func<HttpResponseMessage>>
+                {
+                    [start] = () => Redirect(HttpStatusCode.Found, target), [new Uri(target).AbsoluteUri] = logo,
+                });
+                if (run.Logo is not null || !run.Requested.SequenceEqual([start]) || !run.Cached) mappedWrong.Add($"{target} (requested {string.Join(" → ", run.Requested)})");
+            }
+            if (mappedWrong.Count > 0) Console.WriteLine("  followed, not null or not cached: " + string.Join("; ", mappedWrong));
+            Check($"CAT-10 (d) a 302 to each of the {IdnaMappedRefused.Length} IDNA-mapped private or localhost hosts of (c) (127。0。0。1, " +
+                  "１２７.０.０.１, １２７.１, ０, ｌｏｃａｌｈｏｓｔ, foo。localhost …) gives null after exactly one request, to the source, and is cached",
+                mappedWrong.Count == 0);
+            var idn = await FollowAsync(https + "idn.png", new Dictionary<string, Func<HttpResponseMessage>>
+            {
+                [https + "idn.png"] = () => Redirect(HttpStatusCode.Found, "https://bücher.example/logo.png"),
+                [new Uri("https://bücher.example/logo.png").AbsoluteUri] = logo,
+            });
+            Check("CAT-10 (d) a 302 to a public IDN host (https://bücher.example/logo.png) is followed and decodes (64 × 48, two requests, " +
+                  "the second to that host)",
+                Is(idn.Logo, 64, 48) && idn.Requested.Length == 2 && idn.Requested[1] == new Uri("https://bücher.example/logo.png").AbsoluteUri
+                && idn.AgentOnEveryHop && idn.Cached);
+
             Check("CAT-10 (d) a 302 to loopback, private or link-local IPs (127.0.0.1, [::1], 10.0.0.1, 192.168.1.1, 169.254.169.254, 2130706433), " +
                   "to localhost or cdn.localhost, to protocol-relative //127.0.0.1, to file:///etc/passwd or to ftp:// gives null after exactly " +
                   "one request (the target never requested), and is cached (a second call makes no request)",
@@ -538,14 +582,14 @@ internal static partial class CatalogLogoLoaderTests
     // ─── (f), (g) The decode gate ───
 
     /// <summary>
-    /// Holds the loader's single decode slot (by reflection) for longer than <see cref="CatalogLogoLoader.Timeout"/> while
+    /// Holds the loader's single decode slot (<see cref="CatalogLogoLoader.Decodes"/>) for longer than <see cref="CatalogLogoLoader.Timeout"/> while
     /// downloaded logos wait for it: none may decode meanwhile (one slot), a caller cancelled at the gate leaves at once
     /// and frees its download slot, and the waiting logos still decode afterwards (the wait is outside the attempt's
     /// timeout).
     /// </summary>
     private static async Task DecodeGateAsync()
     {
-        var gate = DecodeGate();
+        var gate = CatalogLogoLoader.Decodes;
         var body = Png(32, 32); // decodes to 64 × 64
         var bodies = new ConcurrentDictionary<string, SignallingStream>();
         var handler = new FakeHandler((request, _) =>
