@@ -26,9 +26,21 @@ namespace DialShift.App.Platform.MacOS;
 /// <c>RunAtLoad</c> would start a second instance immediately, and <c>bootout</c> could kill the running one. The entry
 /// takes effect at the next login; launchd reads the directory then.</para>
 /// <para><b>Status</b> is read from the OS, never from settings: enabled only when the plist parses, has our label and
-/// <c>RunAtLoad</c>, is not marked <c>Disabled</c>, its program arguments equal what this copy of DialShift would write,
-/// that target still exists, <b>and</b> launchd does not have the job disabled. Anything else is not enabled, with a
-/// diagnostic.</para>
+/// <c>RunAtLoad</c>, is not marked <c>Disabled</c>, its program arguments start this copy of DialShift (see
+/// <see cref="LaunchesThisCopy"/>), that target still exists, <b>and</b> launchd does not have the job disabled.
+/// Anything else is not enabled, with a diagnostic. Besides what this class writes, two older forms count as starting
+/// this copy after an in-place upgrade (the new app replaced the old one at the same path): <c>open -a</c> with the same
+/// bundle spelled differently, and <c>[&lt;an executable inside this bundle&gt;, "--tray"]</c>, which the retired
+/// DialShift.Mac wrote under our label.</para>
+/// <para><b>Upstream v0.2.0</b> wrote its entry as <c>~/Library/LaunchAgents/com.dialshift.radio.plist</c>
+/// (<see cref="LegacyLabel"/>, <c>[/usr/bin/open, -a, &lt;bundle&gt;, --args, --tray]</c>). It is read by the same rules
+/// (including launchd's disabled state for its label): when it starts this copy and ours doesn't, the status is enabled
+/// with <see cref="LegacyDiagnostic"/>; when ours is enabled too, <see cref="LegacyLeftoverDiagnostic"/>. Turning launch at
+/// login on writes ours and then deletes the legacy file, and turning it off deletes both, so the two are never left
+/// registered together.</para>
+/// <para><b>App Translocation</b> (<see cref="MacAppTranslocation"/>): a copy running from its random translocated path
+/// refuses to turn launch at login on and never reports it enabled; both give <see cref="TranslocatedDiagnostic"/>.
+/// Turning it off still works.</para>
 /// <para><b>launchd's disabled state</b> is read with <c>/bin/launchctl print-disabled gui/&lt;uid&gt;</c> (read-only;
 /// <see cref="ProcessStartInfo.ArgumentList"/>, no shell, <see cref="LaunchctlTimeout"/>). Its output lists overrides
 /// inside a <c>disabled services = {</c> block as <c>"&lt;label&gt;" =&gt; disabled|enabled</c> (verified on macOS 26)
@@ -47,21 +59,25 @@ namespace DialShift.App.Platform.MacOS;
 public sealed partial class MacStartupRegistration : IStartupRegistration
 {
     public const string Label = "com.tsiger.dialshift";
+    /// <summary>The label (and plist name) upstream DialShift v0.2.0 registered.</summary>
+    public const string LegacyLabel = "com.dialshift.radio";
     public const string LaunchctlTool = "/bin/launchctl";
     public const string StaleDiagnostic = "Launch at login points to an older copy of DialShift. Turn it on again to fix it.";
     public const string LoginItemsHint = "If macOS Login Items shows DialShift as not allowed, enable it there.";
     public const string DisabledDiagnostic = "macOS has launch at login turned off for DialShift. " + LoginItemsHint + " Then turn it on again here.";
     public const string PlistDisabledDiagnostic = "The launch-at-login entry is marked as disabled. Turn it on again to fix it.";
     public const string UnverifiedDiagnostic = "DialShift couldn't check with macOS whether launch at login is allowed. " + LoginItemsHint;
+    public const string LegacyDiagnostic = "Launch at login was set up by an older DialShift. It still works; turn it off and on again to update it.";
+    public const string LegacyLeftoverDiagnostic = "An older DialShift's launch-at-login entry is still there. Turn launch at login off and on again to remove it.";
+    public const string TranslocatedDiagnostic = "Move DialShift to Applications first, then turn this on again.";
     private const string UnexpectedDiagnostic = "The launch-at-login entry isn't in the format DialShift expects. Turn it on again to fix it.";
     private const string OpenTool = "/usr/bin/open";
 
     /// <summary>The longest wait for one <c>launchctl</c> call; after it the process is killed and the state is unverified.</summary>
     public static readonly TimeSpan LaunchctlTimeout = TimeSpan.FromSeconds(5);
 
-    private static readonly Regex OverrideLine = new(
-        "^\\s*\"" + Regex.Escape(Label) + "\"\\s*=>\\s*(?<value>\\S+)\\s*$",
-        RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex OverrideLine = OverrideLineFor(Label);
+    private static readonly Regex LegacyOverrideLine = OverrideLineFor(LegacyLabel);
 
     private readonly IAppLog log;
     private readonly string? executablePath;
@@ -82,6 +98,7 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
         LaunchAgentsDirectory = launchAgentsDirectory
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "LaunchAgents");
         PlistPath = Path.Combine(LaunchAgentsDirectory, Label + ".plist");
+        LegacyPlistPath = Path.Combine(LaunchAgentsDirectory, LegacyLabel + ".plist");
         this.executablePath = executablePath ?? Environment.ProcessPath;
         this.runTool = runTool ?? RunToolAsync;
         launchdDomain = "gui/" + geteuid().ToString(CultureInfo.InvariantCulture);
@@ -90,6 +107,9 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
     public string LaunchAgentsDirectory { get; }
 
     public string PlistPath { get; }
+
+    /// <summary>Upstream v0.2.0's entry, <c>&lt;LaunchAgents&gt;/com.dialshift.radio.plist</c>; only ever read or deleted.</summary>
+    public string LegacyPlistPath { get; }
 
     public Task<StartupRegistrationStatus> GetStatusAsync(CancellationToken ct = default)
     {
@@ -127,8 +147,11 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
             return actual with { DiagnosticMessage = $"Couldn't turn on launch at login: {ex.Message}" };
         }
 
+        // Ours is in place, so the legacy entry goes: two entries would open DialShift twice at login.
+        TryDeleteEntry(LegacyPlistPath);
+
         // The new plist has no Disabled key. A launchd override outlives the file, so it is cleared separately.
-        if (await ReadLaunchdStateAsync(ct).ConfigureAwait(false) == LaunchdState.Disabled)
+        if (await ReadLaunchdStateAsync(Label, ct).ConfigureAwait(false) == LaunchdState.Disabled)
             await TryLaunchctlEnableAsync(ct).ConfigureAwait(false);
 
         var verified = await ReadStatusAsync(ct).ConfigureAwait(false);
@@ -139,24 +162,46 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
 
     private async Task<StartupRegistrationStatus> DisableAsync(CancellationToken ct)
     {
+        // Both entries go, so an upstream v0.2.0 entry can't keep launching DialShift after "off".
+        var failure = TryDeleteEntry(PlistPath);
+        failure = TryDeleteEntry(LegacyPlistPath) ?? failure;
+        var actual = await ReadStatusAsync(ct).ConfigureAwait(false);
+        return failure == null ? actual : actual with { DiagnosticMessage = $"Couldn't turn off launch at login: {failure.Message}" };
+    }
+
+    /// <summary>Deletes one entry if it exists; a failure is logged and returned.</summary>
+    private Exception? TryDeleteEntry(string path)
+    {
         try
         {
-            if (File.Exists(PlistPath)) File.Delete(PlistPath);
+            if (File.Exists(path)) File.Delete(path);
+            return null;
         }
         catch (Exception ex)
         {
-            log.Warn("startup_registration.error", $"Couldn't delete {PlistPath}.", ex);
-            var actual = await ReadStatusAsync(ct).ConfigureAwait(false);
-            return actual with { DiagnosticMessage = $"Couldn't turn off launch at login: {ex.Message}" };
+            log.Warn("startup_registration.error", $"Couldn't delete {path}.", ex);
+            return ex;
         }
-        return await ReadStatusAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>Ours, then upstream v0.2.0's entry when its file exists (see the remarks).</summary>
     private async Task<StartupRegistrationStatus> ReadStatusAsync(CancellationToken ct)
     {
-        var file = ReadFileStatus();
+        var ours = await ReadEntryStatusAsync(PlistPath, Label, ct).ConfigureAwait(false);
+        if (!File.Exists(LegacyPlistPath)) return ours;
+        if (ours.IsEnabled) return ours with { DiagnosticMessage = LegacyLeftoverDiagnostic };
+
+        var legacy = await ReadEntryStatusAsync(LegacyPlistPath, LegacyLabel, ct).ConfigureAwait(false);
+        if (legacy.IsEnabled) return legacy with { DiagnosticMessage = LegacyDiagnostic };
+        // Neither starts this copy. Ours explains why when it exists; otherwise the legacy entry's reason does.
+        return ours.DiagnosticMessage != null ? ours : legacy;
+    }
+
+    private async Task<StartupRegistrationStatus> ReadEntryStatusAsync(string path, string label, CancellationToken ct)
+    {
+        var file = ReadFileStatus(path, label);
         if (!file.IsEnabled) return file;
-        return await ReadLaunchdStateAsync(ct).ConfigureAwait(false) switch
+        return await ReadLaunchdStateAsync(label, ct).ConfigureAwait(false) switch
         {
             LaunchdState.NotDisabled => file,
             LaunchdState.Disabled => new(false, DisabledDiagnostic),
@@ -164,17 +209,17 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
         };
     }
 
-    /// <summary>The plist alone: format, <c>Disabled</c> key and target (see the remarks).</summary>
-    private StartupRegistrationStatus ReadFileStatus()
+    /// <summary>One plist alone: format, <c>Disabled</c> key and target (see the remarks).</summary>
+    private StartupRegistrationStatus ReadFileStatus(string path, string expectedLabel)
     {
-        if (!File.Exists(PlistPath)) return new(false);
+        if (!File.Exists(path)) return new(false);
 
         List<string> arguments;
         bool markedDisabled;
         try
         {
-            var entries = ReadPlistDictionary(PlistPath);
-            if (!entries.TryGetValue("Label", out var label) || (string?)label != Label ||
+            var entries = ReadPlistDictionary(path);
+            if (!entries.TryGetValue("Label", out var label) || (string?)label != expectedLabel ||
                 !entries.TryGetValue("RunAtLoad", out var runAtLoad) || runAtLoad.Name.LocalName != "true" ||
                 !entries.TryGetValue("ProgramArguments", out var programArguments) || programArguments.Name.LocalName != "array")
                 return new(false, UnexpectedDiagnostic);
@@ -184,23 +229,49 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
         }
         catch (Exception ex)
         {
-            log.Warn("startup_registration.error", $"Couldn't read {PlistPath}.", ex);
+            log.Warn("startup_registration.error", $"Couldn't read {path}.", ex);
             return new(false, "The launch-at-login entry can't be read. Turn it on again to fix it.");
         }
 
         var expected = ExpectedLaunch();
         if (expected.Diagnostic != null) return new(false, expected.Diagnostic);
-        if (!arguments.SequenceEqual(expected.Arguments, StringComparer.Ordinal)) return new(false, StaleDiagnostic);
-        var targetExists = expected.TargetIsBundle ? Directory.Exists(expected.Target) : File.Exists(expected.Target);
-        if (!targetExists) return new(false, StaleDiagnostic);
+        if (!LaunchesThisCopy(arguments, expected)) return new(false, StaleDiagnostic);
         return markedDisabled ? new(false, PlistDisabledDiagnostic) : new(true);
+    }
+
+    /// <summary>
+    /// True when <paramref name="arguments"/> start this copy and its target exists: exactly what <see cref="EnableAsync"/>
+    /// writes, or, inside a bundle, <c>open -a</c> with this bundle spelled differently (a trailing slash, <c>..</c>) or
+    /// <c>[&lt;an existing executable in this bundle's Contents/MacOS&gt;, "--tray"]</c> (the retired DialShift.Mac's form).
+    /// </summary>
+    private static bool LaunchesThisCopy(List<string> arguments, ExpectedEntry expected)
+    {
+        if (arguments.SequenceEqual(expected.Arguments, StringComparer.Ordinal))
+            return expected.TargetIsBundle ? Directory.Exists(expected.Target) : File.Exists(expected.Target);
+        if (!expected.TargetIsBundle) return false;
+        return arguments switch
+        {
+            [OpenTool, "-a", var bundle, "--args", "--tray"] =>
+                NormalizedPath(bundle) == expected.Target && Directory.Exists(expected.Target),
+            [var executable, "--tray"] =>
+                NormalizedPath(executable) is { } full && TryGetBundlePath(full) == expected.Target && File.Exists(full),
+            _ => false,
+        };
+    }
+
+    /// <summary>The full path without a trailing separator, or null for a path that isn't absolute or can't be normalized.</summary>
+    private static string? NormalizedPath(string path)
+    {
+        if (!Path.IsPathFullyQualified(path)) return null;
+        try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+        catch (ArgumentException) { return null; }
     }
 
     internal enum LaunchdState { NotDisabled, Disabled, Unknown }
 
-    /// <summary><c>launchctl print-disabled gui/&lt;uid&gt;</c>, parsed for <see cref="Label"/>. Caller cancellation is
-    /// rethrown; every other failure is logged and gives <see cref="LaunchdState.Unknown"/>.</summary>
-    private async Task<LaunchdState> ReadLaunchdStateAsync(CancellationToken ct)
+    /// <summary><c>launchctl print-disabled gui/&lt;uid&gt;</c>, parsed for <paramref name="label"/>. Caller cancellation
+    /// is rethrown; every other failure is logged and gives <see cref="LaunchdState.Unknown"/>.</summary>
+    private async Task<LaunchdState> ReadLaunchdStateAsync(string label, CancellationToken ct)
     {
         (int ExitCode, string Output) result;
         try
@@ -217,23 +288,29 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
             return LaunchdState.Unknown;
         }
 
-        var state = result.ExitCode == 0 ? ParsePrintDisabled(result.Output) : LaunchdState.Unknown;
+        var state = result.ExitCode == 0 ? ParsePrintDisabled(result.Output, label) : LaunchdState.Unknown;
         if (state == LaunchdState.Unknown)
             log.Warn("startup_registration.error",
-                $"launchctl print-disabled {launchdDomain} exited {result.ExitCode.ToString(CultureInfo.InvariantCulture)} without a readable state for {Label}.");
+                $"launchctl print-disabled {launchdDomain} exited {result.ExitCode.ToString(CultureInfo.InvariantCulture)} without a readable state for {label}.");
         return state;
     }
 
     /// <summary>
-    /// Parses <c>print-disabled</c> output: <see cref="LaunchdState.Disabled"/> for <c>disabled</c>/<c>true</c>,
-    /// <see cref="LaunchdState.NotDisabled"/> for <c>enabled</c>/<c>false</c> or no line for the label, and
-    /// <see cref="LaunchdState.Unknown"/> for output without the <c>disabled services = {</c> block, an unknown value or
-    /// conflicting lines.
+    /// Parses <c>print-disabled</c> output for <paramref name="label"/> (<see cref="Label"/> or <see cref="LegacyLabel"/>):
+    /// <see cref="LaunchdState.Disabled"/> for <c>disabled</c>/<c>true</c>, <see cref="LaunchdState.NotDisabled"/> for
+    /// <c>enabled</c>/<c>false</c> or no line for the label, and <see cref="LaunchdState.Unknown"/> for output without the
+    /// <c>disabled services = {</c> block, an unknown value or conflicting lines.
     /// </summary>
-    internal static LaunchdState ParsePrintDisabled(string output)
+    internal static LaunchdState ParsePrintDisabled(string output, string label = Label)
     {
         if (!output.Contains("disabled services = {", StringComparison.Ordinal)) return LaunchdState.Unknown;
-        var matches = OverrideLine.Matches(output);
+        var overrideLine = label switch
+        {
+            Label => OverrideLine,
+            LegacyLabel => LegacyOverrideLine,
+            _ => throw new ArgumentOutOfRangeException(nameof(label), label, "Not a DialShift launchd label."),
+        };
+        var matches = overrideLine.Matches(output);
         if (matches.Count == 0) return LaunchdState.NotDisabled;
         if (matches.Count > 1) return LaunchdState.Unknown;
         return matches[0].Groups["value"].Value switch
@@ -263,6 +340,10 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
             log.Warn("startup_registration.error", "Couldn't run launchctl enable.", ex);
         }
     }
+
+    private static Regex OverrideLineFor(string label) => new(
+        "^\\s*\"" + Regex.Escape(label) + "\"\\s*=>\\s*(?<value>\\S+)\\s*$",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant);
 
     private static ProcessStartInfo LaunchctlStartInfo(params string[] arguments)
     {
@@ -302,15 +383,20 @@ public sealed partial class MacStartupRegistration : IStartupRegistration
         }
     }
 
-    private (string[] Arguments, string Target, bool TargetIsBundle, string? Diagnostic) ExpectedLaunch()
+    /// <summary>What <see cref="EnableAsync"/> writes for this copy, or why it can't write anything.</summary>
+    private readonly record struct ExpectedEntry(string[] Arguments, string Target, bool TargetIsBundle, string? Diagnostic);
+
+    private ExpectedEntry ExpectedLaunch()
     {
         if (string.IsNullOrEmpty(executablePath))
-            return ([], "", false, "DialShift couldn't determine where it is installed, so launch at login can't be set.");
+            return new([], "", false, "DialShift couldn't determine where it is installed, so launch at login can't be set.");
         var executable = Path.GetFullPath(executablePath);
+        // The translocated path disappears when the app quits: an entry for it would launch nothing at the next login.
+        if (MacAppTranslocation.IsTranslocated(executable)) return new([], executable, false, TranslocatedDiagnostic);
         var bundle = TryGetBundlePath(executable);
         return bundle != null
-            ? ([OpenTool, "-a", bundle, "--args", "--tray"], bundle, true, null)
-            : ([executable, "--tray"], executable, false, null);
+            ? new([OpenTool, "-a", bundle, "--args", "--tray"], bundle, true, null)
+            : new([executable, "--tray"], executable, false, null);
     }
 
     /// <summary><c>…/Name.app/Contents/MacOS/exe</c> → <c>…/Name.app</c>; otherwise null.</summary>

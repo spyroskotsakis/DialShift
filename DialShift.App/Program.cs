@@ -1,4 +1,5 @@
 using Avalonia;
+using DialShift.App.Platform;
 using DialShift.App.Platform.MacOS;
 using DialShift.App.Services;
 using DialShift.App.SingleInstance;
@@ -11,6 +12,11 @@ namespace DialShift.App;
 /// the services, and settles single instance before Avalonia starts, so a second launch activates the running copy and
 /// exits without ever creating a window (BHV-07, BHV-08).
 /// </summary>
+/// <remarks>
+/// Before that, a running older DialShift (<see cref="LegacyInstanceDetector"/>) stops startup with
+/// <see cref="LegacyInstanceRunning"/>: the startup-failure dialog and exit 1, without taking the lock. Smoke runs skip the
+/// check: they must not depend on, or touch, the real user's apps and data folder.
+/// </remarks>
 internal static class Program
 {
     /// <summary>A second launch's longest wait for its services to dispose before it exits.</summary>
@@ -33,21 +39,31 @@ internal static class Program
         }
 
         var services = AppComposition.BuildServiceProvider(paths);
-        var singleInstance = services.GetRequiredService<ISingleInstanceService>();
-        var start = singleInstance.TryStartPrimary();
-        if (start == SingleInstanceStartResult.AlreadyRunning)
+        StartupFailure? failure;
+        // The detector logs app.legacy_instance_running.
+        if (!launch.SmokeTest && services.GetRequiredService<LegacyInstanceDetector>().Detect() != null)
+            failure = LegacyInstanceRunning;
+        else
         {
-            // The service logs single_instance.activate_sent or single_instance.activate_failed.
-            var result = singleInstance.ActivateExistingAsync().GetAwaiter().GetResult();
-            services.DisposeAsync().AsTask().Wait(SecondInstanceDisposeTimeout);
-            return result == SingleInstanceActivationResult.Activated ? ExitCodes.Success : ExitCodes.ActivationFailed;
+            var singleInstance = services.GetRequiredService<ISingleInstanceService>();
+            var start = singleInstance.TryStartPrimary();
+            if (start == SingleInstanceStartResult.AlreadyRunning)
+            {
+                // The service logs single_instance.activate_sent or single_instance.activate_failed.
+                var result = singleInstance.ActivateExistingAsync().GetAwaiter().GetResult();
+                services.DisposeAsync().AsTask().Wait(SecondInstanceDisposeTimeout);
+                return result == SingleInstanceActivationResult.Activated ? ExitCodes.Success : ExitCodes.ActivationFailed;
+            }
+            failure = StartupFailureFor(start, paths);
         }
-        var failure = StartupFailureFor(start, paths);
 
         var log = services.GetRequiredService<FileAppLog>();
         log.LogStartup(services.GetRequiredService<PlaybackEngineFactory>().EngineName, paths.Source);
         if (paths.Source == DataDirectorySource.EnvironmentOverride)
             log.Info("app.data_dir_override", $"Using the data directory from {AppPaths.DataDirectoryOverrideVariable}: {paths.DataDirectory}");
+        // Everything works from the translocated copy except launch at login, which says so itself (TranslocatedDiagnostic).
+        if (OperatingSystem.IsMacOS() && MacAppTranslocation.IsTranslocated(Environment.ProcessPath))
+            log.Warn("app.translocated", $"macOS is running DialShift from a temporary copy ({Environment.ProcessPath}). Move DialShift to your Applications folder.");
 
         var builder = BuildAvaloniaApp();
         // A login, restart or launch while every display sleeps must not stop the tray and the schedule from starting.
@@ -64,6 +80,11 @@ internal static class Program
             return ExitCodes.StartupFailed;
         }
     }
+
+    /// <summary>An older DialShift is running (sweep S2): the startup-failure dialog, exit 1 (D29).</summary>
+    internal static readonly StartupFailure LegacyInstanceRunning = new(
+        "An older DialShift is still running. Quit it from its tray icon, then open DialShift again.",
+        ExitCodes.StartupFailed);
 
     /// <summary>
     /// The startup failure a primary-side <see cref="SingleInstanceStartResult"/> stands for (D29), or null for

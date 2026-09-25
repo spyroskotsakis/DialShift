@@ -46,9 +46,14 @@ public sealed class AppPaths
                 Path.Combine(Path.GetTempPath(), "DialShift-smoke-" + Guid.NewGuid().ToString("N")),
                 DataDirectorySource.SmokeTestTemp);
 
-        var defaultDirectory = OperatingSystem.IsMacOS()
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "DialShift")
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DialShift");
-        return new AppPaths(defaultDirectory, DataDirectorySource.Default);
+        return new AppPaths(DefaultDataDirectory(), DataDirectorySource.Default);
     }
+
+    /// <summary>
+    /// The OS default data directory, whatever <see cref="Resolve"/> picks: <c>%LOCALAPPDATA%\DialShift</c> on Windows and
+    /// <c>~/Library/Application Support/DialShift</c> on macOS. The older DialShift apps used the same folders.
+    /// </summary>
+    public static string DefaultDataDirectory() => OperatingSystem.IsMacOS()
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "DialShift")
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DialShift");
 }
