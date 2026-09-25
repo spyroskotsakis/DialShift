@@ -11,24 +11,29 @@ using SkiaSharp;
 namespace DialShift.App.Services;
 
 /// <summary>
-/// Downloads and decodes catalog station logos for the Add dialog (D66, D80, D81; docs/catalog-contracts.md §4.3). Every
-/// failure is a null result, which the dialog shows as the monogram; dead logos are normal, so nothing is logged per logo.
+/// Downloads and decodes catalog station logos for the Add dialog (D66, D80, D81, D82; docs/catalog-contracts.md §4.3).
+/// Every failure is a null result, which the dialog shows as the monogram; dead logos are normal, so nothing is logged per
+/// logo.
 /// </summary>
 /// <remarks>
-/// <para><b>Requests (D81).</b> Logo URLs come from radio-browser, where anyone can submit a station, so only
-/// <see cref="SettingsStore.ValidUrl"/> URLs with a public host are requested: <c>localhost</c> and a literal loopback,
-/// private, link-local or unspecified IP address are refused at the call, without a request and without caching. The
-/// loader follows redirects itself, so <c>handler</c> must not (DI passes a <see cref="SocketsHttpHandler"/> with
-/// <c>AllowAutoRedirect = false</c>): at most <see cref="MaxRedirects"/> per attempt, each target resolved against the URL
-/// that returned it and held to the same URL and host rules, a refused target never requested. Only literal hosts are
-/// checked; a public name that resolves to a private address is still requested (D81's stated limit).</para>
+/// <para><b>Requests (D81, D82).</b> Logo URLs come from radio-browser, where anyone can submit a station, so only
+/// <see cref="SettingsStore.ValidUrl"/> URLs with a public host are requested (<see cref="IsRefusedHost"/>): the name
+/// <c>localhost</c> or any <c>*.localhost</c> name, and a literal loopback, private, link-local, site-local or unspecified IP
+/// address, are refused at the call, without a request and without caching. The loader follows redirects itself, so
+/// <c>handler</c> must not (DI passes a <see cref="SocketsHttpHandler"/> with <c>AllowAutoRedirect = false</c>): at most
+/// <see cref="MaxRedirects"/> per attempt, each target resolved against the URL that returned it and held to the same URL
+/// and host rules, and never from https to http (HttpClient's own rule); a refused target is never requested and the logo
+/// is null, cached. Only literal hosts are checked; a public name that resolves to a private address is still requested
+/// (D81's stated limit).</para>
 /// <para><b>Bounds.</b> At most <see cref="MaxConcurrentDownloads"/> downloads run at once, and a download keeps its slot
-/// while it decodes, so at most that many decodes run at once too. Each attempt (every request and the final body) is
-/// cancelled after <see cref="Timeout"/>; a body over <see cref="MaxBytes"/> is abandoned. The image header is read before
-/// any pixel: an image declaring more than <see cref="MaxPixels"/> pixels is refused, since a few hundred bytes can declare
-/// 20,000 × 20,000 and a decode is full size before it is scaled (at most <see cref="MaxPixels"/> × 4 bytes = 64 MiB, plus
-/// its mipmaps). The logo is scaled so its longest side is <see cref="DecodeSize"/>. All network and decoding work runs on
-/// the thread pool.</para>
+/// until its decode is done, so at most that many bodies are held. Decodes run one at a time across the process (D82): a
+/// downloaded body waits for the single decode slot, which is taken only after the network work is done and which an
+/// abandoned download gives up waiting for without decoding. Each attempt (every request and the final body) is cancelled
+/// after <see cref="Timeout"/>; a body over <see cref="MaxBytes"/> is abandoned. The image header is read before any pixel:
+/// an image declaring more than <see cref="MaxPixels"/> pixels is refused, since a few hundred bytes can declare 20,000 ×
+/// 20,000 and a decode is full size before it is scaled (at most <see cref="MaxPixels"/> × 4 bytes = 64 MiB, plus its
+/// mipmaps, one such decode at a time). The logo is scaled so its longest side is <see cref="DecodeSize"/>. All network and
+/// decoding work runs on the thread pool.</para>
 /// <para><b>Cache.</b> The last <see cref="CacheCapacity"/> results per URL are kept for the process, failures included
 /// (as null), so a dead logo is fetched once; each logo is at most <see cref="DecodeSize"/> × <see cref="DecodeSize"/>
 /// (16 KiB). Concurrent requests for one URL share one download. A download whose every caller cancelled is itself
@@ -53,6 +58,11 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
     public const int MaxRedirects = 5;
 
     private static readonly Task<Bitmap?> NoLogo = Task.FromResult<Bitmap?>(null);
+
+    /// <summary>The single decode slot, shared by every loader in the process (D82). Four 4096 × 4096 logos decoded at once
+    /// raised the working set from 67 to 410 MiB, which the native allocator kept; one at a time, to 154 MiB (macOS arm64).
+    /// Awaited with the download's abandon token only: time spent queued here is not a network failure to cache.</summary>
+    private static readonly SemaphoreSlim Decodes = new(1, 1);
 
     /// <summary>Linear filtering between mipmap levels: a downscale averages the pixels it drops instead of aliasing
     /// (fine stripes scaled 1024 → 64 are off by 7 levels on average with it, by 57–63 with linear or Mitchell alone).</summary>
@@ -117,17 +127,22 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
         SettingsStore.ValidUrl(url) && Uri.TryCreate(url, UriKind.Absolute, out var uri) && !IsRefusedHost(uri) ? uri : null;
 
     /// <summary>
-    /// True for <c>localhost</c> or a literal IP address in IPv4 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
-    /// 169.254.0.0/16 or 0.0.0.0, or IPv6 ::1, ::, fc00::/7 or fe80::/10; an IPv4-mapped IPv6 address is judged by its IPv4
-    /// address (D81). <see cref="Uri"/> has already turned the shorthand IPv4 forms (<c>127.1</c>, <c>2130706433</c>,
-    /// <c>0x7f.1</c>, <c>0</c>) into dotted quads. Any other host type (not a DNS name or an IP address) is refused too.
+    /// True for the name <c>localhost</c> or any name ending in <c>.localhost</c> (RFC 6761), in any case, with or without
+    /// the trailing dot; or a literal IP address in IPv4 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12
+    /// or 192.168.0.0/16, or IPv6 fc00::/7, fe80::/10 or fec0::/10 (D81, D82). An IPv4-mapped (<c>::ffff:a.b.c.d</c>) or
+    /// IPv4-compatible (<c>::a.b.c.d</c>) IPv6 address is judged by its IPv4 address, which covers <c>::</c> and <c>::1</c>
+    /// (0.0.0.0 and 0.0.0.1). <see cref="Uri"/> has already turned the shorthand IPv4 forms (<c>127.1</c>,
+    /// <c>2130706433</c>, <c>0x7f.1</c>, <c>0</c>) into dotted quads. Any other host type (not a DNS name or an IP address)
+    /// is refused too.
     /// </summary>
     private static bool IsRefusedHost(Uri uri)
     {
         switch (uri.HostNameType)
         {
             case UriHostNameType.Dns:
-                return uri.IdnHost.TrimEnd('.').Equals("localhost", StringComparison.OrdinalIgnoreCase);
+                var name = uri.IdnHost.TrimEnd('.');
+                return name.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
             case UriHostNameType.IPv4:
             case UriHostNameType.IPv6:
                 return !IPAddress.TryParse(uri.IdnHost, out var address) || IsRefusedAddress(address);
@@ -138,17 +153,19 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
 
     private static bool IsRefusedAddress(IPAddress address)
     {
-        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
         var bytes = address.GetAddressBytes();
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-            return bytes[0] is 10 or 127
-                || (bytes[0] == 172 && (bytes[1] & 0xF0) == 16)
-                || (bytes[0] == 192 && bytes[1] == 168)
-                || (bytes[0] == 169 && bytes[1] == 254)
-                || address.Equals(IPAddress.Any);
-        return address.Equals(IPAddress.IPv6Loopback) || address.Equals(IPAddress.IPv6Any)
-            || (bytes[0] & 0xFE) == 0xFC                        // fc00::/7
-            || (bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0x80); // fe80::/10
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            // ::ffff:a.b.c.d (mapped) and ::a.b.c.d (compatible, which includes :: and ::1): the embedded IPv4 decides.
+            if (!address.IsIPv4MappedToIPv6 && bytes.AsSpan(0, 12).ContainsAnyExcept((byte)0))
+                return (bytes[0] & 0xFE) == 0xFC                        // fc00::/7
+                    || (bytes[0] == 0xFE && (bytes[1] & 0x80) == 0x80); // fe80::/10 and fec0::/10
+            bytes = bytes[12..];
+        }
+        return bytes[0] is 0 or 10 or 127
+            || (bytes[0] == 172 && (bytes[1] & 0xF0) == 16)
+            || (bytes[0] == 192 && bytes[1] == 168)
+            || (bytes[0] == 169 && bytes[1] == 254);
     }
 
     private static HttpClient CreateClient(HttpMessageHandler handler)
@@ -215,7 +232,8 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
     }
 
     /// <summary>
-    /// Downloads and decodes one logo, holding a download slot throughout. Returns (null, true) for a failure worth caching
+    /// Downloads and decodes one logo, holding a download slot throughout and the decode slot (<see cref="Decodes"/>) for
+    /// the decode only. Returns (null, true) for a failure worth caching
     /// (HTTP error, timeout, a refused redirect, too many bytes or pixels, not an image); throws
     /// <see cref="OperationCanceledException"/> when <paramref name="abandon"/> fires.
     /// </summary>
@@ -239,7 +257,18 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
                     // The attempt's timeout, a network or HTTP failure: the logo is dead for this process.
                     length = -1;
                 }
-                return (length < 0 ? null : Decode(body, length), true);
+                if (length < 0) return (null, true);
+                // Taken after the network work, never across it. A wait cancelled by abandon throws before taking the
+                // slot, so only a taken slot is released.
+                await Decodes.WaitAsync(abandon).ConfigureAwait(false);
+                try
+                {
+                    return (Decode(body, length), true);
+                }
+                finally
+                {
+                    Decodes.Release();
+                }
             }
             finally
             {
@@ -253,8 +282,9 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
     }
 
     /// <summary>
-    /// The final body's length in <paramref name="buffer"/>, or -1 for a non-success status, a redirect that is refused or
-    /// past <see cref="MaxRedirects"/>, or a body over <see cref="MaxBytes"/>.
+    /// The final body's length in <paramref name="buffer"/>, or -1 for a non-success status, a redirect that is refused (to
+    /// a URL that is not requestable, or from https to http) or past <see cref="MaxRedirects"/>, or a body over
+    /// <see cref="MaxBytes"/>.
     /// </summary>
     private async Task<int> DownloadAsync(Uri url, byte[] buffer, CancellationToken cancellationToken)
     {
@@ -264,7 +294,8 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (IsRedirect(response.StatusCode) && response.Headers.Location is { } location)
             {
-                if (redirects == MaxRedirects || Requestable(new Uri(url, location).AbsoluteUri) is not { } target) return -1;
+                if (redirects == MaxRedirects || Requestable(new Uri(url, location).AbsoluteUri) is not { } target
+                    || (url.Scheme == Uri.UriSchemeHttps && target.Scheme == Uri.UriSchemeHttp)) return -1;
                 url = target;
                 continue;
             }
