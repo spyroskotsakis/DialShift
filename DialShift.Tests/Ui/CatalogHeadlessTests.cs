@@ -323,8 +323,8 @@ internal static class CatalogHeadlessTests
         Check("CAT-12 fixture: results open with a highlight", Overlay(dialog).IsVisible && editor.HighlightedResult != null);
         await PressAsync(dialog, Key.Escape);
         Layout(dialog);
-        Check("CAT-12 D85 Escape with the results open closes only the results: the dialog stays open, nothing added",
-            dialog.IsVisible && !Overlay(dialog).IsVisible && rig.Settings.Stations.Count == saved);
+        Check("CAT-12 D85 Escape with the results open closes only the results: the dialog stays open, the highlight dropped, nothing added",
+            dialog.IsVisible && !Overlay(dialog).IsVisible && editor.HighlightedResult == null && rig.Settings.Stations.Count == saved);
         await PressAsync(dialog, Key.Escape);
         Check("CAT-12 §5.5 Escape with the results closed cancels the dialog: nothing added",
             await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Cancelled && rig.Settings.Stations.Count == saved);

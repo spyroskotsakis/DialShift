@@ -399,7 +399,8 @@ internal static class CatalogViewModelTests
         var rows = vm.Results;
         Check("CAT-12 D85 \"radio\" lists Radio Thessaloniki, Radio Köln AM, Radio Shortwave (votes order), the overlay open on the first row, the detail pane following it",
             rig.Shown.SequenceEqual([Thessaloniki, KolnAm, Shortwave]) && vm.IsResultsOpen && vm.HighlightedResult == rows[0] && vm.DetailRow == rows[0]);
-        vm.HighlightedResult = null;
+        vm.IsResultsOpen = false;
+        Check("CAT-12 D85 closing the overlay drops the highlight and the detail of an unpicked row", vm.HighlightedResult == null && vm.DetailRow == null);
         vm.MoveHighlight(-1);
         Check("CAT-12 §5.5 Up with no highlight stays none", vm.HighlightedResult == null);
         vm.MoveHighlight(1);
@@ -418,7 +419,7 @@ internal static class CatalogViewModelTests
         await rig.Settled();
         Check("CAT-12 D85 a new result list moves the highlight to its first row (Radio Shortwave)",
             vm.HighlightedResult?.Entry == Shortwave && vm.DetailRow == vm.HighlightedResult);
-        vm.HighlightedResult = null;
+        vm.IsResultsOpen = false;
         vm.SelectEntryCommand.Execute(null);
         Check("CAT-12 SelectEntryCommand with no highlight does nothing", vm.Name == "" && vm.Url == "" && vm.SelectedEntry == null);
         vm.SearchText = "nothing matches this";
