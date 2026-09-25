@@ -41,6 +41,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 
 - **Track titles:** Windows shows the current song title for `http://` streams that send one; `https://` stations show the station description instead. In testing, LibVLC received titles only from servers that answer in the older Shoutcast style (`ICY 200 OK`), so many other `http://` stations show the station description too. macOS always shows the station description (decision D26).
 - **Streams at a `.pls` or `.m3u` path:** a raw audio stream served at a URL ending in `.pls` or `.m3u` may fail on macOS, because AVPlayer treats it as a playlist. Use the server's direct stream path instead (often `/;` or `/stream`). Real playlist files are fine.
+- **Stream passwords (the same on both):** a station URL can carry a user name and password (`http://user:password@host/…`). After they work once, both players remember them until DialShift quits. If a later station on the same server (same address, port and login realm) asks for a password, the players answer with them, even when that station's URL has none. Remembered passwords are never sent to another server, and only when the server asks for one. Quit DialShift to make the players forget them.
 - **Formats:** beyond MP3, AAC and HLS, macOS 26.5 also played Ogg Vorbis, Opus and FLAC-in-Ogg in testing. Older macOS versions have not been tested with those formats.
 
 ## Data

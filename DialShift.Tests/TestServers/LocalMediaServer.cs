@@ -16,7 +16,10 @@ namespace DialShift.Tests.TestServers;
 /// <see cref="IcyTitle"/> as StreamTitle) when the request asks for it.</item>
 /// <item><c>/ends.wav</c>: 6 s of audio (3 s burst, 3 s paced), then the server closes the connection (a live stream that ends).</item>
 /// <item><c>/status/404</c>, <c>/status/403</c>, <c>/status/500</c>: that status with a text body.</item>
-/// <item><c>/auth/live.wav</c>: 401 with a Basic challenge unless the request carries <see cref="AuthUser"/>:<see cref="AuthPassword"/>.</item>
+/// <item><c>/auth/live.wav</c>: 401 with a Basic challenge for realm <see cref="AuthRealm"/> unless the request carries
+/// <see cref="AuthUser"/>:<see cref="AuthPassword"/>.</item>
+/// <item><c>/other-realm/live.wav</c>: the same, with realm <see cref="OtherRealm"/>: a second protection space on the same
+/// host and port, so a client that caches credentials per realm (LibVLC 3's memory keystore) has none for it.</item>
 /// <item><c>/portal.html</c>: 200 text/html (a captive-portal-style page).</item>
 /// <item><c>/redirect</c>: 302 to <c>/live.wav</c>.</item>
 /// <item><c>/hang</c>: reads the request and never answers; the socket stays open until the client closes it.</item>
@@ -31,6 +34,11 @@ public sealed class LocalMediaServer : IAsyncDisposable
     public const string IcyTitle = "DialShift Test Title";
     public const string AuthUser = "listener";
     public const string AuthPassword = "secret-pass-7f3a";
+    public const string AuthRealm = "DialShift test";
+    public const string OtherRealm = "DialShift other";
+
+    /// <summary>The Authorization header value that <c>/auth/live.wav</c> and <c>/other-realm/live.wav</c> accept.</summary>
+    public static readonly string ExpectedAuthorization = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{AuthUser}:{AuthPassword}"));
 
     private const int SampleRate = 16000;
     private const int BytesPerSecond = SampleRate * 2;
@@ -139,11 +147,10 @@ public sealed class LocalMediaServer : IAsyncDisposable
                 await StreamAsync(request.Path, stream, icy: false, duration: TimeSpan.FromSeconds(6), ct).ConfigureAwait(false);
                 break;
             case "/auth/live.wav":
-                var expected = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{AuthUser}:{AuthPassword}"));
-                if (request.Header("Authorization") == expected)
-                    await StreamAsync(request.Path, stream, icy: false, duration: null, ct).ConfigureAwait(false);
-                else
-                    await WriteResponseAsync(stream, "401 Unauthorized", "text/plain", "Authorization required.", ct, "WWW-Authenticate: Basic realm=\"DialShift test\"").ConfigureAwait(false);
+                await AuthorizedStreamAsync(request, stream, AuthRealm, ct).ConfigureAwait(false);
+                break;
+            case "/other-realm/live.wav":
+                await AuthorizedStreamAsync(request, stream, OtherRealm, ct).ConfigureAwait(false);
                 break;
             case "/status/403":
                 await WriteResponseAsync(stream, "403 Forbidden", "text/plain", "Forbidden.", ct).ConfigureAwait(false);
@@ -210,6 +217,12 @@ public sealed class LocalMediaServer : IAsyncDisposable
         }
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>The live stream when the request carries <see cref="ExpectedAuthorization"/>, else 401 with a Basic challenge for <paramref name="realm"/>.</summary>
+    private Task AuthorizedStreamAsync(ServerRequest request, NetworkStream stream, string realm, CancellationToken ct) =>
+        request.Header("Authorization") == ExpectedAuthorization
+            ? StreamAsync(request.Path, stream, icy: false, duration: null, ct)
+            : WriteResponseAsync(stream, "401 Unauthorized", "text/plain", "Authorization required.", ct, $"WWW-Authenticate: Basic realm=\"{realm}\"");
 
     /// <summary>Never answers; returns when the client closes the connection or the server stops.</summary>
     private async Task HoldAsync(string path, NetworkStream stream, CancellationToken ct)
@@ -344,4 +357,16 @@ public sealed class LocalMediaServer : IAsyncDisposable
 public sealed record ServerRequest(string Method, string Path, IReadOnlyDictionary<string, string> Headers)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var value) ? value : null;
+
+    /// <summary>What the Authorization header carried, without its value: for check names and CI output.</summary>
+    public string AuthorizationSummary => Header("Authorization") switch
+    {
+        null => "no Authorization",
+        var value when value == LocalMediaServer.ExpectedAuthorization => "Authorization: the test credentials",
+        var value when value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase) => "Authorization: other Basic credentials",
+        _ => "Authorization: another scheme"
+    };
+
+    /// <summary>"/auth/live.wav (no Authorization)".</summary>
+    public override string ToString() => $"{Path} ({AuthorizationSummary})";
 }

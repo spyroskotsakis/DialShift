@@ -15,6 +15,18 @@
 // against the engine tests' local server: an "HTTP/1.0 200" stream was requested without Icy-MetaData, while "ICY 200 OK"
 // was retried with it and delivered the title. Stations without a title show the station tag instead.
 //
+// ─── Credentials ──────────────────────────────────────────────────────────────────────────────────────────────────────
+// LibVLC answers an HTTP 401 Basic challenge with the URL's user-info. Credentials that succeed stay in LibVLC 3's memory
+// keystore for the life of the LibVLC instance, which is this engine's and so the app's lifetime. Entries are keyed by
+// scheme, host, port, realm and auth type. A later station on the same scheme://host:port whose server challenges with
+// the same realm is therefore answered with them, even when its URL carries none. They are sent only after a challenge,
+// and never to another scheme, host, port or realm. AVPlayer does the same, for the process lifetime; measured on macOS 26
+// against the engine tests' server. LibVLC 3 has no option that disables or scopes the memory keystore: its only keystore
+// option, --keystore, selects the persistent store. A LibVLC instance per session would repeat the plugin load on every
+// station change. So the behavior is accepted and documented in the README. Observed: 3.0.23.1 (Windows CI) played the
+// same-realm station without credentials. 3.0.4 (macOS x64 under Rosetta) sent user-info with the first request, before
+// any challenge, and did not reuse it.
+//
 // ─── Threading ────────────────────────────────────────────────────────────────────────────────────────────────────────
 // • Public members may be called from any thread; `gate` guards the session bookkeeping and is never held across an
 //   await or while raising an event.

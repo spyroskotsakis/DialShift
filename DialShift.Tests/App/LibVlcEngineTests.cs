@@ -207,22 +207,32 @@ public static partial class LibVlcEngineTests
 
     // ─── LV-08 the corpus transport cases: plays and normalized failure kinds ───
 
+    /// <remarks>
+    /// Basic auth runs in two protection spaces of the same host and port. LibVLC 3 keeps credentials that succeeded in a
+    /// memory keystore for the life of the LibVLC instance, keyed by scheme, host, port, realm and auth type, and answers a
+    /// later 401 challenge from the same protection space with them (see the <see cref="LibVlcPlaybackEngine"/> header).
+    /// So the 401 case uses a second realm, which must fail whatever ran before it, and "same realm, no credentials" runs
+    /// right after the user-info station to record which behavior this LibVLC build has. Every case reports the requests
+    /// the server received, with or without an Authorization header (never its value).
+    /// </remarks>
     [SupportedOSPlatform("windows")]
     private static async Task CorpusChecksAsync(Rig rig)
     {
         (Station Station, string Expected)[] cases =
         [
-            (rig.Redirect, "Playing"), (rig.AuthOk, "Playing"), (rig.Pls, "Playing"), (rig.M3u, "Playing"),
-            (rig.Status404, nameof(PlaybackFailureKind.HttpError)), (rig.Status403, nameof(PlaybackFailureKind.HttpError)),
-            (rig.Status500, nameof(PlaybackFailureKind.HttpError)), (rig.AuthMissing, nameof(PlaybackFailureKind.HttpError)),
+            (rig.Redirect, "Playing"), (rig.AuthOk, "Playing"), (rig.AuthSameRealm, SameRealmExpectation), (rig.Pls, "Playing"),
+            (rig.M3u, "Playing"), (rig.Status404, nameof(PlaybackFailureKind.HttpError)), (rig.Status403, nameof(PlaybackFailureKind.HttpError)),
+            (rig.Status500, nameof(PlaybackFailureKind.HttpError)), (rig.AuthOtherRealm, nameof(PlaybackFailureKind.HttpError)),
             (rig.Portal, nameof(PlaybackFailureKind.UnsupportedFormat)), (rig.Refused, nameof(PlaybackFailureKind.NetworkUnavailable)),
             (rig.InvalidHost, nameof(PlaybackFailureKind.NetworkUnavailable)), (rig.Ftp, nameof(PlaybackFailureKind.InvalidUrl))
         ];
-        var results = new List<(Station Station, string Expected, Outcome Outcome)>();
+        var results = new List<(Station Station, string Expected, Outcome Outcome, IReadOnlyList<ServerRequest> Requests)>();
         foreach (var (station, expected) in cases)
         {
-            results.Add((station, expected, await rig.PlayAndSettleAsync(station)));
-            await rig.StopAndDrainAsync();
+            var requestMark = rig.Server.Requests.Count;
+            var outcome = await rig.PlayAndSettleAsync(station);
+            await rig.StopAndDrainAsync(); // every request of the attempt has arrived by then
+            results.Add((station, expected, outcome, [.. rig.Server.Requests.Skip(requestMark)]));
         }
 
         // A stream that ends: Playing, then the engine's Ended and a failure of kind EndOfStream.
@@ -243,20 +253,38 @@ public static partial class LibVlcEngineTests
         await rig.StopAndDrainAsync();
 
         Console.WriteLine("  Corpus results (case: expected -> outcome):");
-        foreach (var (station, expected, outcome) in results) Console.WriteLine($"    {station.Name}: {expected} -> {outcome}");
+        foreach (var (station, expected, outcome, requests) in results) Console.WriteLine($"    {station.Name}: {expected} -> {outcome}; {ServerSaw(requests)}");
         Console.WriteLine($"    {rig.Ends.Name}: Playing, then EndOfStream -> {ends}, then {endsFailure}");
         Console.WriteLine($"    {rig.Hang.Name}: Stalled after 27 stepped seconds -> {watchdog}");
 
-        foreach (var (station, expected, outcome) in results)
-            Check($"HS-17 LV-08 {station.Name}: expected {expected}, got {outcome}", outcome.Matches(expected));
+        foreach (var (station, expected, outcome, requests) in results.Where(r => r.Station != rig.AuthSameRealm))
+            Check($"HS-17 LV-08 {station.Name}: expected {expected}, got {outcome}; {ServerSaw(requests)}", outcome.Matches(expected));
         Check($"HS-17 LV-08 {rig.Ends.Name}: plays, then the engine reports Ended and the coordinator fails EndOfStream "
             + $"(first: {ends}; then: {endsFailure}; events: {rig.EngineEventsText(endsSession)})",
             ended && endsFailure.Kind == nameof(PlaybackFailureKind.EndOfStream) && rig.EngineStates(endsSession).Contains(PlaybackEngineState.Ended));
         Check($"HS-17 LV-08 {rig.Hang.Name}: the connection is held open, and the watchdog fails it as Stalled after >25 s outside Playing (got {watchdog})",
             hanging && watchdog.Kind == nameof(PlaybackFailureKind.Stalled));
-        var authRequests = rig.Server.Requests.Where(r => r.Path == "/auth/live.wav").ToList();
+        var authRequests = rig.Server.Requests.Where(r => r.Path == AuthPath).ToList();
         Check($"HS-17 LV-08 user-info credentials reach the server only as a Basic Authorization header ({authRequests.Count} requests)",
-            authRequests.Any(r => r.Header("Authorization")?.StartsWith("Basic ", StringComparison.Ordinal) == true));
+            authRequests.Any(r => r.Header("Authorization") == LocalMediaServer.ExpectedAuthorization));
+
+        // Same realm, no credentials in the URL, right after the user-info station: either LibVLC answers the 401 with the
+        // credentials it kept (its memory keystore), or it has none and fails. Never credentials before a challenge.
+        var (_, _, reuse, reuseRequests) = results.Single(r => r.Station == rig.AuthSameRealm);
+        var answered = reuse.Status == PlaybackStatus.Playing;
+        Check($"HS-17 LV-08 {rig.AuthSameRealm.Name}: credentials only after a 401 challenge; LibVLC "
+            + (answered ? "answered it with the credentials kept from the user-info station" : "kept no credentials")
+            + $" (got {reuse}; {ServerSaw(reuseRequests)})",
+            reuseRequests.FirstOrDefault(r => r.Path == AuthPath) is { } first && first.Header("Authorization") is null
+            && (answered
+                ? reuseRequests.Any(r => r.Header("Authorization") == LocalMediaServer.ExpectedAuthorization)
+                : reuse.Kind == nameof(PlaybackFailureKind.HttpError) && reuseRequests.All(r => r.Header("Authorization") is null)));
+
+        // No credentials outside the protection space they were given for: not the other realm, not any other path.
+        var leaked = rig.Server.Requests.Where(r => r.Path != AuthPath && r.Header("Authorization") is not null).ToList();
+        Check($"HS-17 LV-08 credentials stay in their protection space: no request outside {AuthPath} (realm '{LocalMediaServer.AuthRealm}') "
+            + $"carried an Authorization header ({rig.Server.Requests.Count(r => r.Path != AuthPath)} requests; with one: [{string.Join(", ", leaked)}])",
+            leaked.Count == 0);
     }
 
     // ─── LV-09 retry countdown (3 s, then 6 s) ───
@@ -344,6 +372,14 @@ public static partial class LibVlcEngineTests
             leaks.Count == 0);
     }
 
+    private const string AuthPath = "/auth/live.wav";
+
+    /// <summary>The same-realm case accepts both LibVLC behaviors; its check records which one this build has.</summary>
+    private const string SameRealmExpectation = "Playing with the kept credentials, or HttpError";
+
+    /// <summary>"server saw [/auth/live.wav (no Authorization), …]": the requests of one attempt, for check names and CI output.</summary>
+    private static string ServerSaw(IReadOnlyList<ServerRequest> requests) => $"server saw [{string.Join(", ", requests)}]";
+
     /// <summary>How one attempt settled: the coordinator status plus the kind and diagnostic of its <c>playback.failed</c> line.</summary>
     private sealed record Outcome(PlaybackStatus Status, double Seconds, string? Kind, string? Diagnostic)
     {
@@ -396,7 +432,8 @@ public static partial class LibVlcEngineTests
             Ends = Local("Ends", "/ends.wav");
             Redirect = Local("Redirect", "/redirect");
             AuthOk = Make("Auth with user-info", $"http://{LocalMediaServer.AuthUser}:{LocalMediaServer.AuthPassword}@127.0.0.1:{port}/auth/live.wav?token={Token}");
-            AuthMissing = Local("Auth without credentials (401)", "/auth/live.wav");
+            AuthSameRealm = Local("Auth, same realm, no credentials", AuthPath);
+            AuthOtherRealm = Local("Auth, other realm, no credentials (401)", "/other-realm/live.wav");
             Pls = Local("PLS playlist", "/station.pls");
             M3u = Local("M3U playlist", "/station.m3u");
             Status404 = Local("HTTP 404", "/status/404");
@@ -407,12 +444,12 @@ public static partial class LibVlcEngineTests
             Refused = Make("Connection refused", $"http://127.0.0.1:{closedPort}/live.wav?token={Token}");
             InvalidHost = Make("Unresolvable .invalid host", $"http://stream.dialshift-test.invalid/live.wav?token={Token}");
             Ftp = Make("ftp:// URL", $"ftp://127.0.0.1:{port}/live.wav?token={Token}");
-            Secrets = [LocalMediaServer.AuthPassword, Token, $":{port}/", $":{closedPort}/", ".invalid/", "/live.wav", "/auth/"];
+            Secrets = [LocalMediaServer.AuthPassword, Token, $":{port}/", $":{closedPort}/", ".invalid/", "/live.wav", "/auth/", "/other-realm/"];
 
             Settings = new Settings
             {
                 Volume = 70,
-                Stations = [Live, Icy, Ends, Redirect, AuthOk, AuthMissing, Pls, M3u, Status404, Status403, Status500, Portal, Hang, Refused, InvalidHost, Ftp]
+                Stations = [Live, Icy, Ends, Redirect, AuthOk, AuthSameRealm, AuthOtherRealm, Pls, M3u, Status404, Status403, Status500, Portal, Hang, Refused, InvalidHost, Ftp]
             };
             engine.StateChanged += (_, e) => engineEvents.Enqueue((e.SessionId, e.State.ToString()));
             engine.Failed += (_, e) => engineEvents.Enqueue((e.SessionId, $"Failed({e.Kind})"));
@@ -436,7 +473,8 @@ public static partial class LibVlcEngineTests
         public Station Ends { get; }
         public Station Redirect { get; }
         public Station AuthOk { get; }
-        public Station AuthMissing { get; }
+        public Station AuthSameRealm { get; }
+        public Station AuthOtherRealm { get; }
         public Station Pls { get; }
         public Station M3u { get; }
         public Station Status404 { get; }
