@@ -13,7 +13,8 @@ namespace DialShift.Tests.Ui;
 /// <summary>
 /// View-model suites (no Avalonia): snapshot rendering (HS-13), command routing with a save after each command (HS-04,
 /// MX-04), editor validation (HS-02), settings recovery and save failure (HS-07), launch at login (BHV-59, DOD-09), and the
-/// real coordinator behind the view model (HS-14 texts, MX-09). The headless suite repeats the user-facing parts through
+/// real coordinator behind the view model (HS-14 texts, MX-09), and the Add dialog's station catalog (CAT rows, in
+/// <see cref="CatalogViewModelTests"/>). The headless suite repeats the user-facing parts through
 /// the real views and dialogs.
 /// </summary>
 public static class ViewModelTests
@@ -39,6 +40,7 @@ public static class ViewModelTests
         await SaveFailure();
         await RealCoordinatorTexts();
         await RealCoordinatorCommands();
+        await CatalogViewModelTests.RunAsync();
     }
 
     private static string Json(Settings settings)

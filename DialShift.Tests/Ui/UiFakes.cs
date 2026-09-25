@@ -210,18 +210,104 @@ public sealed class FakeShell(Journal journal) : IAppShell
     public void Quit() => journal.Add("shell.Quit");
 }
 
-/// <summary>The Add dialog's station catalog: answers every load with <see cref="Result"/> (default: loaded, no stations).</summary>
+/// <summary>
+/// The Add dialog's station catalog: answers every load with <see cref="Result"/> (default: loaded, no stations). With
+/// <see cref="Hold"/> set, a load waits for it (the loading state, CAT-13; a load that never completes, CAT-04), and a
+/// cancelled wait ends with <see cref="OperationCanceledException"/> like the real provider's. <see cref="Fault"/> makes a
+/// load throw, which the contract forbids but the dialog must survive. Calls are counted (Edit mode never loads, D62).
+/// </summary>
 public sealed class FakeCatalogProvider : ICatalogProvider
 {
+    private int calls;
+
     public CatalogLoadResult Result { get; set; } = new(CatalogLoadState.Loaded, StationCatalogIndex.Empty, null, null);
 
-    public Task<CatalogLoadResult> GetCatalogAsync(CancellationToken cancellationToken = default) => Task.FromResult(Result);
+    public TaskCompletionSource? Hold { get; set; }
+
+    public Exception? Fault { get; set; }
+
+    public int Calls => Volatile.Read(ref calls);
+
+    /// <summary>The token of the latest call: the dialog cancels it when it closes.</summary>
+    public CancellationToken LastToken { get; private set; }
+
+    public async Task<CatalogLoadResult> GetCatalogAsync(CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref calls);
+        LastToken = cancellationToken;
+        if (Hold is { } hold) await hold.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (Fault is { } fault) throw fault;
+        return Result;
+    }
 }
 
-/// <summary>Catalog logos without a network: every logo fails, so the dialog shows monograms.</summary>
+/// <summary>
+/// Catalog logos without a network. By default every logo fails, so the dialog shows monograms; <see cref="Answer"/> maps
+/// a URL to a bitmap (made on the headless platform) instead. Every requested URL is recorded, from any thread.
+/// </summary>
 public sealed class FakeLogoLoader : ICatalogLogoLoader
 {
-    public Task<Bitmap?> LoadAsync(string url, CancellationToken cancellationToken) => Task.FromResult<Bitmap?>(null);
+    private readonly Lock gate = new();
+    private readonly List<string> requests = [];
+
+    public Func<string, Bitmap?>? Answer { get; set; }
+
+    public IReadOnlyList<string> Requests { get { lock (gate) return [.. requests]; } }
+
+    public Task<Bitmap?> LoadAsync(string url, CancellationToken cancellationToken)
+    {
+        lock (gate) requests.Add(url);
+        return Task.FromResult(Answer?.Invoke(url));
+    }
+}
+
+/// <summary>
+/// A UI thread for view-model tests that must see what runs where: <see cref="Post"/> only queues, and the queue runs when
+/// the test drains it, so nothing a background search produces reaches the view model until the test lets it (CAT-14),
+/// and every view-model change happens in the test's own sequence, never concurrently with it.
+/// </summary>
+public sealed class QueuedUiDispatcher : IUiDispatcher
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Action> queue = new();
+
+    /// <summary>Posts waiting for the next <see cref="Drain"/>.</summary>
+    public int Pending => queue.Count;
+
+    public bool CheckAccess() => true;
+
+    public void Post(Action action) => queue.Enqueue(action);
+
+    public Task InvokeAsync(Action action)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Post(() => { action(); done.SetResult(); });
+        return done.Task;
+    }
+
+    /// <summary>Runs every queued post (and the posts they queue) now; returns how many ran.</summary>
+    public int Drain()
+    {
+        var ran = 0;
+        while (queue.TryDequeue(out var action))
+        {
+            action();
+            ran++;
+        }
+        return ran;
+    }
+
+    /// <summary>Drains until <paramref name="condition"/> holds; false after <paramref name="timeout"/> (default 10 s, real time: it only bounds the wait).</summary>
+    public async Task<bool> RunUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            Drain();
+            if (condition()) return true;
+            if (DateTime.UtcNow > deadline) return false;
+            await Task.Delay(1);
+        }
+    }
 }
 
 /// <summary>A dispatcher for view-model tests without a UI loop: posts run inline, in order.</summary>
