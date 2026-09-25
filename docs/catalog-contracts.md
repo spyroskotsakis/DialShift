@@ -14,6 +14,8 @@
 > §5.3 and §5.5 were amended after Phase 4a (D83) so that they state exactly what the UI lane's `bf38658`, `838ba5a`
 > and `c0bc4c5` (merged at `3c73f34`) implement: the detail pane beside the form, the overlay over the form column,
 > wider filter drop-downs, the no-catalog focus, the Edit-mode width and tab order, and the overlay's view behaviors.
+> §1 and §2.1 state the notes rule as the data fix `e1c9e79` (merged at `61d9b1d`, D71 update) generalized it: a note
+> that is only a source label (`curated:`, `tags: ..`) exports as `""`.
 
 ## Contents
 
@@ -46,7 +48,7 @@ Taken on this Mac (Apple Silicon, .NET 10 SDK, `data/canonical/*.csv` at `78b122
 | `frequency_fm` without a dot (AM kHz such as `1593`) | 70 | Frequency display and matching rules in §3.3 and §5.4 |
 | `frequency_fm` shapes in the exported JSON (measured at `7a6e1e5` for D79) | empty 7,482; `dd.d` 483 and `ddd.d` 239 (all 87.1–108.0, always one decimal, `89.0`-style trailing zeros in 87 entries); `ddd` 14 and `dddd` 55 (522–1650 and one `8500`, all kHz); `Shortwave` 1 | No field says AM or FM, but the value does: 722 FM, 69 kHz, 1 neither (`BandOf`, §3.3, D79) |
 | FM and kHz entries whose frequency digits are equal | 8 digit strings (`891`, `918`, `927`, `936`, `945`, `972`, `1008`, `1017`); `101.7` found 3 FM and 2 kHz entries before D79 | A decimal separator or a band token restricts the band (D79) |
-| Notes that are only `tags:` (radio-browser extras with no tags) | part of 7,330 `tags: …` notes | `tags:` alone becomes `""`; Wikipedia `_emphasis_` markers are stripped (D71) |
+| Notes that are only a source label: `tags:` (radio-browser extras with no tags), `curated:` (curated rows found through radio-browser whose YAML entry has no notes), `tags: ..` | part of 7,330 `tags: …` notes; in the export before `e1c9e79`, 59 `curated:` and 1 `tags: ..` (the Add dialog showed them as notes) | A note that is only a source label followed by nothing or only whitespace or punctuation, or that has no letter or digit at all, becomes `""`; Wikipedia `_emphasis_` markers are stripped first (D71; the data fix `e1c9e79`, merged at `61d9b1d`, generalized the bare `tags:` rule: those 60 entries now export `""`). The canonical CSVs and the XLSX keep the label as provenance |
 | Logos that are not http(s) | 36; empty: 3,259 | Exporter and provider keep only http(s) logos (D71, D74) |
 | Distinct values: type / genre / language / city | 7 / 132 / 173 / 434 | Flat, data-driven filter lists (D72) |
 | JSON size, one station per line | about 3.5 MB | Loose file, `MaxFileBytes` 32 MiB guard (D74) |
@@ -99,7 +101,7 @@ Owner: data lane (Phase 1). The pipeline writes it; the App reads it; nobody edi
 | `stream_url` | string | passes the URL rule below | fails the URL rule → entry skipped |
 | `bitrate` | integer or `null` | a positive integer, else `null` (`""`, `0`, non-numeric → `null`) | ≤ 0 → `null` |
 | `votes` | integer or `null` | an integer ≥ 0 (canonical default `0`), else `null` | < 0 → `null` |
-| `notes` | string | trimmed; `tags:` with nothing after it → `""`; `_text_` → `text` | missing/`null` → `""` |
+| `notes` | string | trimmed; `_text_` → `text`; then `""` when what is left is only a source label (a letter or digit, then letters, digits, `_`, `+` or `-`, then `:`, e.g. `tags:`, `curated:`, `curated+radio-browser:`) followed by nothing or only whitespace or punctuation (`tags: ..`, `curated: —`), or has no letter or digit at all (`—`, ` .. `); a label with text after it (`tags: 80s`, `curated: pinned stream`) is kept (D71, `e1c9e79`) | missing/`null` → `""` |
 | `logo` | string | an http(s) URL or `""` | not http(s) → `""` |
 | `tag` | string | `common.app_tag(row)` of `data/build/common.py`, non-empty | missing/`null` → `""` |
 | any other key | — | never written | ignored (forward compatibility) |
