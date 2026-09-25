@@ -19,12 +19,18 @@
       <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
       <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
+    <!-- A value that does not fit ends in an ellipsis (D44), in the closed picker and in the drop-down alike (the item
+         template is also the selection box's); the tooltip has the whole value. -->
     <Style Selector="ComboBox.filter">
       <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="MaxDropDownHeight" Value="280"/>
+      <Setter Property="ItemTemplate">
+        <DataTemplate x:DataType="vm:CatalogFilterOption">
+          <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" />
+        </DataTemplate>
+      </Setter>
     </Style>
-    <!-- A filter picker is about 100 px wide, so its drop-down may grow to 280 px to show a city or genre name; longer
-         names still end in an ellipsis (D44). -->
+    <!-- A filter picker is about 100 px wide, so its drop-down may grow to 280 px to show a city or genre name (D83). -->
     <Style Selector="ComboBox.filter /template/ Popup#PART_Popup">
       <Setter Property="MaxWidth" Value="280"/>
     </Style>
