@@ -17,9 +17,9 @@ namespace DialShift.App.Services;
 /// <c>{"ts":"…","level":"info|warn|error","event":"…","msg":"…","ex":"…"}</c>, UTF-8 without BOM.
 /// </summary>
 /// <remarks>
-/// <para>Message and exception text are passed through <see cref="StreamUrlRedactor"/> (URLs reduced to
-/// scheme + host + port, home prefix replaced by <c>~</c>). Callers still must not pass settings contents,
-/// pipe payloads or HTTP headers.</para>
+/// <para>Message and exception text are passed through <see cref="StreamUrlRedactor.RedactText"/> (URLs reduced to
+/// <c>scheme://host[:port]/…</c>, stray user-info and secret-named values removed, home prefix replaced by <c>~</c>).
+/// Callers still must not pass settings contents, pipe payloads or HTTP headers.</para>
 /// <para>Before a write that would push the file past <see cref="MaxFileBytes"/>, the file is renamed to
 /// <c>dialshift.log.1</c>, replacing the previous one. Each write opens, appends and closes the file with
 /// <c>FileShare.ReadWrite | FileShare.Delete</c>, so viewers and a second-instance process can open it too.</para>

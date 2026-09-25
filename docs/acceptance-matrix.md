@@ -634,7 +634,7 @@ These are headless integration tests against `ISingleInstanceService` (§8.2.4).
 | ID | Given / When / Then |
 |---|---|
 | CT-LOG-01 | The redactor turns `https://user:pass@radio.example.com:8443/live/stream.mp3?token=abc#x` into `https://radio.example.com:8443/…`. The output contains none of `user`, `pass`, `token=abc`, `/live/stream.mp3`. |
-| CT-LOG-02 | Free-text redaction replaces every `http(s)://…` substring inside a message or exception text. |
+| CT-LOG-02 | Free-text redaction replaces every `http(s)://…` substring inside a message or exception text. The full leak-shape table (review F4: glued, apostrophe, whitespace-split, scheme-less, JSON-escaped, IPv6, percent-encoded, uppercase, other schemes, several URLs, exception chains, detached tokens) is `RedactionTests`, including a real-log check of README's "never contains stream credentials". |
 | CT-LOG-03 | Each line is valid JSON with `ts`, `level`, `event`, `msg`, and `ex` when present. |
 | CT-LOG-04 | When the file exceeds 1 MiB, it rotates to `dialshift.log.1` (replacing the old one), and logging continues. |
 
@@ -941,8 +941,8 @@ The App implementation of `IAppLog` is `FileAppLog` plus `StreamUrlRedactor`, bo
 **Redaction rules**
 
 1. A URL is logged as `scheme://host[:port]/…`. User-info, path, query and fragment are dropped.
-2. Every `https?://\S+` substring in `msg` and `ex` is replaced by its redacted form, as a second line of defense.
-3. The user home prefix is replaced by `~`.
+2. As a second line of defense, `msg` and `ex` go through the same redactor as the engines' diagnostics (`StreamUrlRedactor`, which prefers over-redaction to a leak): every URL-like run (any scheme and case, also glued to a word, JSON-escaped `:\/\/`, scheme-less `//host`, IPv6 literals, split by whitespace) becomes `scheme://host[:port]/…`; any `user:password@` is removed even without a scheme; a detached `?key=value` query becomes `?…`; the value of any `…token=`, `…key=`, `…sig=`, `…secret=`, `…auth=`, `…password=` pair, `Authorization:` header or `Bearer` token becomes `…`. The case table is `DialShift.Tests/App/RedactionTests.cs`.
+3. The user home prefix is replaced by `~` (only at a path boundary).
 4. Settings file contents, pipe payloads and HTTP headers are never logged.
 5. Station **names** are allowed.
 

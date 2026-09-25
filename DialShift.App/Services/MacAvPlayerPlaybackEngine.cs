@@ -23,8 +23,9 @@
 //   our +1 is released when the item is replaced (new session), dropped (stop, failure, end of stream) or at dispose.
 // • AVPlayer: +1 held in `player` for the engine lifetime (created with the first session; recreated only if AVPlayer
 //   itself reports status Failed), released in TeardownAll after its item is cleared.
-// • Observer: one NotificationObserver instance (+1) per engine, registered once when the player is first created,
-//   removed from the notification center before it is released in TeardownAll.
+// • Observer: one NotificationObserver instance (+1) per engine, registered once by the first session start that
+//   succeeds (a failed registration is disposed and retried by the next session; see EnsureObserver), removed from the
+//   notification center before it is released in TeardownAll.
 // • Every other object (currentItem, error, userInfo, errorLog, notification name/object, strings) is +0: never
 //   released and only read inside the work item's autorelease pool.
 //
@@ -125,11 +126,11 @@ public sealed class MacAvPlayerPlaybackEngine : IPlaybackEngine
         {
             ObjectDisposedException.ThrowIf(disposeRequested, this);
             session = ++sessionCounter; // contract: synchronously on entry, before any await or event
-            playable = StreamDiagnostics.IsPlayable(source?.Url);
-            desiredVolume = StreamDiagnostics.ClampVolume(volume);
+            playable = EngineInput.IsPlayable(source?.Url);
+            desiredVolume = EngineInput.ClampVolume(volume);
             var cancelled = ct.IsCancellationRequested;
             currentSession = cancelled ? 0 : session;
-            request = playable && !cancelled ? new Request(session, source!.Url, StreamDiagnostics.Origin(source.Url)) : null;
+            request = playable && !cancelled ? new Request(session, source!.Url, StreamUrlRedactor.RedactUrl(source.Url)) : null;
             nativeUsed = true;
         }
         // Stops the previous session and (when playable) builds this one.
@@ -138,7 +139,7 @@ public sealed class MacAvPlayerPlaybackEngine : IPlaybackEngine
         ct.ThrowIfCancellationRequested();
         if (!playable)
         {
-            ReportFailure(session, PlaybackFailureKind.InvalidUrl, $"avplayer: only absolute http(s) URLs are accepted; source={StreamDiagnostics.Origin(source.Url)}");
+            ReportFailure(session, PlaybackFailureKind.InvalidUrl, $"avplayer: only absolute http(s) URLs are accepted; source={StreamUrlRedactor.RedactUrl(source.Url)}");
             return;
         }
         using (ct.Register(static state => ((CancelledStart)state!).Cancel(), new CancelledStart(this, session)))
@@ -166,7 +167,7 @@ public sealed class MacAvPlayerPlaybackEngine : IPlaybackEngine
         lock (gate)
         {
             if (disposeRequested) return Task.CompletedTask;
-            desiredVolume = StreamDiagnostics.ClampVolume(volume);
+            desiredVolume = EngineInput.ClampVolume(volume);
             if (request is null) return Task.CompletedTask; // remembered for the next session
         }
         return MacMainQueue.InvokeAsync(Reconcile).WaitAsync(ct);
@@ -258,6 +259,7 @@ public sealed class MacAvPlayerPlaybackEngine : IPlaybackEngine
     private void Build(Request want, float volume)
     {
         EnsurePlayer();
+        EnsureObserver();
         var text = ObjCRuntime.CreateNSString(want.Url.AbsoluteUri);                                               // +1
         var url = ObjCRuntime.SendId(ObjCRuntime.Alloc(AVFoundation.NSURLClass), Sel.InitWithString, text);          // +1 or nil
         ObjCRuntime.Release(text);
@@ -311,11 +313,36 @@ public sealed class MacAvPlayerPlaybackEngine : IPlaybackEngine
         player = ObjCRuntime.AllocInit(AVFoundation.AVPlayerClass); // +1, released in TeardownAll
         if (player == 0) throw new InvalidOperationException("AVPlayer init returned nil.");
         appliedVolume = float.NaN;
+    }
+
+    /// <summary>
+    /// Registers the notification observer, once per engine. Called at every session start, so a failed registration is
+    /// retried by the next session instead of being lost for the engine's lifetime. A failure does not fail the session:
+    /// it is logged once (<c>playback.observer_unavailable</c>) and the session runs on the 250 ms poll, which still
+    /// detects item/player Failed (with its NSError), end of stream (the unrequested pause after playing) and stalls (no
+    /// progress for 2 s → Buffering). What the poll cannot recover: the NSError of failed-to-play-to-end (a mid-stream
+    /// failure then surfaces as end of stream, or as Buffering until the coordinator's stall watchdog fires), and the
+    /// immediacy of the stalled notification.
+    /// </summary>
+    private void EnsureObserver()
+    {
         if (observer is not null) return;
-        observer = NotificationObserver.Create(OnNotification); // once per engine
-        observer.Observe(AVFoundation.DidPlayToEndTimeNotification);
-        observer.Observe(AVFoundation.FailedToPlayToEndTimeNotification);
-        observer.Observe(AVFoundation.PlaybackStalledNotification);
+        NotificationObserver? created = null;
+        try
+        {
+            created = NotificationObserver.Create(OnNotification);
+            created.Observe(AVFoundation.DidPlayToEndTimeNotification);
+            created.Observe(AVFoundation.FailedToPlayToEndTimeNotification);
+            created.Observe(AVFoundation.PlaybackStalledNotification);
+            observer = created;
+        }
+        catch (Exception ex)
+        {
+            try { created?.Dispose(); } // removeObserver: for the names already registered, then release
+            catch (Exception cleanup) { log.Error("playback.engine_error", "Removing a partly registered AVPlayer observer failed.", cleanup); }
+            log.Warn("playback.observer_unavailable",
+                "AVPlayer notifications (end, failure, stall) could not be observed; this session relies on the 250 ms poll. The next session start retries.", ex);
+        }
     }
 
     /// <summary>Stops audio and closes the connection: pause, clear the player's item, release ours.</summary>
@@ -589,7 +616,7 @@ public sealed class MacAvPlayerPlaybackEngine : IPlaybackEngine
         if (httpStatus is { } status) text.Append("; error_log_http_status=").Append(status);
         if (atsBlocked) text.Append("; ATS blocked cleartext http: the app bundle is missing NSAllowsArbitraryLoadsForMedia");
         text.Append("; source=").Append(origin);
-        return StreamDiagnostics.Redact(text.ToString(), maxLength: 400);
+        return StreamUrlRedactor.RedactDiagnostic(text.ToString(), maxLength: 400);
     }
 
     // ─── Events (raised by SerialEventQueue: thread pool, in order, never under `gate`) ───

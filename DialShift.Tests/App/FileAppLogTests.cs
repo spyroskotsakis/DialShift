@@ -57,9 +57,9 @@ public static class FileAppLogTests
     {
         var text = $"Couldn't open {SecretUrl}; fallback http://u:p@backup.example.org/b?k=1 failed (see \"https://x.example/p?q\")";
         var redacted = StreamUrlRedactor.RedactText(text);
-        // The URL run stops only at whitespace, quotes or angle brackets, so a ';' glued to a URL is redacted with it.
+        // The URL run stops at whitespace, quotes or angle brackets; closing punctuation at its end (the ';') goes back to the text.
         Check("CT-LOG-02 every URL in free text is redacted",
-            redacted == "Couldn't open https://radio.example.com:8443/… fallback http://backup.example.org/… failed (see \"https://x.example/…\")");
+            redacted == "Couldn't open https://radio.example.com:8443/…; fallback http://backup.example.org/… failed (see \"https://x.example/…\")");
         Check("CT-LOG-02 ... and no secret survives", !SecretParts.Concat(["u:p@", "k=1", "p?q"]).Any(p => redacted.Contains(p, StringComparison.Ordinal)));
         Check("CT-LOG-02 surrounding text is kept", redacted.StartsWith("Couldn't open https://radio.example.com:8443/…", StringComparison.Ordinal));
         Check("CT-LOG-02 non-http schemes are redacted too (icy://, rtsp://)",
@@ -84,6 +84,7 @@ public static class FileAppLogTests
         var redacted = StreamUrlRedactor.RedactText("Couldn't save " + file);
         Check("§8.2.7 the home prefix is replaced by ~", redacted == "Couldn't save ~" + file[home.Length..]);
         Check("§8.2.7 ... every occurrence", StreamUrlRedactor.RedactText($"{home} and {home}") == "~ and ~");
+        Check("§8.2.7 ... only at a path boundary (a sibling like <home>by/x is left alone)", StreamUrlRedactor.RedactText(home + "by/x") == home + "by/x");
         if (OperatingSystem.IsWindows())
             Check("§8.2.7 Windows: the home prefix matches case-insensitively", StreamUrlRedactor.RedactText(home.ToUpperInvariant() + "\\x") == "~\\x");
         else
