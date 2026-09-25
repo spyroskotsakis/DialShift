@@ -21,7 +21,7 @@ Development builds are unsigned, so SmartScreen may warn on first launch.
 
 ## Run on macOS
 
-Unzip `DialShift-osx-arm64-native-avplayer.zip` (a local build is at `dist/DialShift.app`), move `DialShift.app` to `/Applications` and open it. The build is ad-hoc signed, not notarized: the first time, right-click the app and choose **Open**.
+Unzip `DialShift-osx-arm64-native-avplayer.zip` with Finder or any unzip tool (a local build is at `dist/DialShift.app`), move `DialShift.app` to `/Applications` and open it. The build is ad-hoc signed, not notarized, so macOS blocks the first launch: open **System Settings → Privacy & Security** and choose **Open Anyway** (on older macOS, right-click the app and choose **Open**).
 
 DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC and no Rosetta 2. It is a menu-bar app, so there is no Dock icon.
 
@@ -54,7 +54,7 @@ DialShift runs natively on Apple Silicon with Apple's AVPlayer: no bundled VLC a
 | Log | `dialshift.log` in the same folder (rotated to `dialshift.log.1` at 1 MiB) | same |
 | Launch at sign-in | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `DialShift`. Settings shows it as off when it's turned off in Task Manager's Startup apps; turning it on in DialShift turns it back on there too. | `~/Library/LaunchAgents/com.tsiger.dialshift.plist`. Settings shows it as off when launchd has it disabled, and when DialShift can't confirm the state with launchd. If macOS Login Items shows DialShift as not allowed, enable it there. |
 
-Writes are atomic. An unreadable settings file is preserved as `settings.json.unreadable-*` before defaults are used. Back up the settings folder to move stations and schedules. Settings move between Windows and macOS: slot time zones are saved as IANA names (such as `Europe/Athens`), which both systems understand. If this computer doesn't recognize a saved zone, the slot runs on local time and shows `(unknown zone)` in the warning color. Editing the slot keeps the saved zone unless you pick another one. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
+Writes are atomic. An unreadable settings file is copied to `settings.json.unreadable-<timestamp>` (with `-2`, `-3`, … if that name is taken; an earlier copy is never overwritten) before defaults are used, and a dialog names the copy. If no copy can be made (for example a full disk or a read-only folder), DialShift runs on defaults but won't replace the original: saving shows "Save failed" until a copy can be made. Back up the settings folder to move stations and schedules. Settings move between Windows and macOS: slot time zones are saved as IANA names (such as `Europe/Athens`), which both systems understand. If this computer doesn't recognize a saved zone, the slot runs on local time and shows `(unknown zone)` in the warning color. Editing the slot keeps the saved zone unless you pick another one. The log never contains stream credentials or full private stream URLs. No account, server, analytics or cloud sync. Listening connects directly to each selected radio provider.
 
 ## Radio station catalog
 
@@ -79,7 +79,7 @@ Everything the app needs to build and to run, per platform.
 | **Shell** | PowerShell 5.1+ | bash + `sh` |
 
 - **.NET 10 SDK** (tested with `10.0.401`) is the only build tool you install yourself. On Windows it can come from the installer, or the build script will use a local copy at `%LOCALAPPDATA%\DialShift\sdk\dotnet.exe`. On macOS the script looks for `dotnet` on `PATH` (including `~/.dotnet`).
-- The macOS package script also uses built-in macOS tools (`sips`, `iconutil`, `codesign`, `ditto`, `lipo`, `plutil`, `unzip`, `zipinfo`).
+- The macOS package script also uses built-in macOS tools (`sips`, `iconutil`, `codesign`, `ditto`, `lipo`, `plutil`, `PlistBuddy`, `unzip`, `zipinfo`).
 
 ### Build — NuGet packages (restored automatically)
 
@@ -136,7 +136,7 @@ The release scripts wrap that publish and are the single source of the package l
 | Windows | `./scripts/build.ps1 [-SkipTests]` (Windows) | `artifacts/DialShift-win-x64/`, `artifacts/DialShift-win-x64.zip` | `./scripts/verify-win-package.ps1 -Path <folder>` |
 | macOS | `./scripts/build-mac-app.sh` (macOS) | `dist/DialShift.app`, `dist/DialShift-osx-arm64-native-avplayer.zip` | `./scripts/verify-mac-app.sh <DialShift.app>` or `--zip <zip>` |
 
-`build.ps1` runs the tests first, then publishes, copies the notices, licenses and `Install.ps1`, verifies and zips. The Windows verifier checks for an x64 GUI executable, only the `win-x64` VLC runtime, the Avalonia/Skia/ANGLE natives, no `.pdb` files, and the notices. `build-mac-app.sh` publishes, assembles the bundle (`Info.plist`, `.icns`, notices), signs it ad-hoc, verifies, zips and verifies the zip. In the bundle, `Contents/MacOS` holds only Mach-O code (the executable and the native libraries); the managed `.dll` and `.json` files live in `Contents/Resources/app`, joined by symlinks, so the signature is sealed in the files themselves and survives any unzip tool. The zip carries no extended attributes (no `._*` entries). The macOS verifier checks for an arm64-only executable, an arm64 slice in every native library, only Mach-O files in `Contents/MacOS` and no signature kept in extended attributes, no VLC libraries, the `Info.plist` keys (`LSUIElement`, `LSMinimumSystemVersion` 14.0, the ATS media exception), the icon, the notices and the signature; with `--zip` it rejects `._*` entries and verifies the bundle extracted with both `ditto` and `unzip`.
+`build.ps1` runs the tests first, then publishes, copies the notices, licenses and `Install.ps1`, verifies and zips. The Windows verifier checks for an x64 GUI executable, only the `win-x64` VLC runtime, the Avalonia/Skia/ANGLE natives, no `.pdb` files, and the notices. `build-mac-app.sh` publishes, assembles the bundle (`Info.plist`, `.icns`, notices), signs it ad-hoc, verifies, zips and verifies the zip. In the bundle, `Contents/MacOS` holds only Mach-O code (the executable, the .NET runtime and the native libraries, plus a `DialShift.dll` link); the managed `.dll` and `.json` files live in `Contents/Resources/app`, joined by symlinks, so the signature is sealed in the files themselves and survives any unzip tool. The zip is written without extended attributes (no `._*` entries). The macOS verifier checks for an arm64-only executable, an arm64 slice in every native library, only Mach-O files in `Contents/MacOS` and no signature kept in extended attributes, no VLC libraries, the `Info.plist` keys (`LSUIElement`, `LSMinimumSystemVersion` 14.0, the ATS media exception), the icon, the notices and the signature; with `--zip` it rejects `._*` entries and verifies the bundle extracted with both `ditto` and `unzip`.
 
 ### Continuous integration
 
@@ -170,7 +170,7 @@ DialShift --smoke-test [--recovery-test] [--output <dir>]
 
 Runs the real app (window, tray, dialogs and player) in a fresh temporary data folder, unless `DIALSHIFT_DATA_DIR` is set, at volume 0 and without touching launch at sign-in. It checks live playback, pause and schedule holds, the tray menu after every editor operation, hiding and restoring the window, persistence, and a real second process activating the first. `--recovery-test` adds the retry and fallback checks against an unavailable local endpoint. It writes `results.json`, screenshots and a copy of the log to `<dir>` (default: `smoke` in the data folder) and exits 0 only when every check passes. Live-stream checks need network access. Sleep/wake, a real sign-in and audible output still need a manual check on the target machine.
 
-On macOS, run the bundled executable, `dist/DialShift.app/Contents/MacOS/DialShift`, to test what users get. App Transport Security applies only inside the bundle, so an unbundled run (`dotnet run`, as in CI) can't catch a missing `http://` media exception.
+On macOS, run the bundled executable, `dist/DialShift.app/Contents/MacOS/DialShift`, to test what users get. App Transport Security applies only inside the bundle, so an unbundled run (`dotnet run`, or the build output that CI's first smoke uses) can't catch a missing `http://` media exception. CI therefore also runs `--smoke-test` on the packaged app, extracted from the release zip with `unzip`.
 
 ### Signing tiers
 
