@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- Release artifacts (decision D2): Windows x64 + native Apple Silicon. No osx-x64. -->
+    <!-- Release artifacts (decision D13): Windows x64 + native Apple Silicon. No osx-x64. -->
     <RuntimeIdentifiers>win-x64;osx-arm64</RuntimeIdentifiers>
     <AssemblyName>DialShift</AssemblyName>
     <RootNamespace>DialShift.App</RootNamespace>
@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\dialshift.ico</ApplicationIcon>
     <!-- [LibraryImport] stubs and [UnmanagedCallersOnly] function pointers in Interop/ (macOS AVPlayer adapter, NSWorkspace wake observer). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- Ship only the x64 VLC runtime in the win-x64 package (D2). -->
+    <!-- Ship only the x64 VLC runtime in the win-x64 package (D13). -->
     <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
     <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
     <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
