@@ -86,13 +86,13 @@ internal static class CatalogViewModelTests
             && UiText.CatalogUnavailable == "Catalog unavailable — enter stream details manually"
             && UiText.CatalogNoMatch == "No stations match — adjust filters or enter the stream manually"
             && UiText.ManualEntrySeparator == "Or enter stream details manually");
-        Check("CAT-09 §5.3 ResultCount searching or filtering: 0 → \"\", 1 of 1 → \"1 match\", 50 of 50 → \"50 matches\", 50 of 214 → \"Showing 50 of 214 matches\"",
-            UiText.ResultCount(0, 0, browsing: false) == "" && UiText.ResultCount(1, 1, browsing: false) == "1 match"
-            && UiText.ResultCount(50, 50, browsing: false) == "50 matches" && UiText.ResultCount(50, 214, browsing: false) == "Showing 50 of 214 matches"
-            && UiText.ResultCount(1, 2, browsing: false) == "Showing 1 of 2 matches");
-        Check("CAT-09 D85 ResultCount browsing (no text, no filter): 50 of 8274 → \"Top 50 of 8,274 stations by votes\", 7 of 7 → \"7 stations by votes\", 1 of 1 → \"1 station\", 0 → \"\"",
-            UiText.ResultCount(50, 8274, browsing: true) == "Top 50 of 8,274 stations by votes" && UiText.ResultCount(7, 7, browsing: true) == "7 stations by votes"
-            && UiText.ResultCount(1, 1, browsing: true) == "1 station" && UiText.ResultCount(0, 0, browsing: true) == "");
+        Check("CAT-09 §5.3 ResultCount (text or a filter): 0 → \"\", 1 of 1 → \"1 match\", 50 of 50 → \"50 matches\", 50 of 214 → \"Showing 50 of 214 matches\"",
+            UiText.ResultCount(0, 0) == "" && UiText.ResultCount(1, 1) == "1 match"
+            && UiText.ResultCount(50, 50) == "50 matches" && UiText.ResultCount(50, 214) == "Showing 50 of 214 matches"
+            && UiText.ResultCount(1, 2) == "Showing 1 of 2 matches");
+        Check("CAT-09 D85 BrowseCount (no text, every filter All): 50 of 8274 → \"Top 50 of 8,274 stations by votes\", 7 of 7 → \"All 7 stations by votes\", 1 of 1 → \"1 station\", 0 → \"\"",
+            UiText.BrowseCount(50, 8274) == "Top 50 of 8,274 stations by votes" && UiText.BrowseCount(7, 7) == "All 7 stations by votes"
+            && UiText.BrowseCount(1, 1) == "1 station" && UiText.BrowseCount(0, 0) == "");
         Check("CAT-17 §5.3 CatalogStatus: \"8,274 stations · catalog updated 2026-09-25\"; without generated_utc \"8,274 stations\"",
             UiText.CatalogStatus(8274, Generated) == "8,274 stations · catalog updated 2026-09-25" && UiText.CatalogStatus(8274, null) == "8,274 stations");
         Check("CAT-17 CatalogStatus is singular for one station: \"1 station\", \"1 station · catalog updated 2026-09-25\"",
@@ -106,7 +106,7 @@ internal static class CatalogViewModelTests
         try
         {
             Check("CAT-17 D85 counts are grouped with the invariant comma under a de-DE culture (12,345 stations; 824,571 votes)",
-                UiText.CatalogStatus(12345, null) == "12,345 stations" && UiText.ResultCount(50, 12345, browsing: false) == "Showing 50 of 12,345 matches"
+                UiText.CatalogStatus(12345, null) == "12,345 stations" && UiText.ResultCount(50, 12345) == "Showing 50 of 12,345 matches"
                 && new CatalogResultRow(new StationCatalogEntry { Name = "Many votes", Country = "GR", StreamUrl = "https://streams.example.org/many", Votes = 824571 }).VotesText == "824,571 votes");
         }
         finally
@@ -318,10 +318,10 @@ internal static class CatalogViewModelTests
         var clearMark = rig.Changes.Count;
         vm.ClearFiltersCommand.Execute(null);
         await rig.Settled();
-        Check("CAT-08 D85 Clear: search \"\" and every filter All, in one search (one Results change), overlay open, all stations listed (\"7 stations by votes\")",
+        Check("CAT-08 D85 Clear: search \"\" and every filter All, in one search (one Results change), overlay open, all stations listed (\"All 7 stations by votes\")",
             vm.SearchText == "" && new[] { vm.SelectedCountry, vm.SelectedCity, vm.SelectedType, vm.SelectedGenre, vm.SelectedLanguage }.All(o => o == CatalogFilterOption.All)
             && rig.ChangesOf(nameof(StationEditorViewModel.Results)) == resultsChanges + 1 && vm.IsResultsOpen
-            && rig.Shown.SequenceEqual(rig.Expected("").Items) && vm.TotalCountText == "7 stations by votes");
+            && rig.Shown.SequenceEqual(rig.Expected("").Items) && vm.TotalCountText == "All 7 stations by votes");
         Check("CAT-08 Clear announces the cleared search and filters (PropertyChanged for each)",
             new[] { "SearchText", "SelectedCountry", "SelectedCity", "SelectedType", "SelectedLanguage" }.All(rig.Changes.Skip(clearMark).Contains));
         vm.CancelCommand.Execute(null);

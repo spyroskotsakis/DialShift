@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using DialShift.App.ViewModels;
 
@@ -13,11 +14,12 @@ namespace DialShift.App.Views.Dialogs;
 /// catalog search (D68), or the name field when the catalog is unavailable and the search box is disabled.
 /// </summary>
 /// <remarks>
-/// The search box's keys (docs/catalog-contracts.md §5.5, D85): Down opens the results and moves the highlight, Up moves
-/// it back, Enter picks the highlighted result while the results are open (otherwise it falls through to Save). Escape
-/// with the results open closes them; with them closed it is not handled here, so the Cancel button's <c>IsCancel</c>
-/// closes the dialog. Page Down and Page Up scroll the detail pane (its notes can be long). The results list never takes
-/// focus: pointing at a row highlights it, pressing it picks it.
+/// The search box's keys (docs/catalog-contracts.md §5.5, D85): Down opens the closed results on their first row, or
+/// moves the highlight down in the open ones; Up moves it back; Enter picks the highlighted result while the results are
+/// open (otherwise it falls through to Save); Page Down and Page Up scroll the detail pane (its notes can be long).
+/// Escape closes the open results wherever the focus is in the dialog, unless a filter drop-down is open and takes it
+/// first; with the results closed it is not handled, so the Cancel button's <c>IsCancel</c> closes the dialog. The
+/// results list never takes focus: pointing at a row highlights it, pressing it picks it.
 /// </remarks>
 public partial class StationEditorDialog : Window
 {
@@ -62,6 +64,7 @@ public partial class StationEditorDialog : Window
         foreach (var field in new[] { NameField, TagField, UrlField })
             field.GotFocus += (_, _) => editor.IsResultsOpen = false;
         AddHandler(PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
     }
 
     private TextBox? Field(string name) => name switch
@@ -77,8 +80,9 @@ public partial class StationEditorDialog : Window
         switch (e.Key)
         {
             case Key.Down:
-                if (editor.Results.Count > 0) editor.IsResultsOpen = true;
-                editor.MoveHighlight(1);
+                // Opening highlights the first row; only an open list moves the highlight.
+                if (editor.IsResultsOpen) editor.MoveHighlight(1);
+                else if (editor.Results.Count > 0) editor.IsResultsOpen = true;
                 e.Handled = true;
                 break;
             case Key.Up:
@@ -87,10 +91,6 @@ public partial class StationEditorDialog : Window
                 break;
             case Key.Enter when editor.IsResultsOpen && editor.HighlightedResult != null:
                 editor.SelectEntryCommand.Execute(null);
-                e.Handled = true;
-                break;
-            case Key.Escape when editor.IsResultsOpen:
-                editor.IsResultsOpen = false;
                 e.Handled = true;
                 break;
             case Key.PageDown:
@@ -102,6 +102,18 @@ public partial class StationEditorDialog : Window
                 e.Handled = true;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Escape closes the open results wherever the focus is, before the Cancel button sees it. A filter's open drop-down
+    /// is left to close itself first.
+    /// </summary>
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || e.KeyModifiers != KeyModifiers.None || editor is not { IsResultsOpen: true }) return;
+        if (FilterRow.GetLogicalDescendants().OfType<ComboBox>().Any(c => c.IsDropDownOpen)) return;
+        editor.IsResultsOpen = false;
+        e.Handled = true;
     }
 
     /// <summary>A click in the search box brings back the last results the user closed.</summary>

@@ -293,7 +293,7 @@ internal static class CatalogHeadlessTests
         await PumpAsync();
     }
 
-    // ─── CAT-12: type and Enter picks the top match; Enter without a highlight saves; Escape closes the list, then the dialog ───
+    // ─── CAT-12: type and Enter picks the top match; Escape closes the list, then the dialog; Enter with the list closed saves ───
 
     private static async Task EnterAndEscape()
     {
@@ -310,21 +310,27 @@ internal static class CatalogHeadlessTests
         var search = ByName<TextBox>(dialog, "Search stations");
         await ClickAsync(search);
         Layout(dialog);
-        Check("CAT-12 fixture: a click in the search box brings the results back, nothing highlighted",
-            Overlay(dialog).IsVisible && editor.HighlightedResult == null && Focused(dialog) == search);
+        Check("CAT-12 D85 fixture: a click in the search box brings the results back, on the first row",
+            Overlay(dialog).IsVisible && editor.HighlightedResult?.Entry == Melodia && Focused(dialog) == search);
+        await PressAsync(dialog, Key.Escape);
+        Layout(dialog);
+        Check("CAT-12 D85 Escape with the results open closes only the results: the dialog stays open, the highlight dropped, the detail back on the pick",
+            dialog.IsVisible && !Overlay(dialog).IsVisible && editor.HighlightedResult == null && editor.DetailRow?.Entry == Melodia);
         await PressAsync(dialog, Key.Enter);
-        Check("CAT-12 BHV-52 Enter with the results open but nothing highlighted is Save: the dialog closes and the picked Melodia 99.2 is saved",
+        Check("CAT-12 BHV-52 Enter with the results closed is Save: the dialog closes and the picked Melodia 99.2 is saved",
             await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Saved && rig.Settings.Stations.Any(s => s.Name == "Melodia 99.2"));
 
         var saved = rig.Settings.Stations.Count;
         (dialog, editor) = await OpenAddAsync(rig);
         await SearchAsync(dialog, editor, "radio");
-        await PressAsync(dialog, Key.Down);
-        Check("CAT-12 fixture: results open with a highlight", Overlay(dialog).IsVisible && editor.HighlightedResult != null);
+        var country = ByName<ComboBox>(dialog, "Country filter");
+        country.Focus();
+        await PumpAsync();
+        Check("CAT-12 fixture: results open with a highlight, the focus on the Country filter", Overlay(dialog).IsVisible && editor.HighlightedResult != null && Focused(dialog) == country);
         await PressAsync(dialog, Key.Escape);
         Layout(dialog);
-        Check("CAT-12 D85 Escape with the results open closes only the results: the dialog stays open, the highlight dropped, nothing added",
-            dialog.IsVisible && !Overlay(dialog).IsVisible && editor.HighlightedResult == null && rig.Settings.Stations.Count == saved);
+        Check("CAT-12 D85 Escape closes the results wherever the focus is (the Country filter): the dialog stays open, the focus stays, nothing added",
+            dialog.IsVisible && !Overlay(dialog).IsVisible && editor.HighlightedResult == null && Focused(dialog) == country && rig.Settings.Stations.Count == saved);
         await PressAsync(dialog, Key.Escape);
         Check("CAT-12 §5.5 Escape with the results closed cancels the dialog: nothing added",
             await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Cancelled && rig.Settings.Stations.Count == saved);

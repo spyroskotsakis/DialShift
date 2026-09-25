@@ -113,21 +113,22 @@ public static class UiText
             : stations;
     }
 
-    /// <summary>
-    /// The results footer (D85). Browsing (no search text, no filter): "Top 50 of 8,274 stations by votes", or "7 stations
-    /// by votes" / "1 station" when all are shown. Searching or filtering: "1 match", "214 matches" when all are shown, else
-    /// "Showing 50 of 214 matches". "" when nothing matched.
-    /// </summary>
-    public static string ResultCount(int shown, int total, bool browsing)
+    /// <summary>The results footer of a search with text or a filter: "" for no match, "1 match", "214 matches" when all are
+    /// shown, else "Showing 50 of 1,234 matches".</summary>
+    public static string ResultCount(int shown, int total)
     {
         if (total <= 0) return "";
-        if (browsing)
-        {
-            if (shown < total) return $"Top {Count(shown)} of {Stations(total)} by votes";
-            return total == 1 ? Stations(total) : Stations(total) + " by votes";
-        }
         if (shown >= total) return total == 1 ? "1 match" : Count(total) + " matches";
         return $"Showing {Count(shown)} of {Count(total)} matches";
+    }
+
+    /// <summary>The results footer of the unfiltered list, ranked by votes (D85): "" for an empty catalog, "1 station",
+    /// "All 7 stations by votes" when all are shown, else "Top 50 of 8,274 stations by votes".</summary>
+    public static string BrowseCount(int shown, int total)
+    {
+        if (total <= 0) return "";
+        if (total == 1) return Stations(total);
+        return shown >= total ? $"All {Stations(total)} by votes" : $"Top {Count(shown)} of {Stations(total)} by votes";
     }
 
     /// <summary>A catalog count, grouped the invariant way whatever the computer's culture: "8,274".</summary>

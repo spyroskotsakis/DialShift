@@ -164,20 +164,25 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     public int TotalCount { get => totalCount; private set => SetProperty(ref totalCount, value); }
 
-    /// <summary>The results footer (§5.3, D85): "Top 50 of 8,274 stations by votes" or "Showing 50 of 214 matches".</summary>
+    /// <summary>The results footer (§5.3, D85): "Top 50 of 8,274 stations by votes" unfiltered, else "Showing 50 of 214 matches".</summary>
     public string TotalCountText { get => totalCountText; private set => SetProperty(ref totalCountText, value); }
 
     /// <summary>The catalog is available, a search was applied, and nothing matched.</summary>
     public bool HasNoMatches { get => hasNoMatches; private set => SetProperty(ref hasNoMatches, value); }
 
-    /// <summary>The results overlay is showing. A search or filter change opens it; a pick closes it; the view may close it.
-    /// Closing it drops the highlight, so the detail pane goes back to the picked station and Down starts again at the top.</summary>
+    /// <summary>
+    /// The results overlay is showing. A search or filter change opens it; a pick closes it; the view may open or close it.
+    /// Opening it highlights the first row when nothing is highlighted, so typing then Enter picks the top match; closing
+    /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85).
+    /// </summary>
     public bool IsResultsOpen
     {
         get => isResultsOpen;
         set
         {
-            if (SetProperty(ref isResultsOpen, value) && !value) HighlightedResult = null;
+            if (!SetProperty(ref isResultsOpen, value)) return;
+            if (!value) HighlightedResult = null;
+            else if (highlighted == null && results.Count > 0) HighlightedResult = results[0];
         }
     }
 
@@ -379,12 +384,13 @@ public sealed class StationEditorViewModel : EditorViewModel
         Results = rows;
         TotalCount = outcome.Result.TotalCount;
         var browsing = string.IsNullOrWhiteSpace(outcome.Request.Text) && outcome.Request.Filters == CatalogFilters.None;
-        TotalCountText = UiText.ResultCount(rows.Count, outcome.Result.TotalCount, browsing);
+        TotalCountText = browsing
+            ? UiText.BrowseCount(rows.Count, outcome.Result.TotalCount)
+            : UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
         HasNoMatches = outcome.Result.TotalCount == 0;
-        // D85: results the user asked for open with the top match highlighted, so typing and Enter picks it; the first
-        // results after the load wait closed, with nothing highlighted, behind Down.
-        HighlightedResult = outcome.Request.Open && rows.Count > 0 ? rows[0] : null;
         if (outcome.Request.Open) IsResultsOpen = true;
+        // D85: new rows in an open overlay highlight the top match again, so typing then Enter picks it; closed, none.
+        HighlightedResult = isResultsOpen && rows.Count > 0 ? rows[0] : null;
         LoadRowLogos(rows);
         pendingSearch?.TrySetResult();
     }
