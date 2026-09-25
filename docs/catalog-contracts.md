@@ -3,10 +3,11 @@
 > **Status: frozen 2026-09-25 by the spec lane, before any implementation lane starts.** Normative for brief 3
 > (`docs/add-station-catalog-search.md`, "the brief"; § numbers without a file name are this document's). Lanes
 > implement the signatures here **verbatim**; a change goes through the spec lane and a new decision in
-> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77–D79
+> `docs/decisions.md` (D59–D68 are the brief's §11 defaults, D69–D76 the ambiguities resolved in Phase 0, D77–D80
 > post-freeze amendments). The
-> acceptance rows are CAT-01..18 in `docs/acceptance-matrix.md` §11. Nothing here exists as code yet: the
-> contracts are written down, not stubbed, so no lane ever finds dead or throwing placeholder code.
+> acceptance rows are CAT-01..18 in `docs/acceptance-matrix.md` §11. Phase 0 wrote the contracts down without
+> stubbing them, so no lane ever found dead or throwing placeholder code. §4 was amended after Phase 3 (D80) so that
+> it states exactly what `d05180b` and `3a10dae` implement.
 
 ## Contents
 
@@ -24,7 +25,7 @@
 
 ## 1. Facts measured in Phase 0
 
-Taken on this Mac (Apple Silicon, .NET 10 SDK, `data/canonical/*.csv` at `78b122e`). They drive D69–D76.
+Taken on this Mac (Apple Silicon, .NET 10 SDK, `data/canonical/*.csv` at `78b122e` unless a row names another commit). They drive D69–D76; the later rows drive D79 and D80.
 
 | Fact | Value | Consequence |
 |---|---|---|
@@ -48,6 +49,11 @@ Taken on this Mac (Apple Silicon, .NET 10 SDK, `data/canonical/*.csv` at `78b122
 | `AppContext.BaseDirectory` in the D51 bundle layout (apphost in `Contents/MacOS`, `.dll` symlinked from `Contents/Resources/app`) | `…/Contents/Resources/app/` | The JSON, a non-Mach-O file, stays in `Contents/Resources/app` and is found there (D60) |
 | `LatestValueDispatcher<T>` | coalesces pushes into one UI-thread post; **no delay** | It is not a debounce; the 200 ms delay is separate (D72) |
 | `SettingsStore.ValidUrl` | absolute URI, scheme `http`/`https`, non-empty host | The pipeline mirrors it, plus the 2,048 limit |
+| Full load of the real file (8,274 stations, Release, Apple M4 Max; measured at `d05180b` for D80), D69's definition: a fresh `CatalogProvider` per load, median of 7 loads in one process after one warm-up load | **33.1 ms** (integration lane); **32.5–34.0 ms** over 5 processes (spec lane, re-measured at `d489465`) | CAT-16's load budget (< 50 ms, D69) is met |
+| Same loads after many repetitions (tier-1 JIT) | about 14 ms (integration lane); 16–17 ms after 200 loads (spec lane) | Headroom once the code is JIT-compiled |
+| **First load in a fresh process: the only load the app ever performs** (D60, §4.4: one lazy load per process) | **40–68 ms** (integration lane); **60–62 ms** by the `catalog.loaded` line, 63–66 ms wall, over 8 standalone processes that had not used `System.Text.Json` before (spec lane) | **Can exceed 50 ms.** D69 reports this cold load and does not gate it, so CAT-16 gates the warm median (§8). The load runs off the UI thread, and meanwhile the dialog shows `CatalogLoading` and keeps what the user types (§5.2) |
+| Parse strategy on the real file (integration lane, D80) | `DeserializeAsync` over the file stream took about twice the parse time of one pass over the bytes in memory; calling `JsonSerializer.Deserialize` once per element made the whole load about 40 % slower than one reused element converter | §4.2 step 3 reads the file into memory and uses one element converter |
+| Bundle smoke with the catalog check (`3a10dae`, integration lane) | **33 checks** (32 before brief 3) | §4.4 |
 
 ## 2. Data contract: `data/output/app-catalog.json`
 
@@ -239,12 +245,12 @@ public static class StationCatalogQuery
 
 **Fold(s)** (replaces `CompareOptions.IgnoreCase | IgnoreNonSpace`, same intent, culture-independent, D70):
 
-1. Replace every unpaired surrogate with U+FFFD, then `Normalize(NormalizationForm.FormKD)` (compatibility decomposition: `ﬁ` → `fi`, full-width → ASCII, `é` → `e` + U+0301). An unpaired surrogate is a high surrogate (U+D800–U+DBFF) not followed by a low surrogate, or a low surrogate (U+DC00–U+DFFF) not preceded by a high surrogate; a valid pair is kept. `Normalize` throws `ArgumentException` on an unpaired surrogate, so the replacement is what makes `Fold` total (D77). A fast path may skip the replacement scan when the string is already well-formed UTF-16 (a string with no surrogate code unit, e.g. `IndexOfAnyInRange('\uD800', '\uDFFF') < 0`, always is); `string.IsNormalized` is not a validity test, because it throws on the same input.
+1. Replace every unpaired surrogate **and every U+FFFE** with U+FFFD, then `Normalize(NormalizationForm.FormKD)` (compatibility decomposition: `ﬁ` → `fi`, full-width → ASCII, `é` → `e` + U+0301). An unpaired surrogate is a high surrogate (U+D800–U+DBFF) not followed by a low surrogate, or a low surrogate (U+DC00–U+DFFF) not preceded by a high surrogate; a valid pair is kept. `Normalize` throws `ArgumentException` on an unpaired surrogate and on U+FFFE, and on nothing else (an exhaustive probe of every code point on .NET 10 / ICU found U+FFFE to be the only non-surrogate it rejects; U+FFFF and the other noncharacters pass), so the replacement is what makes `Fold` total (D77). A fast path may skip the replacement scan when the string contains no code unit in U+D800–U+DFFF and no U+FFFE (for example `IndexOfAnyInRange('\uD800', '\uDFFF') < 0 && IndexOf('\uFFFE') < 0`); `string.IsNormalized` is not a validity test, because it throws on the same inputs.
 2. Drop every character whose `CharUnicodeInfo.GetUnicodeCategory` is `NonSpacingMark` or `EnclosingMark`.
 3. `char.ToLowerInvariant` per character, then map `ς` → `σ`, `ß` → `ss`, `æ` → `ae`, `œ` → `oe`, `ø` → `o`, `ł` → `l`, `đ` → `d`, `ı` → `i`.
 4. Every run of `char.IsWhiteSpace` characters becomes one space; trim both ends.
 
-Examples that are tests: `Fold("München") == "munchen"`, `Fold("ΑΘΗΝΑΣ") == Fold("αθήνας") == "αθηνασ"`, `Fold("Straße") == "strasse"`, `Fold("  Radio\t  FM ") == "radio fm"`, `Fold("ﬁp") == "fip"`, `Fold("\uD800") == "\uFFFD"`, `Fold("a\uDC00b") == "a\uFFFDb"`, `Fold("\uD83D\uDCFB") == "\uD83D\uDCFB"` (a valid pair, unchanged). `Fold` never throws for a non-null string.
+Examples that are tests: `Fold("München") == "munchen"`, `Fold("ΑΘΗΝΑΣ") == Fold("αθήνας") == "αθηνασ"`, `Fold("Straße") == "strasse"`, `Fold("  Radio\t  FM ") == "radio fm"`, `Fold("ﬁp") == "fip"`, `Fold("\uD800") == "\uFFFD"`, `Fold("a\uDC00b") == "a\uFFFDb"`, `Fold("\uD83D\uDCFB") == "\uD83D\uDCFB"` (a valid pair, unchanged), `Fold("\uFFFE") == "\uFFFD"`, `Fold("a\uFFFEb") == "a\uFFFDb"`. `Fold` never throws for a non-null string.
 
 **Query.** `q = Fold(text ?? "")`. If `q == ""` there is no text constraint.
 
@@ -261,7 +267,7 @@ with `RegexOptions.IgnoreCase | RegexOptions.CultureInvariant` (`[0-9]` is ASCII
 3. **Entry keys** (computed once in the index, D70). `F` = the ASCII digits of `FrequencyFm` in order. `BandOf(FrequencyFm)` is `Fm` when `decimal.TryParse(FrequencyFm, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out v)` succeeds and `64 ≤ v ≤ 108`; `Kilohertz` when it succeeds, `FrequencyFm` has no `.` and `v ≥ 150`; `None` otherwise (for example `""`, `Shortwave`, `108.5`, `149`, `1593.0`, or a value with a sign, white space or a thousands separator). No field of the JSON says AM or FM; the value does, with the thresholds §5.4 labels by, so the band a token selects is the one the user sees on the row.
 4. **Match.** A frequency match when `F != ""`, `F.StartsWith(D, StringComparison.Ordinal)`, and the query band is Any or equals `BandOf(FrequencyFm)`. An entry whose band is `None` therefore matches only band-Any queries.
 
-The tiers, the total order and the text tiers 0–2 are unchanged: `t` still text-matches through `q` as before (`FM 101.5` also finds a name containing `fm 101.5`). Per query this allocates `D` once; per entry it is one ordinal `StartsWith` and one enum compare over precomputed keys, so the no-allocation-per-entry rule holds.
+The tiers, the total order and the text tiers 0–2 are unchanged: `t` still text-matches through `q` as before (`FM 101.5` also finds a name containing `fm 101.5`). Per query the frequency parse allocates a fixed amount that does not depend on the catalog size: the `Trim` result (none when there is nothing to trim), the regex `Match` with its groups, and `D`, about 1 KB in all (core review of D77/D79), besides `q = Fold(text)` itself. Per entry it is one ordinal `StartsWith` and one enum compare over precomputed keys, so the no-allocation-per-entry rule holds.
 
 Examples that are tests (catalog of entries whose names contain no digits: FM `101.0`, FM `101.5`, FM `101.7`, kHz `1017`, FM `89.0`, kHz `1593`, an empty `FrequencyFm`, `Shortwave`):
 
@@ -359,34 +365,38 @@ public sealed class CatalogProvider : ICatalogProvider
 }
 ```
 
-**`ResolveLocation`** (D60, D74):
+**`ResolveLocation`** (D60, D74, D80). The value is trimmed first; the first matching row applies. It throws only `ArgumentNullException` for a null argument:
 
 | `DIALSHIFT_CATALOG_PATH` | Result |
 |---|---|
 | unset, empty or whitespace | `(Path.Combine(baseDirectory, FileName), AppFolder, null)` |
-| `Path.IsPathFullyQualified(value.Trim())` | `(Path.GetFullPath(value.Trim()), Override, null)`; any file name (tests use fixtures) |
-| anything else (relative) | `(null, Override, "DIALSHIFT_CATALOG_PATH must be an absolute path.")`: the load is Unavailable; **no fallback** to the app folder, so a wrong override is visible |
+| not `Path.IsPathFullyQualified` (relative) | `(null, Override, "DIALSHIFT_CATALOG_PATH must be an absolute path.")`: the load is Unavailable; **no fallback** to the app folder, so a wrong override is visible |
+| fully qualified, but `Path.GetFullPath` throws `ArgumentException`, `NotSupportedException` or `PathTooLongException` (for example an embedded NUL character) | `(null, Override, "DIALSHIFT_CATALOG_PATH is not a valid path.")`: Unavailable, never an exception while the app is composed (D80) |
+| fully qualified | `(Path.GetFullPath(value), Override, null)`; any file name (tests use fixtures) |
 
 Production passes `Environment.GetEnvironmentVariable` and `AppContext.BaseDirectory` (never the current directory).
 
-**Load** (once, inside `Task.Run`; every exception caught; D74):
+**Load** (once, inside `Task.Run`; every exception caught; D74, D80). Each Unavailable carries the reason below as `CatalogLoadResult.Message`, exactly as written (with its final period):
 
 1. `location.Problem` → Unavailable(Problem).
-2. File missing, a directory, larger than `MaxFileBytes`, or unreadable (`IOException`, `UnauthorizedAccessException`) → Unavailable.
-3. `JsonSerializer.DeserializeAsync` into **private** DTOs (all members nullable) with `new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower }` and otherwise default options (unknown keys skipped; comments, trailing commas and quoted numbers rejected). `JsonException` or a null root → Unavailable.
-4. `schema_version` missing or ≠ `SupportedSchemaVersion` → Unavailable (`"schema_version 2 is not supported (expected 1)."`). `stations` missing or null → Unavailable.
-5. Map each station per the "App tolerates" column of §2.1: trim every string, `null` → `""`; skip a null element, an empty `name` or `country`, and a `stream_url` that fails `SettingsStore.ValidUrl` or exceeds 2,048 characters; `logo` that fails `SettingsStore.ValidUrl` → `""`; `bitrate` ≤ 0 → null; `votes` < 0 → null. Skipped > 0 → one `catalog.entries_skipped` warning.
-6. No usable entry, or more than `MaxEntries` → Unavailable.
-7. `generated_utc` via `DateTimeOffset.TryParseExact(s, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)`, else null.
-8. `new StationCatalogIndex(entries)` (folding is part of the load budget) → Loaded, `Message = null`.
+2. The path is a directory → `the path is a directory, not a file.`; it does not exist → `the file does not exist.`. The file is opened read-only (`FileShare.Read`); a stream that cannot seek (a device or a pipe, which has no length) → `the path is not a regular file.`; `Length > MaxFileBytes` → `the file is <n> bytes, more than the 33554432 bytes allowed.`. An `IOException` or `UnauthorizedAccessException` at any step → `the file could not be read.`.
+3. **Parse in one pass from memory (D80).** The whole size-checked file is read into one byte array; a leading UTF-8 byte order mark (`EF BB BF`) is skipped explicitly, because parsing bytes, unlike parsing a stream, does not skip it; then `JsonSerializer.Deserialize` over the bytes into **private** DTOs (all members nullable) with `new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower }` and otherwise default options (unknown keys skipped; comments, trailing commas and quoted numbers rejected). The `stations` array is read by a private converter that builds **at most `MaxEntries` station objects** and only counts the elements after them (`Utf8JsonReader.Skip`), so a hostile 32 MiB file of `{}` elements allocates at most 10,000 DTOs; it obtains the element converter once from the options and reuses it for every element. A `null` element is kept as null (skipped in step 6). A `JsonException` (a syntax error, a type mismatch on a known key, `stations` that is not an array) → `the file is not valid catalog JSON.`; a `null` root → `the file holds no JSON object.`.
+4. `schema_version` missing → `schema_version is missing (expected 1).`; ≠ `SupportedSchemaVersion` → `schema_version 2 is not supported (expected 1).`. `stations` missing or `null` → `the file has no stations array.`.
+5. More than `MaxEntries` elements (the converter's count) → `the file lists <n> stations, more than the 10000 supported.`. This is checked **before** mapping, so such a file logs only the one `catalog.unavailable`, never `catalog.entries_skipped`.
+6. Map each station per the "App tolerates" column of §2.1: trim every string, `null` → `""`; skip a null element, an empty `name` or `country`, and a `stream_url` that fails `SettingsStore.ValidUrl` or exceeds 2,048 characters; `logo` that fails `SettingsStore.ValidUrl` → `""`; `bitrate` ≤ 0 → null; `votes` < 0 → null. Skipped > 0 → one `catalog.entries_skipped` warning.
+7. No usable entry → `the file has no usable station entry.`.
+8. `generated_utc` via `DateTimeOffset.TryParseExact(s, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)`, else null.
+9. `new StationCatalogIndex(entries)` (folding is part of the load budget) → Loaded, `Message = null`.
 
-**Log events** (`IAppLog`, lower-case dotted, D74; the redactor shortens the home prefix in paths):
+Any other exception (for example from `StationCatalogIndex`) → `the catalog could not be loaded.`. The time that `catalog.loaded` reports runs from the start of the load task, before step 1, to the built index: it is the "load" of CAT-16 (§8, D69).
 
-| Event | Level | When | Message (shape) |
+**Log events** (`IAppLog`, lower-case dotted, D74, D80; the redactor shortens the home prefix in paths):
+
+| Event | Level | When | Message (exact shape) |
 |---|---|---|---|
-| `catalog.loaded` | Info | Loaded | `Loaded 8274 stations (generated 2026-09-25T12:00:00Z) from <path> [app folder\|DIALSHIFT_CATALOG_PATH] in 31 ms.` |
-| `catalog.unavailable` | Warn | every Unavailable, exactly once per process | `Station catalog unavailable: <reason> (<path or variable>).` with the exception when there is one |
-| `catalog.entries_skipped` | Warn | step 5 skipped ≥ 1 | `Skipped 3 of 8277 catalog entries without a name, country or valid stream URL.` |
+| `catalog.loaded` | Info | Loaded | `Loaded 8274 stations (generated 2026-09-25T12:00:00Z) from <path> [app folder] in 33 ms.` The bracket is the literal text `[app folder]` or `[DIALSHIFT_CATALOG_PATH]`; `(generated unknown)` when `generated_utc` is missing or unparsable |
+| `catalog.unavailable` | Warn | every Unavailable, exactly once per process | `Station catalog unavailable: <reason> (<path>).`, where `<reason>` is the step's reason **without its final period** and `<path>` is the resolved path, or the literal `DIALSHIFT_CATALOG_PATH` when there is none (step 1). Example: `Station catalog unavailable: the file does not exist (/Applications/DialShift.app/Contents/Resources/app/app-catalog.json).` Carries the exception when there is one. An exception thrown by the log itself is swallowed, so a failing log never turns Unavailable into a fault |
+| `catalog.entries_skipped` | Warn | step 6 skipped ≥ 1 | `Skipped 3 of 8277 catalog entries without a name, country or valid stream URL.` |
 
 ### 4.3 `ICatalogLogoLoader.cs` / `CatalogLogoLoader.cs` (D66)
 
@@ -415,7 +425,14 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
 }
 ```
 
-Rules: only `SettingsStore.ValidUrl` URLs are requested; at most `MaxConcurrentDownloads` at once; each attempt is bounded by `Timeout`; bodies over `MaxBytes` are abandoned; decoding uses `Bitmap.DecodeToWidth(stream, DecodeWidth)` off the UI thread; results (failures included, as `null`) are cached per URL up to `CacheCapacity` URLs for the process, so a dead logo is fetched once. No log line per logo (dead logos are normal). DI passes a `SocketsHttpHandler { ConnectTimeout = Timeout }`; the tests pass a handler of their own.
+Rules (D66, D80):
+
+- **Requests.** Only `SettingsStore.ValidUrl` URLs are requested; any other URL, or a token already cancelled at the call, returns `null` at once without a request. Every request carries `User-Agent: DialShift/<version>`, the App assembly version as `Version.ToString(3)` (`0` when there is none), because some logo hosts, Wikimedia among them, refuse requests without one (D80). The loader owns its `HttpClient`, with `HttpClient.Timeout` infinite, and disposes the handler with it.
+- **Bounds.** At most `MaxConcurrentDownloads` downloads run at once. Each attempt, the request and its body, is cancelled after `Timeout`, counted from the moment it gets a download slot. A non-success status, or a `Content-Length` over `MaxBytes`, fails without reading the body; a body that grows past `MaxBytes` is abandoned at the first byte over. Decoding uses `Bitmap.DecodeToWidth(stream, DecodeWidth)`; network and decoding work run on the thread pool, never on the calling thread.
+- **One download per URL (D80).** Concurrent `LoadAsync` calls for the same URL share one download. A caller's cancellation ends only that caller's wait (it gets `null`). When every caller of a download has cancelled before it finishes, the download itself is cancelled and its result is **not cached**, so a stale search neither fills the download queue nor poisons the cache; the next call for that URL starts a new download.
+- **Cache.** Results, failures included (as `null`: an HTTP error, a timeout, a network failure, a body over `MaxBytes`, bytes that do not decode), are cached per URL, least recently used first out past `CacheCapacity` URLs, for the process, so a dead logo is fetched once. A cache hit returns a completed task. Evicted bitmaps are not disposed, because a view may still show them.
+- **Dispose** cancels every download in flight and clears the cache; a later `LoadAsync` returns `null`.
+- No log line per logo (dead logos are normal). DI passes a `SocketsHttpHandler { ConnectTimeout = Timeout }`; the tests pass a handler of their own.
 
 ### 4.4 DI, build item, smoke and package checks
 
@@ -432,9 +449,9 @@ Rules: only `SettingsStore.ValidUrl` URLs are requested; at most `MaxConcurrentD
   ```
 
   Never an `AvaloniaResource`. The item also flows to `DialShift.Tests`' output through the project reference, which the tests rely on (§8, CAT-02/CAT-04).
-- **Smoke:** one new `--smoke-test` check, `Catalog loads from the app folder`: `GetCatalogAsync` returns Loaded with at least one station from `CatalogLocationSource.AppFolder`; the detail names the count. The smoke total rises by one on each OS, and the docs lane updates every count that cites it.
-- **`scripts/verify-mac-app.sh`:** `Contents/Resources/app/app-catalog.json` is a regular file, parses as JSON with `schema_version` 1 and a non-empty `stations` array, using a parser that accepts `null` (`/usr/bin/python3 -c 'import json,sys; …'`; `plutil` rejects `null`). Runs for the `.app`, and for both `ditto` and `unzip` extractions with `--zip`.
-- **`scripts/verify-win-package.ps1`:** `app-catalog.json` next to `DialShift.exe`, `ConvertFrom-Json` succeeds, `schema_version -eq 1`, at least one station.
+- **Smoke:** one new `--smoke-test` check, `Catalog loads from the app folder`, right after the launch check: the app's own `ICatalogProvider` returns Loaded with at least one station, within 10 s, and `ResolveLocation(Environment.GetEnvironmentVariable, AppContext.BaseDirectory)` gives `CatalogLocationSource.AppFolder`. **A set `DIALSHIFT_CATALOG_PATH` fails the check even when that file loads (D80)**, because an override would not prove the packaged file. The detail names the state, the count, `generated_utc` (or `unknown`) and the path; on failure also the source and the Unavailable reason. The smoke total rises by one on each OS (the bundle smoke: 33 checks at `3a10dae`), and the docs lane updates every count that cites it.
+- **`scripts/verify-mac-app.sh`:** `Contents/Resources/app/app-catalog.json` is a regular file (not a symlink), parses as JSON with the integer `schema_version` 1 (a JSON `true` or `"1"` fails) and a non-empty `stations` array, using a parser that accepts `null` (`/usr/bin/python3 -c 'import json,sys; …'`; `plutil` rejects `null`). Runs for the `.app`, and for both `ditto` and `unzip` extractions with `--zip`. **The script now requires `/usr/bin/python3` (D80)** and checks for it with its other tools. On a Mac without the Xcode Command Line Tools that path is only a stub that offers to install them, so the script fails there; its header says so. The `macos-latest` runners and the dev box have the tools; the users' Macs never run this script.
+- **`scripts/verify-win-package.ps1`:** `app-catalog.json` is a file next to `DialShift.exe`, `Get-Content -Raw -Encoding utf8 | ConvertFrom-Json` succeeds, `schema_version` is an integer (`[int]` or `[long]`) equal to 1 (`-eq` alone would accept `"1"` and `$true`), and `stations` is an array with at least one station.
 
 ## 5. View-model and dialog contract
 
@@ -615,19 +632,19 @@ Check names start with the row id (`"CAT-06 …"`), as the timezone rows start w
 | CAT-01 | `app_catalog.py --self-test`; the pipeline log line (§2.3); `Catalog`: "CAT-01 …" reads the checked-in JSON and `data/canonical/*.csv` (the repo root found by walking up to `DialShift.slnx`; SKIP with a reason when absent), with a small RFC 4180 reader in the test: 18 keys in order, schema 1, every entry valid, no duplicate `(name, country, stream_url)`, the `(country, name, stream_url)` set equals the Working rows that pass the URL rule, order rule, collections labelled `Internet (collections)`, `tag` non-empty | yes | none (OS-independent data; the `Catalog` suite also runs on `windows-latest` for the DoD) |
 | CAT-02 | `dotnet build -c Debug` and `-c Release`, `dotnet publish -r osx-arm64 --self-contained` and `-r win-x64 --self-contained`: `app-catalog.json` in each output, `cmp` equal to `data/output/app-catalog.json`; `Catalog`: "CAT-02 …" the test output folder has the file (the Content item flows through the project reference) | yes (win-x64 cross-published) | `windows-latest` build and publish (CI matrix) |
 | CAT-03 | `scripts/build-mac-app.sh` + `scripts/verify-mac-app.sh --zip` (the JSON check, after `ditto` and `unzip`); `pwsh scripts/build.ps1 -SkipTests` + `verify-win-package.ps1` on this Mac (D58); the bundle smoke's catalog check | yes | the Windows native smoke from the zip (the file resolves next to `DialShift.exe` at run time) |
-| CAT-04 | `Catalog`: "CAT-04 …" for missing, empty, not JSON, truncated, `schema_version` 2 / `"1"` / missing, `stations` missing / null, every entry invalid, 10,001 entries, a directory, an unreadable file (SKIP on Windows): Unavailable, exactly one `catalog.unavailable` (`RecordingAppLog`), no exception; the default location in the test process loads the real file; `UiViewModels`: "CAT-04 …" a provider that never completes leaves the dialog responsive and manual Save working; the smoke catalog check | yes | the Windows smoke catalog check |
-| CAT-05 | `Catalog`: "CAT-05 …" `ResolveLocation` for unset / empty / whitespace / relative / absolute values, a fixture loaded through the override, no fallback for a relative value | yes | `windows-latest` (drive-letter and UNC rules of `IsPathFullyQualified`) |
-| CAT-06 | `Catalog`: "CAT-06 …" the §3.3 `Fold` examples, name / name_local / city matching, genre and notes not searched, whitespace collapse, Greek with tonos and final sigma, German umlauts and ß, French accents; lone surrogates (D77): the §3.3 surrogate `Fold` examples, `Search(StationCatalogIndex.Empty, "\uD800", CatalogFilters.None)` returns an empty result instead of throwing, and an index over a `Name` with a lone surrogate builds and matches a query containing the same surrogate | yes | `windows-latest` (the OS normalization data behind `string.Normalize`) |
+| CAT-04 | `Catalog`: "CAT-04 …" for missing, empty, not JSON, truncated, `schema_version` 2 / `"1"` / missing, `stations` missing / null, every entry invalid, 10,001 entries (and no `catalog.entries_skipped`, §4.2 step 5), a directory, an unreadable file (SKIP on Windows): Unavailable with the §4.2 reason as `Message`, exactly one `catalog.unavailable` (`RecordingAppLog`) in the §4.2 shape, no exception; a fixture with a UTF-8 BOM loads (D80); `catalog.loaded` names `[DIALSHIFT_CATALOG_PATH]` for a fixture and says `(generated unknown)` without `generated_utc`; a station whose `name` contains U+FFFE (raw or as `\ufffe`) still loads (D77), while an escaped lone surrogate (`\ud800`) is a JSON error that makes the file Unavailable (`not valid catalog JSON`, measured: `System.Text.Json` rejects it before `Fold` sees it); the default location in the test process loads the real file; `UiViewModels`: "CAT-04 …" a provider that never completes leaves the dialog responsive and manual Save working; the smoke catalog check | yes | the Windows smoke catalog check |
+| CAT-05 | `Catalog`: "CAT-05 …" `ResolveLocation` for unset / empty / whitespace / relative / absolute values and a fully qualified value with an embedded NUL (`is not a valid path.`, no exception, D80), a fixture loaded through the override, no fallback for a relative value | yes | `windows-latest` (drive-letter and UNC rules of `IsPathFullyQualified`) |
+| CAT-06 | `Catalog`: "CAT-06 …" the §3.3 `Fold` examples, name / name_local / city matching, genre and notes not searched, whitespace collapse, Greek with tonos and final sigma, German umlauts and ß, French accents; lone surrogates (D77): the §3.3 surrogate and U+FFFE `Fold` examples, `Search(StationCatalogIndex.Empty, "\uD800", CatalogFilters.None)` and the same with `"\uFFFE"` return an empty result instead of throwing, and an index over a `Name` with a lone surrogate or a U+FFFE builds and matches a query containing the same character | yes | `windows-latest` (the OS normalization data behind `string.Normalize`) |
 | CAT-07 | `Catalog`: "CAT-07 …" every row of the §3.3 frequency example table (D79) as its own named case, over the table's catalog; in particular the D79 changes: `FM 101.5` finds FM 101.5 (leading token), `101.50` finds FM 101.5 (trailing zero), `101.7` finds FM 101.7 but not kHz 1017 while `1017` finds both, `AM 1017` / `1017 kHz` find only kHz 1017; `101.` no longer finds kHz 1017; conflicting bands (`AM 101.7`, `101.5 kHz`) and `UKW 101.5` are not frequency queries; `BandOf` over `101.5`, `89.0`, `108.0`, `64`, `1017`, `150`, `8500` (`Fm` for the first four, `Kilohertz` for the last three), `108.5` / `149` / `1593.0` / `87,5` / `1,017` / ` 101.5` / `+101.5` / `Shortwave` / `""` (None), and null throws; empty `FrequencyFm` and band `None` entries never match a banded query; a frequency query ANDs with a filter; tier 3 ranks below name matches. `UiViewModels`: "CAT-07 …" `UiText.FrequencyText` ends in ` FM` exactly when `BandOf` is `Fm` and in ` kHz` exactly when it is `Kilohertz`, over the same inputs. `koeln` does not find Köln (pinned as the D79 non-goal) | yes | DoD only |
 | CAT-08 | `Catalog`: "CAT-08 …" each filter alone, all five ANDed with text, `null` = All, ordinal equality, `AvailableValues` distinct / non-empty / ordered / country labels; `UiViewModels`: "CAT-08 …" options = All + catalog values, a filter change re-searches, Clear resets | yes | DoD only |
 | CAT-09 | `Catalog`: "CAT-09 …" tier order, votes desc (null = 0), every tie-break, same result for a shuffled catalog, cap 50 with the true total, `cap < 1` throws; `UiViewModels`: `TotalCountText` for 0, 1, 50-of-50 and 50-of-214 | yes | DoD only |
-| CAT-10 | `UiViewModels`: "CAT-10 …" select fills Name/Tag/Url (with the 100/160 truncation), `SelectedEntry`, detail texts (notes full, votes, frequency, language, location); Save stores `Notes` only when the URL is unchanged; `HeadlessUi`: pick by keyboard fills the real text boxes (found by automation name) and the detail pane shows the notes | yes | DoD only |
+| CAT-10 | `UiViewModels`: "CAT-10 …" select fills Name/Tag/Url (with the 100/160 truncation), `SelectedEntry`, detail texts (notes full, votes, frequency, language, location); Save stores `Notes` only when the URL is unchanged; `HeadlessUi`: pick by keyboard fills the real text boxes (found by automation name) and the detail pane shows the notes; `HeadlessUi` (Skia is initialized there, which decoding needs): "CAT-10 …" the logo loader (§4.3, D80) with a test handler: a non-http(s) URL is never requested, a PNG decodes to `DecodeWidth`, a failure is cached (one request for two calls), concurrent calls for one URL make one request, when every caller cancels the request is cancelled and the next call requests again, a body over `MaxBytes` gives `null`, every request carries `User-Agent: DialShift/…` | yes | DoD only |
 | CAT-11 | `HeadlessUi` + `UiViewModels`: every existing HS-02 check green (the focus check amended per D68), plus "CAT-11 …" Edit mode shows no catalog panel, name field focused, BHV-52 messages unchanged | yes | `windows-latest` headless run |
 | CAT-12 | `HeadlessUi`: "CAT-12 …" focus on `Search stations` in Add mode; type, Down, Enter fills; Enter with no highlight saves (validation); Esc closes with nothing added; the Tab order of §5.5 | yes | `windows-latest` headless; native keyboard focus in NC-01 |
 | CAT-13 | `UiViewModels`: "CAT-13 …" loading text, unavailable text with search disabled and manual add working end to end, no-match text; design review | yes | none |
 | CAT-14 | `HeadlessUi`: "CAT-14 …" every new automation name, no clipped text in the dialog at 620 wide and with the window at 780×650 (the existing clipping helper), `SearchText` returns before any search runs (results unchanged synchronously); design review of the screenshots; the typing half of CAT-16 | yes | Windows native visual pass (Segoe UI metrics), NC-01 |
 | CAT-15 | `Catalog`: "CAT-15 …" a golden pre-brief `settings.json` string loads and saves byte-identical (null `Notes` writes nothing); a set `Notes` round-trips; `Settings.Version` is 1 in memory and on disk; an old file loads with `Notes == null` and no `.unreadable-*`; the `"Notes": 123` hazard pinned | yes | DoD only |
-| CAT-16 | `CatalogPerf` (perf lane): load and search medians at the real count and at 10,000 synthetic entries, asserted against D69's budgets | yes (Apple Silicon) | none required; Windows hardware is not measured (reported, not gated) |
+| CAT-16 | `CatalogPerf` (perf lane): load and search medians at the real count and at 10,000 synthetic entries, asserted against D69's budgets. **"Load" is D69's:** one `GetCatalogAsync` on a fresh `CatalogProvider` over the file (§4.2 steps 1–9, the time `catalog.loaded` reports), the median of 7 loads in one Release process after one warm-up load. The **first load in a fresh process**, the only load the app performs, is printed next to it and not gated (D69): it measured 40–68 ms (integration lane) and 60–62 ms (spec lane) against the 50 ms budget, while the warm median measured 33 ms (§1) | yes (Apple Silicon) | none required; Windows hardware is not measured (reported, not gated) |
 | CAT-17 | `qa-auditor` grep: no station names, URLs, frequencies or countries as C# literals outside test fixtures; `UiViewModels`: "CAT-17 …" `CatalogStatusText` shows `generated_utc`; `data/README` documents the refresh | yes | none |
 | CAT-18 | docs review (`docs-engineer`, then `qa-auditor`): README, `data/README`, this matrix, D59+, the XLSX README tab, `THIRD-PARTY-NOTICES` catalog sources (D76) | yes | none |
 
@@ -640,5 +657,7 @@ The private repository's GitHub Actions jobs are refused for billing (D58), and 
 - **Per-phase gate:** on this Mac, `export PATH="$HOME/.dotnet:$PATH"; dotnet build DialShift.slnx -c Release -warnaserror` and `dotnet run --project DialShift.Tests -c Release`, both pasted as real output, plus the lane's own commands (§8).
 - **Status values:** a CAT row is `GREEN` when all of its evidence exists; a row whose macOS evidence is complete and whose only gap is the column "Windows evidence still needed" is `WINDOWS-PENDING` with that gap named; rows that need a person or real hardware stay `NATIVE-PENDING` with their §9 native check. Rows marked "DoD only" or "none" can be `GREEN` on local evidence.
 - **Phase 5 closes** when every CAT row is `GREEN`, `WINDOWS-PENDING` or `NATIVE-PENDING` with evidence, and the final report lists every Windows gap for the next CI run or Windows machine.
+
+Phase 3 evidence so far (integration lane, `d05180b`, `3a10dae`, merged at `d489465`): the real file loads 8,274 stations with a warm median of 33.1 ms and a first cold load of 40–68 ms (§1, CAT-16); the bundle smoke passes 33 checks, including the catalog check. The `Catalog` suite's CAT-02..05 checks are still to be written by the test lane, so those rows stay `TODO` (matrix §11).
 
 Phase 0 baseline at `78b122e` (this Mac, 2026-09-25): `dotnet build DialShift.slnx -c Release -warnaserror` → `Build succeeded. 0 Warning(s) 0 Error(s)`; `dotnet run --project DialShift.Tests -c Release` → `1771 passed, 5 skipped; 24/24 suites green.`

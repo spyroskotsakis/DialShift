@@ -163,7 +163,7 @@ These are resolved by `dotnet restore`; you never download them by hand.
   - macOS: `DialShift.app` bundles .NET only; playback uses AVPlayer from macOS. macOS 14.0 or later on Apple Silicon.
 - A **network connection** to reach each radio station's direct HTTP/HTTPS audio URL.
 
-Bundled third-party components and their licenses are tracked in [`licenses/`](licenses/) and summarized in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Bundled third-party components and their licenses are tracked in [`licenses/`](licenses/) and summarized in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which also credits the sources of the bundled station catalog (radio-browser.info, and Wikipedia under CC BY-SA 4.0).
 
 ## Build, test and publish
 
@@ -279,7 +279,7 @@ Design notes live in [`docs/`](docs/): [docs/decisions.md](docs/decisions.md) re
 
 Starter stations use SomaFM's published direct stream links: [Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html), [Drone Zone](https://somafm.com/dronezone/directstreamlinks.html), [Secret Agent](https://somafm.com/secretagent/directstreamlinks.html). Streams can change; edit a station to update its URL. Station names belong to their respective owners; DialShift is unaffiliated.
 
-See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled dependencies.
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled dependencies and the station catalog's data sources.
 
 ### Earlier versions
 
