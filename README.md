@@ -189,7 +189,7 @@ The release scripts wrap that publish and are the single source of the package l
 
 | Package | Script | Output | Verifier |
 |---|---|---|---|
-| Windows | `./scripts/build.ps1 [-SkipTests] [-Version <semver>]` (Windows) | `artifacts/DialShift-win-x64/`, `artifacts/DialShift-win-x64.zip` | `./scripts/verify-win-package.ps1 -Path <folder>` |
+| Windows | `./scripts/build.ps1 [-SkipTests] [-Version <semver>]` (Windows, or PowerShell 7 on macOS) | `artifacts/DialShift-win-x64/`, `artifacts/DialShift-win-x64.zip` | `./scripts/verify-win-package.ps1 -Path <folder>` |
 | macOS | `./scripts/build-mac-app.sh [--version <semver>] [--build-number <n>]` (macOS) | `dist/DialShift.app`, `dist/DialShift-osx-arm64-native-avplayer.zip` (published as `DialShift-macos-arm64.zip`) | `./scripts/verify-mac-app.sh <DialShift.app>` or `--zip <zip>` |
 
 **Versions.** `<Version>` in `DialShift.App/DialShift.App.csproj` is the one source of the version number (`MAJOR.MINOR.PATCH`). `-Version`/`--version` may only add a pre-release suffix, for example `0.3.0-rc.1`; a different `MAJOR.MINOR.PATCH` is refused. The full version becomes the assembly's informational version (DialShift.exe's product version, and the first line of the log). The macOS `Info.plist` takes numbers only: `CFBundleShortVersionString` is `MAJOR.MINOR.PATCH`, and `CFBundleVersion` is the build number (the release workflow's run number; by default `MAJOR.MINOR.PATCH`). Without these options both scripts build the csproj version.
@@ -217,6 +217,22 @@ GitHub Actions must be enabled on the public repository: it is a fork, and forks
 **To publish a tag again,** delete its release (keep the tag) and run **Release** from the Actions tab (`workflow_dispatch`): choose the tag under **Use workflow from → Tags** and enter the same tag name, or run `gh workflow run Release --ref vX.Y.Z -f tag=vX.Y.Z`.
 
 **Actions billing.** GitHub Actions is free on public repositories. On the private repository the minutes count against the account's plan, and macOS and Windows runners use them at a multiple of the Linux rate, so the private dry run can stop for billing rather than for the code: GitHub then does not start a job ("The job was not started because recent account payments have failed or your spending limit needs to be increased"). Fix the billing or spending limit in the account settings, then re-run only what did not run: `gh run rerun <run-id> -R spyroskotsakis/dialshift-dev --failed`.
+
+#### Backup: release from a local build
+
+Use this only when GitHub Actions cannot run `release.yml` for a tag, for example while the private repository's jobs are refused for billing. The normal path stays the tag push and `release.yml`. `scripts/release-local.sh` (decision D58) makes the same release from a build on an Apple Silicon Mac with the .NET 10 SDK, `gh` logged in and PowerShell 7 (`brew install powershell`):
+
+```bash
+scripts/release-local.sh vX.Y.Z                                                  # dry run: build, verify, write the assets, print the gh command
+scripts/release-local.sh vX.Y.Z --repo spyroskotsakis/dialshift-dev --publish   # the private dry run
+scripts/release-local.sh vX.Y.Z --publish                                        # the public release (the default --repo spyroskotsakis/DialShift)
+```
+
+It builds the tag in a temporary git worktree, so your checkout (which must be clean) is not touched. It runs the `release.yml` checks of the tag, version and changelog, then the build with warnings as errors, the tests, both packages (the Windows one cross-built with `scripts/build.ps1` under `pwsh`), `verify-win-package.ps1` and `verify-mac-app.sh --zip` on the zips it uploads, and the macOS native and bundle smokes, which open DialShift windows for a few minutes. It writes `DialShift-win-x64.zip`, `DialShift-macos-arm64.zip`, `SHA256SUMS.txt` and `release-notes.md` to `artifacts/release-local/<tag>/`. With `--publish` it first checks that the tag is on the target repository at the same commit and has no release yet, then runs the same `gh release create` as `release.yml`. The notes end with a line saying the release was built and uploaded locally, and which checks ran.
+
+- **Not checked locally:** the tests' Windows-only checks (they report `SKIP` on macOS), the Windows native smoke and the `Install.ps1` cases; those need Windows. Packages are restored from your NuGet cache; `release.yml` restores from nuget.org.
+- **Without PowerShell,** build the Windows zip on Windows at the tag (`.\scripts\build.ps1 -Version X.Y.Z`) and pass `--win-zip <path>`. The script refuses a zip that was not built as that version from the tag's commit. Tags up to `v0.3.0` have a Windows-only `build.ps1`, so they need `--win-zip`.
+- **Pushing the tag stays your step:** push it to the target repository before `--publish`. If a **Release** run for the tag can still run there, cancel it (`gh run cancel <run-id> -R <owner>/<repo>`): it would fail at `gh release create` once the release exists. On the public repository Actions are free, so the tag push normally publishes there by itself.
 
 ### Developer runs
 

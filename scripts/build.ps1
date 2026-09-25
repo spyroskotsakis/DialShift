@@ -13,6 +13,8 @@ MAJOR.MINOR.PATCH.0. Default (omitted or empty): the csproj <Version>.
 Development builds are unsigned (D7). Public releases need Authenticode signing, which needs
 a code-signing certificate and is not performed here.
 Uses a local SDK at %LOCALAPPDATA%\DialShift\sdk\dotnet.exe when present, else dotnet on PATH.
+Also runs under PowerShell 7 on macOS, where scripts/release-local.sh uses it to cross-build the
+Windows package (D58); the Windows-only native checks (smoke test, Install.ps1) still need Windows.
 #>
 param([switch]$SkipTests, [string]$Version = '')
 $ErrorActionPreference = 'Stop'
@@ -27,8 +29,8 @@ if ($Version -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]
 if ($Version.Split('-')[0] -ne $csprojVersion) {
     throw "-Version $Version does not match the csproj <Version>$csprojVersion</Version>; bump the csproj first (D53)."
 }
-$dotnet = Join-Path $env:LOCALAPPDATA 'DialShift\sdk\dotnet.exe'
-if (-not (Test-Path -LiteralPath $dotnet)) { $dotnet = (Get-Command dotnet -ErrorAction Stop).Source }
+$dotnet = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'DialShift\sdk\dotnet.exe' } else { '' }
+if (-not $dotnet -or -not (Test-Path -LiteralPath $dotnet)) { $dotnet = (Get-Command dotnet -ErrorAction Stop).Source }
 if (-not $SkipTests) {
     & $dotnet run --project (Join-Path $root 'DialShift.Tests\DialShift.Tests.csproj') -c Release
     if ($LASTEXITCODE -ne 0) { throw 'Core checks failed.' }
@@ -41,9 +43,12 @@ Write-Host "Publishing DialShift $Version (win-x64)"
 & $dotnet publish $csproj -c Release -r win-x64 --self-contained true "-p:Version=$Version" -p:DebugType=None -p:DebugSymbols=false -o $output
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 # The SDK appends +<commit> to the product version when it knows the source revision.
-$productVersion = (Get-Item -LiteralPath (Join-Path $output 'DialShift.exe')).VersionInfo.ProductVersion
+# Windows reads DialShift.exe's version resource. Elsewhere .NET reads version data only from managed
+# assemblies, so the check reads DialShift.dll, whose informational version the SDK copies into that resource.
+$versionFile = if ($env:OS -eq 'Windows_NT') { 'DialShift.exe' } else { 'DialShift.dll' }
+$productVersion = [string](Get-Item -LiteralPath (Join-Path $output $versionFile)).VersionInfo.ProductVersion
 if ($productVersion -ne $Version -and -not $productVersion.StartsWith("$Version+")) {
-    throw "DialShift.exe has product version '$productVersion', expected $Version."
+    throw "$versionFile has product version '$productVersion', expected $Version."
 }
 # DebugType=None covers our assemblies only; native NuGet assets still bring symbol files
 # (libSkiaSharp.pdb + libHarfBuzzSharp.pdb, about 105 MB) that users do not need.
