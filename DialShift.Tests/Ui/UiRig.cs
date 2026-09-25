@@ -83,7 +83,7 @@ public sealed class UiRig : IAsyncDisposable
     public MainWindow? Window { get; private set; }
     public TrayMenuController? Tray { get; private set; }
 
-    public static string Version { get; } = typeof(AppComposition).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+    public static string Version { get; } = AppInfo.DisplayVersion(typeof(AppComposition).Assembly);
 
     /// <summary>View-model mode (no Avalonia): recording dialogs, inline dispatcher.</summary>
     public static UiRig CreateViewModels(string? settingsJson = null, Action<Settings>? seed = null, bool realCoordinator = false,

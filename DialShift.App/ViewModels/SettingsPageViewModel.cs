@@ -1,3 +1,4 @@
+using System.Reflection;
 using DialShift.App.Platform;
 
 namespace DialShift.App.ViewModels;
@@ -9,7 +10,22 @@ public sealed record FallbackOption(Guid? Id, string Name)
 }
 
 /// <summary>Version and data folder shown on the Settings page.</summary>
-public sealed record AppInfo(string Version, string DataDirectory);
+public sealed record AppInfo(string Version, string DataDirectory)
+{
+    /// <summary>The full SemVer of <paramref name="assembly"/> for display, such as "0.3.0-rc.1" (see the other overload).</summary>
+    public static string DisplayVersion(Assembly assembly) =>
+        DisplayVersion(assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, assembly.GetName().Version);
+
+    /// <summary>
+    /// The informational version with its build metadata (<c>+&lt;commit&gt;</c>) removed, so a pre-release suffix such as
+    /// <c>-rc.1</c> stays; else the assembly version as <c>major.minor.patch</c>; else "unknown".
+    /// </summary>
+    public static string DisplayVersion(string? informationalVersion, Version? assemblyVersion)
+    {
+        var semVer = informationalVersion?.Split('+', 2)[0].Trim();
+        return !string.IsNullOrEmpty(semVer) ? semVer : assemblyVersion?.ToString(3) ?? "unknown";
+    }
+}
 
 /// <summary>The Settings tab: launch at login, start in tray, fallback, about (BHV-59 to BHV-63).</summary>
 public sealed class SettingsPageViewModel : PageViewModel

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
 using DialShift.App.Platform;
 using DialShift.App.ViewModels;
@@ -137,9 +138,19 @@ public static class ViewModelTests
         var tooltip = UiText.TrayTooltip(Snap(PlaybackStatus.Playing, "Live broadcast", "", true, current: longName));
         Check("HS-13 BHV-23 tray tooltip is truncated to 63 characters", tooltip.Length == 63 && tooltip.StartsWith("DialShift · xxx", StringComparison.Ordinal));
 
-        Check("HS-13 BHV-62 About shows the assembly version, not the legacy hard-coded 0.1.0",
+        var assembly = typeof(DialShift.App.App).Assembly;
+        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+        Check($"HS-13 BHV-62 About shows the full SemVer (informational version without +build metadata), not the legacy hard-coded 0.1.0 (\"{UiRig.Version}\")",
             vm.Settings.VersionText == "DialShift  /  " + UiRig.Version && UiRig.Version != "0.1.0" && UiRig.Version != "unknown"
-            && UiRig.Version == typeof(DialShift.App.App).Assembly.GetName().Version!.ToString(3));
+            && UiRig.Version == informational.Split('+')[0] && !UiRig.Version.Contains('+', StringComparison.Ordinal)
+            && UiRig.Version.StartsWith(assembly.GetName().Version!.ToString(3), StringComparison.Ordinal));
+        Check("HS-13 BHV-62 About keeps a pre-release suffix and drops build metadata: \"0.3.0-rc.1+4f2a9c1\" → \"0.3.0-rc.1\"",
+            AppInfo.DisplayVersion("0.3.0-rc.1+4f2a9c1", new Version(0, 3, 0, 0)) == "0.3.0-rc.1"
+            && AppInfo.DisplayVersion("0.3.0-rc.1", null) == "0.3.0-rc.1"
+            && AppInfo.DisplayVersion("0.3.0+4f2a9c1", null) == "0.3.0");
+        Check("HS-13 BHV-62 without an informational version About falls back to major.minor.patch, then \"unknown\"",
+            AppInfo.DisplayVersion(null, new Version(0, 3, 0, 0)) == "0.3.0" && AppInfo.DisplayVersion(" +abc", new Version(1, 2, 3)) == "1.2.3"
+            && AppInfo.DisplayVersion(null, null) == "unknown");
     }
 
     private static async Task FooterTexts()
