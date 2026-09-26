@@ -28,6 +28,17 @@
 // station change. LibVLC 3.0.4 (macOS x64, Rosetta) also sent user-info preemptively but did not reuse it. AVPlayer
 // (macOS 26) reuses user-info credentials only after a 401 from the same server and realm, for the process lifetime.
 //
+// ─── TLS trust warm-up (D100) ─────────────────────────────────────────────────────────────────────────────────────────
+// LibVLC's GnuTLS validates https certificates against the roots already in the Windows store. Windows ships with part
+// of its trusted roots and downloads a missing one only while a CryptoAPI chain build (SChannel, .NET) asks for it, which
+// GnuTLS never does. On a fresh Windows 11 every station whose chain ends at such a root failed with "TLS session
+// handshake error" (SomaFM's USERTrust RSA root; ~8,960 of the catalog's ~13,250 URLs are https). So StartAsync first has
+// the IStreamTrustWarmup (WindowsTrustWarmup: one .NET request, redirects followed) connect to an https source, which
+// makes Windows add the root, and creates the Media only afterwards. The warm-up runs on the pool (never on the caller's
+// thread), alongside the LibVLC init and retirement waits, is bounded (TrustWarmupLimit backs up the warm-up's own 5 s) and never fails a start: whatever
+// happens, LibVLC then connects and reports its own failure as before. Cancellation during it is the same as during
+// those waits, and a session superseded or disposed during it never creates a player. http:// sources are never warmed.
+//
 // ─── Threading ────────────────────────────────────────────────────────────────────────────────────────────────────────
 // • Public members may be called from any thread; `gate` guards the session bookkeeping and is never held across an
 //   await or while raising an event.
@@ -73,7 +84,11 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
     private static readonly TimeSpan LogLineLifetime = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan LogSettleDelay = TimeSpan.FromMilliseconds(300);
 
+    /// <summary>How long a start waits for the TLS trust warm-up at most: its own bound plus a margin, for a warm-up that overruns it.</summary>
+    internal static readonly TimeSpan TrustWarmupLimit = WindowsTrustWarmup.Timeout + TimeSpan.FromSeconds(1);
+
     private readonly IAppLog log;
+    private readonly IStreamTrustWarmup trustWarmup;
     private readonly SerialEventQueue events;
     private readonly Task<LibVLC> libVlc;
     private readonly Timer watchdog;
@@ -95,11 +110,14 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
     /// <summary>Creates the engine and starts LibVLC initialization on a pool thread (it can take a moment on first run).</summary>
     /// <param name="log">Receives engine errors; diagnostics are redacted.</param>
     /// <param name="options">LibVLC instance settings: <see cref="LibVlcEngineOptions.Default"/> in the app.</param>
-    public LibVlcPlaybackEngine(IAppLog log, LibVlcEngineOptions options)
+    /// <param name="trustWarmup">Runs before LibVLC opens an https source (D100): <see cref="WindowsTrustWarmup"/> in the app. Owned: disposed with the engine.</param>
+    public LibVlcPlaybackEngine(IAppLog log, LibVlcEngineOptions options, IStreamTrustWarmup trustWarmup)
     {
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(trustWarmup);
         this.log = log;
+        this.trustWarmup = trustWarmup;
         events = new SerialEventQueue(log);
         string[] instanceOptions = options.AudioOutput is { } aout ? [.. LibVlcOptions, "--aout=" + aout] : LibVlcOptions;
         libVlc = Task.Run(() =>
@@ -152,12 +170,16 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
             return;
         }
 
+        // D100: Windows fetches any missing root of an https stream's chain before LibVLC connects; alongside the waits
+        // below, and on the pool: starting a request can block (the system proxy lookup), and the caller may be the UI thread.
+        var trustWarmed = source.Url.Scheme == Uri.UriSchemeHttps ? Task.Run(() => WarmTrustAsync(source.Url, origin, ct), CancellationToken.None) : Task.CompletedTask;
         LibVLC vlc;
         try
         {
             vlc = await libVlc.WaitAsync(ct).ConfigureAwait(false);
             // Never two audible players: the previous one must be stopped before this one starts.
             await Task.WhenAll(pendingRetirements).WaitAsync(ct).ConfigureAwait(false);
+            await trustWarmed.ConfigureAwait(false); // throws only OperationCanceledException for ct
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -289,6 +311,7 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         try
         {
             await watchdog.DisposeAsync().ConfigureAwait(false);
+            trustWarmup.Dispose(); // cancels a warm-up in flight; its start then sees disposeRequested and creates no player
             Task[] pending;
             lock (gate) pending = [.. retiring];
             await Task.WhenAll(pending).ConfigureAwait(false);
@@ -307,6 +330,27 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         finally
         {
             disposal.TrySetResult();
+        }
+    }
+
+    /// <summary>
+    /// The D100 warm-up of an https source, bounded by <see cref="TrustWarmupLimit"/>. Throws only
+    /// <see cref="OperationCanceledException"/> for <paramref name="ct"/>; anything else is logged and the start goes on.
+    /// </summary>
+    private async Task WarmTrustAsync(Uri url, string origin, CancellationToken ct)
+    {
+        try
+        {
+            await trustWarmup.WarmAsync(url, ct).WaitAsync(TrustWarmupLimit, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The warm-up logs its own failures and never throws; this is the backstop for one that throws or overruns.
+            log.Warn(WindowsTrustWarmup.LogEvent, $"TLS trust warm-up did not finish ({ex.GetType().Name}); LibVLC connects anyway; source={origin}");
         }
     }
 

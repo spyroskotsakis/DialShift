@@ -8,6 +8,14 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-26
+
+Fixes `https://` stations on Windows. Everything else works as in [0.4.0](CHANGELOG.md#040---2026-09-26), and what 0.4.0 says about testing still applies.
+
+### Fixed
+
+- **Windows: `https://` stations play on a fresh Windows installation.** On a new Windows 11 PC, every `https://` station failed with "Stream unavailable", including the three starter stations and about two thirds of the catalog. Windows installs some trusted root certificates only when an app asks it to check a certificate, and the Windows player (VLC) reads the installed ones without asking. DialShift now makes one short request to an `https://` station through Windows' own certificate check before playing it, the first time per server each session, so Windows adds a missing root certificate first. Certificates are still fully checked, the request never carries a stream password, and if it fails the station plays or fails exactly as before. Found on a real Windows 11 PC; the automated Windows tests never saw it because GitHub's Windows machines already have every root installed (decision D100). macOS is not affected.
+
 ## [0.4.0] - 2026-09-26
 
 Adds a search of a built-in station catalog to the Add station dialog. Everything else works as in [0.3.0](CHANGELOG.md#030---2026-09-25).

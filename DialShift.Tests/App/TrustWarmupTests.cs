@@ -1,0 +1,241 @@
+using System.Diagnostics;
+using DialShift.App.Services;
+using DialShift.Core.Playback;
+using DialShift.Tests.Core;
+using DialShift.Tests.Fakes;
+using DialShift.Tests.TestServers;
+using static DialShift.Tests.TestHarness;
+
+namespace DialShift.Tests.App;
+
+/// <summary>
+/// TW-01..TW-10: the real <see cref="WindowsTrustWarmup"/> (D100) against <see cref="LocalTlsServer"/>, on every OS
+/// (nothing in it is Windows-specific). The checks use the app's own handler from
+/// <see cref="WindowsTrustWarmup.CreateHandler"/>; where a handshake has to succeed, the test pins the server's
+/// self-signed certificate on that handler, and TW-06 keeps the handler's default validation to prove it is not bypassed.
+/// Whether Windows then really adds a missing root is the by-hand check NC-20; the engine's use of the warm-up is HS-17
+/// LV-12 (Windows).
+/// </summary>
+/// <remarks><see cref="WindowsTrustWarmup.Timeout"/> is a fixed 5 s, so TW-07 takes 5 s of real time.</remarks>
+public static class TrustWarmupTests
+{
+    private const string Password = "warm-secret-4d1c";
+    private const string Token = "warm-token-77e0";
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(20);
+
+    public static async Task RunAsync()
+    {
+        HandlerChecks();
+        await using var server = LocalTlsServer.Start();
+        await using var other = LocalTlsServer.Start();
+        await SuccessChecksAsync(server);
+        await RedirectChecksAsync(server, other);
+        await NonHttpAnswerChecksAsync();
+        await StrictValidationChecksAsync(server);
+        await TimeoutChecksAsync(server);
+        await HttpChecksAsync();
+        await CancellationChecksAsync(server);
+        await DisposeChecksAsync(server);
+    }
+
+    /// <summary>The app's handler: the D100 settings, and default certificate validation.</summary>
+    private static void HandlerChecks()
+    {
+        using var handler = WindowsTrustWarmup.CreateHandler();
+        Check($"TW-01 the app's handler follows redirects, at most {WindowsTrustWarmup.MaxRedirects}, and connects within {WindowsTrustWarmup.Timeout.TotalSeconds:0} s",
+            handler.AllowAutoRedirect && handler.MaxAutomaticRedirections == WindowsTrustWarmup.MaxRedirects && handler.ConnectTimeout == WindowsTrustWarmup.Timeout);
+        Check("TW-01 ... drains no response body, keeps no cookies and has no credentials",
+            handler.MaxResponseDrainSize == 0 && !handler.UseCookies && handler.Credentials is null && !handler.PreAuthenticate);
+        Check("TW-01 ... and keeps default certificate validation (no validation callback, no client certificates)",
+            handler.SslOptions.RemoteCertificateValidationCallback is null && handler.SslOptions.ClientCertificates is null or { Count: 0 });
+        Check("TW-01 the warm-up refuses a null handler or log",
+            Throws<ArgumentNullException>(() => new WindowsTrustWarmup(null!, NullAppLog.Instance)) && Throws<ArgumentNullException>(() => new WindowsTrustWarmup(Pinned(), null!)));
+    }
+
+    /// <summary>One GET without user-info, the headers awaited, the body left unread, the origin cached.</summary>
+    private static async Task SuccessChecksAsync(LocalTlsServer server)
+    {
+        var log = new RecordingAppLog();
+        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        var url = new Uri($"https://listener:{Password}@127.0.0.1:{server.Port}/stream?token={Token}#part");
+        var requests = server.Requests.Count;
+        var watch = Stopwatch.StartNew();
+        var warmed = await Wait.Finishes(warmup.WarmAsync(url, CancellationToken.None), Bound);
+        var took = watch.Elapsed;
+        var request = server.Requests.Skip(requests).FirstOrDefault();
+        var version = typeof(WindowsTrustWarmup).Assembly.GetName().Version!.ToString(3);
+        Check($"TW-02 an https warm-up returns once the response headers arrive ({took.TotalSeconds:0.00} s) after one GET for the URL's path",
+            warmed && took < WindowsTrustWarmup.Timeout && server.Requests.Count == requests + 1 && request is { Method: "GET", Path: "/stream" });
+        Check($"TW-02 ... without the URL's user-info (no Authorization header: {request?.AuthorizationSummary}) and with User-Agent DialShift/{version} (got '{request?.Header("User-Agent")}')",
+            request is not null && request.Header("Authorization") is null && request.Header("User-Agent") == $"DialShift/{version}");
+        var closed = await Wait.Until(() => server.OpenStreams == 0, TimeSpan.FromSeconds(1));
+        Check($"TW-03 the response is disposed unread: the server's endless chunked body ends within 1 s of the warm-up returning (open streams {server.OpenStreams})", closed);
+        Check("TW-03 ... and a successful warm-up logs nothing", log.Entries.Count == 0);
+
+        var accepted = server.Accepted;
+        var cachedCall = warmup.WarmAsync(server.Url("/another/path"), CancellationToken.None);
+        var atOnce = cachedCall.IsCompletedSuccessfully;
+        await cachedCall;
+        await Task.Delay(200); // a connection, had one been made, would have been accepted by now
+        Check($"TW-04 the warmed origin is cached: another URL on https://127.0.0.1:{server.Port} completes synchronously ({atOnce}) without connecting",
+            atOnce && server.Accepted == accepted && server.Requests.Count == requests + 1);
+
+        // A fresh instance (the origin is cached above): a server that asks for credentials still never gets the URL's.
+        using var challenged = new WindowsTrustWarmup(Pinned(), log);
+        var before = server.Requests.Count;
+        await challenged.WarmAsync(new Uri($"https://listener:{Password}@127.0.0.1:{server.Port}/auth"), CancellationToken.None);
+        var seen = server.Requests.Skip(before).ToList();
+        Check($"TW-02 ... not even after a 401 Basic challenge: one request, no Authorization header, nothing logged (server saw [{string.Join(", ", seen)}])",
+            seen.Count == 1 && seen[0].Path == "/auth" && seen[0].Header("Authorization") is null && log.Entries.Count == 0);
+
+        // SocketsHttpHandler ignores a URL's user-info anyway (the checks above pass without the stripping), so the
+        // stripping itself is checked on the request the warm-up hands to its handler.
+        var recording = new RecordingHandler();
+        using (var recorded = new WindowsTrustWarmup(recording, log))
+            await recorded.WarmAsync(url, CancellationToken.None);
+        Check($"TW-02 ... the request the handler receives carries no user-info or fragment and keeps the path and query (got {recording.Uris.SingleOrDefault()?.OriginalString})",
+            recording.Uris.SingleOrDefault()?.OriginalString == $"https://127.0.0.1:{server.Port}/stream?token={Token}");
+    }
+
+    /// <summary>Answers every request 200 with an empty body and records its URI.</summary>
+    private sealed class RecordingHandler : HttpMessageHandler
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<Uri> uris = new();
+
+        public IReadOnlyList<Uri> Uris => [.. uris];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            uris.Enqueue(request.RequestUri!);
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { RequestMessage = request });
+        }
+    }
+
+    /// <summary>A redirect to another origin is followed, so both hops' handshakes happen.</summary>
+    private static async Task RedirectChecksAsync(LocalTlsServer server, LocalTlsServer other)
+    {
+        using var warmup = new WindowsTrustWarmup(Pinned(), NullAppLog.Instance);
+        server.RedirectTarget = other.Url("/stream");
+        var (fromRequests, toRequests, toHandshakes) = (server.Requests.Count, other.Requests.Count, other.Handshakes);
+        var warmed = await Wait.Finishes(warmup.WarmAsync(server.Url("/redirect"), CancellationToken.None), Bound);
+        Check($"TW-05 a redirect to another https origin is followed: the first server saw /redirect, the second a completed handshake and /stream",
+            warmed && server.Requests.Skip(fromRequests).Select(r => r.Path).SequenceEqual(["/redirect"])
+            && other.Handshakes == toHandshakes + 1 && other.Requests.Skip(toRequests).Select(r => r.Path).SequenceEqual(["/stream"]));
+        Check("TW-05 ... and the redirect's target body is disposed unread too", await Wait.Until(() => other.OpenStreams == 0, TimeSpan.FromSeconds(1)));
+    }
+
+    /// <summary>A reply that is not HTTP (Shoutcast's "ICY 200 OK") came after the handshake: warm, cached, not logged.</summary>
+    private static async Task NonHttpAnswerChecksAsync()
+    {
+        await using var icy = LocalTlsServer.Start();
+        var log = new RecordingAppLog();
+        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        await warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None);
+        var accepted = icy.Accepted;
+        await warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None);
+        await Task.Delay(200);
+        Check($"TW-11 an 'ICY 200 OK' reply counts as warm: nothing is logged, and the origin is cached ({icy.Accepted} connections)",
+            log.Entries.Count == 0 && icy.Accepted == accepted && icy.Handshakes == 1);
+    }
+
+    /// <summary>Default validation, the certificate untrusted: one redacted warning per attempt, nothing cached.</summary>
+    private static async Task StrictValidationChecksAsync(LocalTlsServer server)
+    {
+        var log = new RecordingAppLog();
+        using var warmup = new WindowsTrustWarmup(WindowsTrustWarmup.CreateHandler(), log);
+        var url = new Uri($"https://listener:{Password}@127.0.0.1:{server.Port}/private/stream?token={Token}");
+        var (accepted, requests) = (server.Accepted, server.Requests.Count);
+        var first = await Wait.Finishes(warmup.WarmAsync(url, CancellationToken.None), Bound);
+        var second = await Wait.Finishes(warmup.WarmAsync(url, CancellationToken.None), Bound);
+        var reconnected = await Wait.Until(() => server.Accepted == accepted + 2, TimeSpan.FromSeconds(5));
+        // The server may see its side of the handshake finish: .NET validates the chain once the TLS exchange is done.
+        Check($"TW-06 default validation refuses the untrusted certificate: the client sends no request ({server.Requests.Count - requests} requests)",
+            first && second && server.Requests.Count == requests);
+        Check($"TW-06 ... a failure is not cached: the second warm-up connects again ({server.Accepted - accepted} connections)", reconnected);
+        var entries = log.Entries;
+        var origin = $"https://127.0.0.1:{server.Port}/{StreamUrlRedactor.Ellipsis}";
+        Check($"TW-06 ... each failure logs one {WindowsTrustWarmup.LogEvent} warning naming {origin} and the TLS error ({string.Join(" | ", entries.Select(e => e.Message))})",
+            entries.Count == 2 && entries.All(e => e.Level == AppLogLevel.Warn && e.EventName == WindowsTrustWarmup.LogEvent
+                && e.Message.Contains(origin, StringComparison.Ordinal) && e.Message.Contains("SecureConnectionError", StringComparison.Ordinal)));
+        Check("TW-06 ... and the log line holds no user-info, path or query", log.NoEntryContains(Password, "listener", "/private", Token));
+    }
+
+    /// <summary>A server that completes the handshake and never answers: bounded by Timeout, logged, not cached.</summary>
+    private static async Task TimeoutChecksAsync(LocalTlsServer server)
+    {
+        var log = new RecordingAppLog();
+        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        var watch = Stopwatch.StartNew();
+        var finished = await Wait.Finishes(warmup.WarmAsync(server.Url("/hang"), CancellationToken.None), Bound);
+        var took = watch.Elapsed;
+        Check($"TW-07 a server that never answers: the warm-up gives up after {took.TotalSeconds:0.0} s (Timeout {WindowsTrustWarmup.Timeout.TotalSeconds:0} s) without throwing",
+            finished && took >= WindowsTrustWarmup.Timeout - TimeSpan.FromMilliseconds(100) && took < WindowsTrustWarmup.Timeout + TimeSpan.FromSeconds(3));
+        Check($"TW-07 ... and logs one warning that it got no answer ({string.Join(" | ", log.Entries.Select(e => e.Message))})",
+            log.Entries.Count == 1 && log.Entries[0] is { Level: AppLogLevel.Warn } entry && entry.Message.Contains("no answer within 5 s", StringComparison.Ordinal));
+        var requests = server.Requests.Count;
+        await warmup.WarmAsync(server.Url("/stream"), CancellationToken.None);
+        Check("TW-07 ... a timed-out origin is not cached: the next warm-up requests it again",
+            server.Requests.Skip(requests).Select(r => r.Path).SequenceEqual(["/stream"]));
+    }
+
+    /// <summary>http:// and relative URLs are never requested.</summary>
+    private static async Task HttpChecksAsync()
+    {
+        await using var plain = LocalMediaServer.Start();
+        using var warmup = new WindowsTrustWarmup(Pinned(), NullAppLog.Instance);
+        await warmup.WarmAsync(plain.Url("/live.wav"), CancellationToken.None);
+        await warmup.WarmAsync(new Uri("/stream", UriKind.Relative), CancellationToken.None);
+        await Task.Delay(200);
+        Check("TW-08 an http:// URL is never warmed (the server saw no request), nor a relative one", plain.Requests.Count == 0);
+        Check("TW-08 a null URL throws ArgumentNullException", await ThrowsAsync<ArgumentNullException>(() => warmup.WarmAsync(null!, CancellationToken.None)));
+    }
+
+    /// <summary>The caller's token: OperationCanceledException, promptly, and no log line.</summary>
+    private static async Task CancellationChecksAsync(LocalTlsServer server)
+    {
+        var log = new RecordingAppLog();
+        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        var accepted = server.Accepted;
+        Check("TW-09 a cancelled token throws OperationCanceledException before connecting",
+            await ThrowsAsync<OperationCanceledException>(() => warmup.WarmAsync(server.Url("/stream"), new CancellationToken(canceled: true))) && server.Accepted == accepted);
+
+        using var cts = new CancellationTokenSource();
+        var requests = server.Requests.Count;
+        var warming = warmup.WarmAsync(server.Url("/hang"), cts.Token);
+        var waiting = await Wait.Until(() => server.Requests.Count == requests + 1, Bound);
+        var watch = Stopwatch.StartNew();
+        await cts.CancelAsync();
+        var threw = await ThrowsAsync<OperationCanceledException>(() => warming.WaitAsync(Bound));
+        Check($"TW-09 cancelled while waiting for the answer: OperationCanceledException after {watch.Elapsed.TotalMilliseconds:0} ms, and nothing is logged",
+            waiting && threw && watch.Elapsed < TimeSpan.FromSeconds(2) && log.Entries.Count == 0);
+    }
+
+    /// <summary>Dispose (the engine's disposal) cancels a warm-up in flight silently; later warm-ups do nothing.</summary>
+    private static async Task DisposeChecksAsync(LocalTlsServer server)
+    {
+        var log = new RecordingAppLog();
+        var warmup = new WindowsTrustWarmup(Pinned(), log);
+        var requests = server.Requests.Count;
+        var warming = warmup.WarmAsync(server.Url("/hang"), CancellationToken.None);
+        var waiting = await Wait.Until(() => server.Requests.Count == requests + 1, Bound);
+        var watch = Stopwatch.StartNew();
+        warmup.Dispose();
+        var ended = await NoThrowAsync(() => warming.WaitAsync(Bound));
+        Check($"TW-10 Dispose ends a warm-up in flight at once ({watch.Elapsed.TotalMilliseconds:0} ms) without an exception or a log line",
+            waiting && ended && watch.Elapsed < TimeSpan.FromSeconds(2) && log.Entries.Count == 0);
+        var accepted = server.Accepted;
+        await warmup.WarmAsync(server.Url("/stream"), CancellationToken.None);
+        warmup.Dispose();
+        await Task.Delay(200);
+        Check("TW-10 ... after Dispose a warm-up returns without connecting, and a second Dispose is harmless", server.Accepted == accepted && log.Entries.Count == 0);
+    }
+
+    /// <summary>The app's handler, trusting only the test server's certificate: the handshake is the only thing the test changes.</summary>
+    private static SocketsHttpHandler Pinned()
+    {
+        var handler = WindowsTrustWarmup.CreateHandler();
+        handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, _) =>
+            certificate is not null && string.Equals(certificate.GetCertHashString(), LocalTlsServer.Thumbprint, StringComparison.OrdinalIgnoreCase);
+        return handler;
+    }
+}

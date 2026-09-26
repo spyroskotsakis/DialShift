@@ -18,10 +18,10 @@ namespace DialShift.Tests.App;
 /// <see cref="PlaybackCoordinator"/> (Windows only: acceptance matrix HS-17, MX-10, and the transport rows of the §11 corpus).
 /// </summary>
 /// <remarks>
-/// <para>The Windows checks LV-01..LV-11 run with LibVLC's <c>adummy</c> output (hosted runners have no audio device)
+/// <para>The Windows checks LV-01..LV-12 run with LibVLC's <c>adummy</c> output (hosted runners have no audio device)
 /// against <see cref="LocalMediaServer"/>, so they need no network except one DNS lookup of a <c>.invalid</c> name. The
 /// native runtime comes from <c>VideoLAN.LibVLC.Windows</c>, which DialShift.Tests.csproj references when it is built on
-/// Windows. The coordinator runs on the real wall clock and a real monotonic clock that the checks can step forward, so
+/// Windows. LV-12 (D100) runs a second engine with a <see cref="FakeTrustWarmup"/>. The coordinator runs on the real wall clock and a real monotonic clock that the checks can step forward, so
 /// the 25 s stall watchdog and the retry countdown are exercised without waiting for them.</para>
 /// <para>Not covered: audible output and the native volume level (<c>adummy</c> implements neither volume nor mute, so
 /// LibVLC cannot report them), and the live public corpus streams. Both stay in NC-03.</para>
@@ -33,7 +33,7 @@ public static partial class LibVlcEngineTests
         OptionChecks();
         if (!OperatingSystem.IsWindows())
         {
-            Skip("HS-17 LV-01..LV-11 real LibVLC engine + coordinator (adummy output, local server)", "Windows only");
+            Skip("HS-17 LV-01..LV-12 real LibVLC engine + coordinator, and the TLS trust warm-up in the engine (adummy output, local server)", "Windows only");
             return;
         }
         await RunOnWindowsAsync();
@@ -66,7 +66,7 @@ public static partial class LibVlcEngineTests
         Check("Composition: no IPlaybackEngine is registered (D17)", provider.GetService<IPlaybackEngine>() is null);
     }
 
-    /// <summary>LV-01 (the engine as the composition root creates it), then LV-02..LV-11 on that engine.</summary>
+    /// <summary>LV-01 (the engine as the composition root creates it), then LV-02..LV-12 on that engine.</summary>
     [SupportedOSPlatform("windows")]
     private static async Task RunOnWindowsAsync()
     {
@@ -86,7 +86,7 @@ public static partial class LibVlcEngineTests
     }
 
     /// <summary>
-    /// LV-02..LV-11 with a fresh LibVLC <paramref name="engine"/> that logs to <paramref name="log"/>; the coordinator takes
+    /// LV-02..LV-12 with a fresh LibVLC <paramref name="engine"/> that logs to <paramref name="log"/>; the coordinator takes
     /// ownership. Internal so an out-of-repo harness can run them against another LibVLC build (docs/spikes.md corpus).
     /// </summary>
     [SupportedOSPlatform("windows")]
@@ -99,6 +99,7 @@ public static partial class LibVlcEngineTests
         await CorpusChecksAsync(rig);
         await RetryCountdownChecksAsync(rig);
         await RapidSwitchChecksAsync(rig);
+        await TrustWarmupChecksAsync(rig);
         await DisposeChecksAsync(rig);
         RedactionChecks(rig);
     }
@@ -176,7 +177,7 @@ public static partial class LibVlcEngineTests
 
         // The engine itself, with overlapping calls as the coordinator issues them (D16).
         var events = new ConcurrentQueue<string>();
-        await using var direct = new LibVlcPlaybackEngine(rig.Log, LibVlcEngineOptions.Dummy);
+        await using var direct = new LibVlcPlaybackEngine(rig.Log, LibVlcEngineOptions.Dummy, new FakeTrustWarmup());
         direct.StateChanged += (_, e) => events.Enqueue($"{e.SessionId}:{e.State}");
         direct.Failed += (_, e) => events.Enqueue($"{e.SessionId}:Failed({e.Kind})");
         using (var cancelled = new CancellationTokenSource())

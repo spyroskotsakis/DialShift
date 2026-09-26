@@ -247,30 +247,7 @@ public sealed class LocalMediaServer : IAsyncDisposable
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
         timeout.CancelAfter(RequestReadTimeout);
-        var buffer = new byte[8192];
-        var length = 0;
-        while (length < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(length), timeout.Token).ConfigureAwait(false);
-            if (read == 0) return null;
-            length += read;
-            var text = Encoding.ASCII.GetString(buffer, 0, length);
-            var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (end < 0) continue;
-            var lines = text[..end].Split("\r\n");
-            var parts = lines[0].Split(' ');
-            if (parts.Length < 2) return null;
-            var target = parts[1];
-            var query = target.IndexOf('?', StringComparison.Ordinal);
-            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var line in lines.Skip(1))
-            {
-                var colon = line.IndexOf(':', StringComparison.Ordinal);
-                if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
-            }
-            return new ServerRequest(parts[0], query < 0 ? target : target[..query], headers);
-        }
-        return null;
+        return await ServerRequest.ReadAsync(stream, timeout.Token).ConfigureAwait(false);
     }
 
     private Tracked Track(string path)
@@ -357,6 +334,35 @@ public sealed class LocalMediaServer : IAsyncDisposable
 public sealed record ServerRequest(string Method, string Path, IReadOnlyDictionary<string, string> Headers)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var value) ? value : null;
+
+    /// <summary>Reads one request head (at most 8 KiB) from <paramref name="stream"/>; null when the client closes first or it is not HTTP. The query string is dropped from <see cref="Path"/>.</summary>
+    public static async Task<ServerRequest?> ReadAsync(Stream stream, CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        var length = 0;
+        while (length < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(length), ct).ConfigureAwait(false);
+            if (read == 0) return null;
+            length += read;
+            var text = Encoding.ASCII.GetString(buffer, 0, length);
+            var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+            if (end < 0) continue;
+            var lines = text[..end].Split("\r\n");
+            var parts = lines[0].Split(' ');
+            if (parts.Length < 2) return null;
+            var target = parts[1];
+            var query = target.IndexOf('?', StringComparison.Ordinal);
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in lines.Skip(1))
+            {
+                var colon = line.IndexOf(':', StringComparison.Ordinal);
+                if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+            }
+            return new ServerRequest(parts[0], query < 0 ? target : target[..query], headers);
+        }
+        return null;
+    }
 
     /// <summary>What the Authorization header carried, without its value: for check names and CI output.</summary>
     public string AuthorizationSummary => Header("Authorization") switch
