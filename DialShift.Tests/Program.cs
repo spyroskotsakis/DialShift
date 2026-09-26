@@ -38,5 +38,6 @@ return await TestHarness.RunAsync(args,
     new TestSuite("PowerEvents", PowerEventsTests.Run),
     new TestSuite("RenderTimerFallback", RenderTimerFallbackTests.RunAsync),
     new TestSuite("LibVlcEngine", LibVlcEngineTests.RunAsync),
+    new TestSuite("TrustWarmup", TrustWarmupTests.RunAsync),
     new TestSuite("CatalogPerf", CatalogPerfTests.RunAsync),
     new TestSuite("Catalog", CatalogTests.Run));

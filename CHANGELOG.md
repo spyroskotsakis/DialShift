@@ -18,6 +18,14 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 - **`Install.ps1` does not replace an install made with the setup.** It stops with a message that says to run the new setup, or to uninstall DialShift in Settings → Apps first, because its copy would drop the setup's uninstaller.
 - **Releases have a fourth file,** `DialShift-Setup-win-x64.exe`, and `SHA256SUMS.txt` covers the three downloads.
 
+## [0.4.1] - 2026-09-26
+
+Fixes `https://` stations on Windows. Everything else works as in [0.4.0](CHANGELOG.md#040---2026-09-26), and what 0.4.0 says about testing still applies.
+
+### Fixed
+
+- **Windows: `https://` stations play when Windows lacks their root certificate.** On a Windows 11 installation that did not yet have the station's root certificate, every `https://` station failed with "Stream unavailable", including the three starter stations and about two thirds of the catalog. Windows installs some trusted root certificates only when an app asks it to check a certificate, and the Windows player (VLC) reads the installed ones without asking. DialShift now makes one short request to an `https://` station through Windows' own certificate check before playing it, and to the first entry of a `.pls`/`.m3u` playlist when that entry is `https://`, so Windows adds a missing root certificate first. It is done once per server each session; it is done again on every start after a failed attempt, and for a station whose server redirects to another server, redirects to `http://`, or answers in the older Shoutcast style over `https://`. Certificates are still fully checked, the request never carries a stream password, and if it fails the station plays or fails exactly as before, up to 6 seconds later. Hosts that only an HLS stream names (its segments) cannot be covered this way. Found and checked by hand in a Windows 11 ARM64 virtual machine (Parallels, the x64 app under emulation), with the root removed: 0.4.0 played 0 of 12 starts of the SomaFM stations; this fix played 12 of 12 starts of the three SomaFM stations and a catalog station, each on the first attempt, and Windows added the root back at the first start. The automated Windows tests never saw it because GitHub's Windows machines already have every root installed (decision D100). Not yet tested on a physical Windows PC. macOS is not affected.
+
 ## [0.4.0] - 2026-09-26
 
 Adds a search of a built-in station catalog to the Add station dialog. Everything else works as in [0.3.0](CHANGELOG.md#030---2026-09-25).
@@ -129,7 +137,8 @@ The full lists are in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) (the rebui
 - The schedule does not wake a sleeping computer, and slots have no end time.
 - Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
-[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...v0.3.0
 [0.3.0-rc.2]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.1...v0.3.0-rc.2

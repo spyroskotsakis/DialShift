@@ -24,6 +24,7 @@ namespace DialShift.Tests.TestServers;
 /// <item><c>/redirect</c>: 302 to <c>/live.wav</c>.</item>
 /// <item><c>/hang</c>: reads the request and never answers; the socket stays open until the client closes it.</item>
 /// <item><c>/station.pls</c>, <c>/station.m3u</c>: playlist files whose single entry is <c>/live.wav</c>.</item>
+/// <item><c>/https-entry.m3u</c>: an M3U whose single entry is <see cref="HttpsPlaylistEntry"/> (the D100 playlist check).</item>
 /// <item>anything else: 404.</item>
 /// </list>
 /// <see cref="OpenConnections"/> counts client connections per path that the server still holds (streams and /hang), so
@@ -65,6 +66,9 @@ public sealed class LocalMediaServer : IAsyncDisposable
     }
 
     public int Port { get; }
+
+    /// <summary>The entry <c>/https-entry.m3u</c> lists.</summary>
+    public Uri? HttpsPlaylistEntry { get; set; }
 
     /// <summary>Every request the server has read, in arrival order.</summary>
     public IReadOnlyList<ServerRequest> Requests => [.. requests];
@@ -171,6 +175,9 @@ public sealed class LocalMediaServer : IAsyncDisposable
             case "/station.m3u":
                 await WriteResponseAsync(stream, "200 OK", "audio/x-mpegurl", $"#EXTM3U\r\n#EXTINF:-1,DialShift test\r\n{Url("/live.wav")}\r\n", ct).ConfigureAwait(false);
                 break;
+            case "/https-entry.m3u":
+                await WriteResponseAsync(stream, "200 OK", "audio/x-mpegurl", $"#EXTM3U\r\n#EXTINF:-1,DialShift test\r\n{HttpsPlaylistEntry}\r\n", ct).ConfigureAwait(false);
+                break;
             case "/hang":
                 await HoldAsync(request.Path, stream, ct).ConfigureAwait(false);
                 break;
@@ -247,30 +254,7 @@ public sealed class LocalMediaServer : IAsyncDisposable
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
         timeout.CancelAfter(RequestReadTimeout);
-        var buffer = new byte[8192];
-        var length = 0;
-        while (length < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(length), timeout.Token).ConfigureAwait(false);
-            if (read == 0) return null;
-            length += read;
-            var text = Encoding.ASCII.GetString(buffer, 0, length);
-            var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (end < 0) continue;
-            var lines = text[..end].Split("\r\n");
-            var parts = lines[0].Split(' ');
-            if (parts.Length < 2) return null;
-            var target = parts[1];
-            var query = target.IndexOf('?', StringComparison.Ordinal);
-            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var line in lines.Skip(1))
-            {
-                var colon = line.IndexOf(':', StringComparison.Ordinal);
-                if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
-            }
-            return new ServerRequest(parts[0], query < 0 ? target : target[..query], headers);
-        }
-        return null;
+        return await ServerRequest.ReadAsync(stream, timeout.Token).ConfigureAwait(false);
     }
 
     private Tracked Track(string path)
@@ -357,6 +341,35 @@ public sealed class LocalMediaServer : IAsyncDisposable
 public sealed record ServerRequest(string Method, string Path, IReadOnlyDictionary<string, string> Headers)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var value) ? value : null;
+
+    /// <summary>Reads one request head (at most 8 KiB) from <paramref name="stream"/>; null when the client closes first or it is not HTTP. The query string is dropped from <see cref="Path"/>.</summary>
+    public static async Task<ServerRequest?> ReadAsync(Stream stream, CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        var length = 0;
+        while (length < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(length), ct).ConfigureAwait(false);
+            if (read == 0) return null;
+            length += read;
+            var text = Encoding.ASCII.GetString(buffer, 0, length);
+            var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+            if (end < 0) continue;
+            var lines = text[..end].Split("\r\n");
+            var parts = lines[0].Split(' ');
+            if (parts.Length < 2) return null;
+            var target = parts[1];
+            var query = target.IndexOf('?', StringComparison.Ordinal);
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in lines.Skip(1))
+            {
+                var colon = line.IndexOf(':', StringComparison.Ordinal);
+                if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+            }
+            return new ServerRequest(parts[0], query < 0 ? target : target[..query], headers);
+        }
+        return null;
+    }
 
     /// <summary>What the Authorization header carried, without its value: for check names and CI output.</summary>
     public string AuthorizationSummary => Header("Authorization") switch

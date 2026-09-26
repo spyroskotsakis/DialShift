@@ -12,9 +12,9 @@ One Avalonia app, `DialShift.App`, ships as two self-contained packages, and the
 
 There is no Intel Mac build.
 
-> **Testing status of 0.4.0.** On Windows, the build, the automated checks and the app's smoke test pass in CI on GitHub-hosted machines, but this version has **not yet been tested by hand on a real Windows PC**: the tray, audible playback, launch at sign-in, sleep and wake, and upgrading with `Install.ps1` are unverified on real hardware. The Mac build has been tested on the developer's Apple Silicon Mac only, not on a clean Mac. Please report problems as [issues](https://github.com/spyroskotsakis/DialShift/issues), with your `dialshift.log` (see [Data](#data)). The full list of open checks is in [Open items](#open-items--release-status).
+> **Testing status of 0.4.1.** On Windows, the build, the automated checks and the app's smoke test pass in CI on GitHub-hosted `windows-latest` machines, and one check was done by hand in a Windows 11 ARM64 virtual machine (Parallels, the x64 app under emulation): with the stations' root certificate removed from Windows, 0.4.0 played no `https://` station, while 0.4.1 started the three starter stations and a catalog station 12 times out of 12, and Windows installed the missing root certificate by itself (decision D100). This version has **not yet been tested by hand on a physical Windows PC**: the tray, audible playback, launch at sign-in, sleep and wake, and upgrading with `Install.ps1` are unverified on real hardware. The Mac build has been tested on the developer's Apple Silicon Mac only, not on a clean Mac. Please report problems as [issues](https://github.com/spyroskotsakis/DialShift/issues), with your `dialshift.log` (see [Data](#data)). The full list of open checks is in [Open items](#open-items--release-status).
 >
-> **New in 0.4.0: the station catalog search** (the Add station dialog below; see `[0.4.0]` in [CHANGELOG.md](CHANGELOG.md)). Its build, automated checks, package checks and smoke test pass in CI on `windows-latest` and `macos-latest`, which every release must pass before it is published, and it has been tested on the developer's Apple Silicon Mac. It has not yet been used by hand on a real Windows PC, and it has had no screen-reader or real-logo check by hand on either OS.
+> **New in 0.4.0: the station catalog search** (the Add station dialog below; see `[0.4.0]` in [CHANGELOG.md](CHANGELOG.md); 0.4.1 only fixes `https://` stations on Windows). Its build, automated checks, package checks and smoke test pass in CI on `windows-latest` and `macos-latest`, which every release must pass before it is published, and it has been tested on the developer's Apple Silicon Mac. It has not yet been used by hand on a real Windows PC, and it has had no screen-reader or real-logo check by hand on either OS.
 
 ## Download
 
@@ -27,7 +27,7 @@ Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/
 | `DialShift-macos-arm64.zip` | macOS 14.0 or later, Apple Silicon |
 | `SHA256SUMS.txt` | SHA-256 checksums of the three downloads |
 
-**Releases and "latest".** The "latest" links below always point at the newest full release, now `v0.4.0` (`v0.3.0` was the first). Pre-releases, such as `v0.3.0-rc.1` and `v0.3.0-rc.2`, are listed on the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) but are never the "latest" release. `v0.3.0` and `v0.4.0` were released before every native check had passed; see the testing status above and [Open items](#open-items--release-status).
+**Releases and "latest".** The "latest" links below always point at the newest full release, now `v0.4.1` (`v0.3.0` was the first). Pre-releases, such as `v0.3.0-rc.1` and `v0.3.0-rc.2`, are listed on the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) but are never the "latest" release. `v0.3.0`, `v0.4.0` and `v0.4.1` were released before every native check had passed; see the testing status above and [Open items](#open-items--release-status).
 
 - Latest release: <https://github.com/spyroskotsakis/DialShift/releases/latest>
 - Windows setup (from the first release with the setup on): <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-Setup-win-x64.exe>
@@ -35,7 +35,7 @@ Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/
 - macOS: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-macos-arm64.zip>
 - Checksums: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/SHA256SUMS.txt>
 
-A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.4.0/DialShift-win-x64.zip`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.4.1/DialShift-win-x64.zip`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ### Check the download
 
@@ -89,7 +89,7 @@ This applies if you used the earlier separate Windows or macOS app, including `v
 
 ## Open items / release status
 
-Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` was released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), and so is `v0.4.0` (D92), with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for the next releases. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
+Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` was released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), and so are `v0.4.0` (D92) and `v0.4.1` (the D100 fix), with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for the next releases. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
 To run them, use the guided [native-check kit](scripts/native-check/README.md): one script per OS that walks through the checks and produces an evidence zip to send back.
 
 ## Listen
@@ -112,6 +112,7 @@ To run them, use the guided [native-check kit](scripts/native-check/README.md): 
 - **Track titles:** Windows shows the current song title for `http://` streams that send one; `https://` stations show the station description instead. In testing, LibVLC received titles only from servers that answer in the older Shoutcast style (`ICY 200 OK`), so many other `http://` stations show the station description too. macOS always shows the station description (decision D26).
 - **Streams at a `.pls` or `.m3u` path:** a raw audio stream served at a URL ending in `.pls` or `.m3u` may fail on macOS, because AVPlayer treats it as a playlist. Use the server's direct stream path instead (often `/;` or `/stream`). Real playlist files are fine.
 - **Stream passwords:** a station URL can carry a user name and password (`http://user:password@host/…`). On Windows, the player keeps them until DialShift quits and may send them with other requests to the same server address and path, even for a station whose URL has none and even before the server asks. On macOS, the player keeps them until DialShift quits too, but sends them to another station only when the same server asks for a password for the same login realm. On both, the password never goes to another server, and on Windows never to another path. So removing the password from a station URL keeps playback working until DialShift quits.
+- **`https://` certificates on Windows:** the Windows player checks a station's certificate against the root certificates installed in Windows, and Windows installs some of them only when an app asks it to check a certificate. So before DialShift plays an `https://` station, it makes one short request to the station through Windows' own certificate check, which installs a missing root (decision D100); the same goes for the first entry of a `.pls`/`.m3u` playlist when that entry is `https://`. The request follows the station's redirects, never carries a stream password and gives up after 5 seconds; the station then plays or fails as it would have. Once a server has answered, its stations skip the request for the rest of the session. A station is checked again on every start when the request failed, or when its server redirects to another server, redirects to `http://`, or answers in the older Shoutcast style (`ICY 200 OK`) over `https://`. Servers that only an HLS stream names (its segments) are not covered this way. If automatic root certificate updates are turned off on your PC (an organization's policy can do this) or Windows Update can't be reached, a station whose root is missing still fails with "Stream unavailable", and `dialshift.log` has a `playback.tls_warmup` line with the certificate error. macOS checks certificates itself and needs none of this.
 - **Formats:** beyond MP3, AAC and HLS, macOS 26.5 also played Ogg Vorbis, Opus and FLAC-in-Ogg in testing. Older macOS versions have not been tested with those formats.
 
 ## Data
@@ -194,7 +195,7 @@ dotnet run --project DialShift.Tests/DialShift.Tests.csproj
 
 The tests are deterministic console checks (no test framework); a non-zero exit code means a failure. On a Mac, run an unattended suite under `caffeinate -i` (for example `caffeinate -i dotnet run --project DialShift.Tests/DialShift.Tests.csproj`), so the Mac does not go to sleep during the run. The UI checks drive the real views headless, so no display is needed. A handful of checks that need the other OS, or its time-zone data, are reported as `SKIP`.
 
-On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS its LibVLC checks report `SKIP (Windows only)`; the suite's audio-output and composition checks run on both.
+On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS its LibVLC checks report `SKIP (Windows only)`; the suite's audio-output and composition checks run on both. Its last part (about 35 s more) checks the `https://` trust warm-up inside the engine with a stand-in warm-up; the warm-up itself (`TrustWarmup` suite, about 6 s, both OSes) runs against an in-process HTTPS server with a certificate made for the test run.
 
 Publish per runtime identifier. `DialShift.App` has exactly two, `win-x64` and `osx-arm64`:
 
@@ -291,8 +292,8 @@ On macOS, run the bundled executable, `dist/DialShift.app/Contents/MacOS/DialShi
 
 ### Signing tiers
 
-- **Development (what the scripts produce):** the Windows build, its setup and the setup's uninstaller are unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and, so far, for every release, including `v0.3.0` (D57) and `v0.4.0`. Gatekeeper and SmartScreen will warn.
-- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials and a clean-machine install test. `v0.3.0` (decision D57) and `v0.4.0` shipped in the development tier before them.
+- **Development (what the scripts produce):** the Windows build, its setup and the setup's uninstaller are unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and, so far, for every release, including `v0.3.0` (D57), `v0.4.0` and `v0.4.1`. Gatekeeper and SmartScreen will warn.
+- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials and a clean-machine install test. `v0.3.0` (decision D57), `v0.4.0` and `v0.4.1` shipped in the development tier before them.
 
 ## Project
 

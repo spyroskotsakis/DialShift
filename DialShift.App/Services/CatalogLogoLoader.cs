@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Sockets;
 using Avalonia;
 using Avalonia.Media.Imaging;
@@ -182,8 +181,7 @@ public sealed class CatalogLogoLoader(HttpMessageHandler handler) : ICatalogLogo
         // Each attempt carries its own Timeout token, so the client's own timeout stays out of the way.
         var client = new HttpClient(handler, disposeHandler: true) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
         // Some logo hosts (Wikimedia among them) refuse requests without a User-Agent.
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DialShift",
-            typeof(CatalogLogoLoader).Assembly.GetName().Version?.ToString(3) ?? "0"));
+        client.DefaultRequestHeaders.UserAgent.Add(AppUserAgent.Create());
         return client;
     }
 
