@@ -201,7 +201,8 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85). Any close (Escape,
     /// focus into a form field, a press outside, a pick) also keeps a search already in flight from reopening it: that
     /// search's rows still apply, with the overlay closed and nothing highlighted, so the results and their footer always
-    /// match the search text (D87 items 8, 9(b); D89).
+    /// match the search text (D87 items 8, 9(b); D89). Opening it again (a click in the search box, Down) lets a search
+    /// in flight land open once more, so Enter before it lands picks its first row as in the open list it lands in (D89).
     /// </summary>
     public bool IsResultsOpen
     {
@@ -209,7 +210,7 @@ public sealed class StationEditorViewModel : EditorViewModel
         set
         {
             if (value && results.Count == 0) return;
-            if (!value) openOnApply = false;
+            openOnApply = value;
             if (!SetProperty(ref isResultsOpen, value)) return;
             if (!value) HighlightedResult = null;
             else if (highlighted == null) HighlightedResult = results[0];
@@ -270,8 +271,8 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// delay. When it would open the results (the user typed or changed a filter), its first row is picked; with no match
     /// nothing is picked, the overlay stays closed and the status line says so, and Enter is handled either way, so a
     /// half-typed form is never saved while a search is pending (D87 item 6). A pending search that would leave the results
-    /// closed (the first browse after the load, or one the user closed with Escape, the form or a pick) is only applied, and
-    /// Enter goes on to Save (D89). If the search fails, nothing is picked from the earlier rows: the failure is reported and
+    /// closed (the first browse after the load, or one the user closed with Escape, the form or a pick and did not reopen)
+    /// is only applied, and Enter goes on to Save (D89). If the search fails, nothing is picked from the earlier rows: the failure is reported and
     /// Enter is handled (D89). With no search pending, it picks the highlighted row of the open results (D85).
     /// </summary>
     public bool PickOnEnter()
