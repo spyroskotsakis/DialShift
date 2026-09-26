@@ -8,6 +8,21 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-26
+
+Adds a search of a built-in station catalog to the Add station dialog. Everything else works as in [0.3.0](CHANGELOG.md#030---2026-09-25).
+
+### Testing status and known limitations
+
+Please read this before you install.
+
+- **The station catalog search is checked by automated tests, not yet by hand on Windows.** More than 2,700 automated checks pass on macOS, and the build, the tests, the app's smoke test (which now also checks that the catalog loads) and the package checks pass in CI on GitHub-hosted `windows-latest` and `macos-latest` machines (run <<CI-RUN>>). Nobody has yet used the search on a physical Windows PC. On the Mac it has been tested on the developer's own Apple Silicon Mac (macOS 26.5) only. The by-hand checks of the dialog with a screen reader (VoiceOver, Narrator) and with real station logos, dark ones included, are still open on both systems. If something doesn't work, please [open an issue](https://github.com/spyroskotsakis/DialShift/issues) and attach your `dialshift.log` (see [Data](README.md#data)).
+- **Everything [0.3.0](CHANGELOG.md#030---2026-09-25) says about testing still applies:** Windows has not been tested by hand on a real PC (tray, audible playback, launch at sign-in, sleep and wake, upgrading with `Install.ps1`), and macOS has not been tested on a clean Mac or on macOS 14 and 15.
+- **Neither download is signed for public distribution.** Windows is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**. The Mac app is ad-hoc signed and not notarized, so the first launch needs **System Settings → Privacy & Security → Open Anyway**. See [Install on Windows](README.md#install-on-windows) and [Install on macOS](README.md#install-on-macos).
+- **The catalog is built in; logos come from the internet.** The 8,270 stations are a snapshot, generated on 2026-09-26 from the station data in `data/` and shipped inside both downloads, so searching works offline. Station logos are not bundled: the results and the details download each logo from the address the catalog lists for it, within the limits under Security below. Without a connection, or when a logo fails to load, the station's initial shows instead. A catalog station's stream can change or stop after the snapshot; edit the station to fix its URL.
+- **Some City filter values are listed as the source gives them,** such as a country, a region or a name that is not a place, where the right city is not certain. Searching and the other filters are not affected. [docs/open-items.md](docs/open-items.md) lists them.
+- **Going back to 0.3.0:** download it from the [v0.3.0 release](https://github.com/spyroskotsakis/DialShift/releases/tag/v0.3.0). Your stations, including those added from the catalog, and your schedule carry over, but 0.3.0 does not know station notes and removes them the next time it saves. The other known limitations of [0.3.0](CHANGELOG.md#030---2026-09-25) still apply. The checks that are still open are listed in [docs/open-items.md](docs/open-items.md).
+
 ### Added
 
 - **Station catalog search in the Add station dialog.** Adding a station now starts with a search of a built-in catalog of 8,270 working stations (Germany 4,753, France 1,826, Greece 1,667, and 24 internet stations of the Ambient & Chill collection). Type part of a name, local name or city, in any case and with or without accents, or a frequency (`1015` or `101.5` finds FM 101.5); the Country, City, Type, Genre and Language filters narrow the list. The best matches come first (a name that starts with your text, then one that contains it, then by listener votes), 50 at a time with a "Showing 50 of N matches" count; with an empty search, Down browses the most-voted stations. The keyboard works throughout: Down and Up move through the results, Enter picks one, Escape closes the list. Picking a station fills the name, description and stream URL, and shows its notes, votes, frequency, language and logo beside the form. You can still enter a stream by hand, and editing a station is unchanged. The status line shows the catalog's size and date; if the catalog file is missing or unreadable, the dialog says so and manual entry still works.
@@ -16,7 +31,7 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ### Changed
 
-- **Cleaner catalog data.** Each language is listed once, under its usual English name, instead of radio-browser's free text (170 spellings became 42 languages), and a station can have several. Radio-browser tag lists read as `Tags: pop, rock` notes, without repeated tags and stray punctuation. Frequencies must be a valid FM, kHz or band value. Each place in the City filter has one spelling, including a single name for each German state and cities stripped of stream details.
+- **Cleaner catalog data.** Each language is listed once, under its usual English name, instead of radio-browser's free text (170 spellings became 42 languages), and a station can have several. Radio-browser tag lists read as `Tags: pop, rock` notes, without repeated tags and stray punctuation. Frequencies must be a valid FM, kHz or band value. Where the place is certain, it has one spelling in the City filter, including a single name for each German state, and city names are stripped of stream details.
 
 ### Security
 
@@ -104,7 +119,8 @@ The full lists are in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) (the rebui
 - The schedule does not wake a sleeping computer, and slots have no end time.
 - Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
-[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...v0.3.0
 [0.3.0-rc.2]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.1...v0.3.0-rc.2
 [0.3.0-rc.1]: https://github.com/spyroskotsakis/DialShift/releases/tag/v0.3.0-rc.1

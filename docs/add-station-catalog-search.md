@@ -1,7 +1,7 @@
 # Add-Station Catalog Search — Searchable Station Catalog in the Add-Station Dialog
 
-> **Status: implemented (2026-09-26, branch `feature/add-station-catalog-search`, not yet released: CHANGELOG
-> `[Unreleased]`).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
+> **Status: implemented (2026-09-26, branch `feature/add-station-catalog-search`, prepared for release as `v0.4.0`:
+> CHANGELOG `[0.4.0]`, not tagged yet).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
 > (8,270 stations at `8e38215`) that both packages carry, with five filters, a detail pane with notes, and manual entry
 > kept. Acceptance: `docs/acceptance-matrix.md` §11, **10 GREEN and 8 WINDOWS-PENDING** (D75: only a `windows-latest`
 > CI run, NC-18 or NC-01 step (4b) is missing; `docs/open-items.md` §2.11–§2.13). Where the build differs from this
