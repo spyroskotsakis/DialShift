@@ -201,16 +201,15 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         }
 
         // Created under `gate`, so disposal (which flags itself under `gate`) can never release LibVLC while a
-        // MediaPlayer/Media constructor runs on it. The constructors raise no events.
-        Session? session = new(id, origin, Stopwatch.GetTimestamp());
+        // MediaPlayer/Media constructor runs on it. The constructors raise no events. The Session (and its Retirement
+        // source) exists only for a start that was not superseded, so nothing is left undisposed.
+        var startedAt = Stopwatch.GetTimestamp();
+        Session? session = null; // stays null when superseded while waiting
         lock (gate)
         {
-            if (disposeRequested || currentSession != id)
+            if (!disposeRequested && currentSession == id)
             {
-                session = null; // superseded while waiting
-            }
-            else
-            {
+                session = new Session(id, origin, startedAt);
                 try
                 {
                     session.Player = new MediaPlayer(vlc);
