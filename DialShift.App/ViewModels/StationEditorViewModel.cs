@@ -195,12 +195,13 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>
     /// The results overlay is showing. A search or filter change that matches something opens it; one that matches nothing,
-    /// or a pick, closes it (D87); the view may open or close it. It is never open without rows: setting it while
+    /// or a pick, closes it (D87, D89); the view may open or close it. It is never open without rows: setting it while
     /// <see cref="Results"/> is empty leaves it closed (D87 9(a)).
     /// Opening it highlights the first row when nothing is highlighted, so typing then Enter picks the top match; closing
     /// it drops the highlight, so the detail pane goes back to the picked station and Enter saves (D85). Any close (Escape,
-    /// focus into a form field, a press outside) also keeps a search already in flight from reopening it: that search's
-    /// rows still apply, with the overlay closed (D87 items 8, 9(b)).
+    /// focus into a form field, a press outside, a pick) also keeps a search already in flight from reopening it: that
+    /// search's rows still apply, with the overlay closed and nothing highlighted, so the results and their footer always
+    /// match the search text (D87 items 8, 9(b); D89).
     /// </summary>
     public bool IsResultsOpen
     {
@@ -227,7 +228,8 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>
     /// Picks <see cref="HighlightedResult"/>: fills Name, Description and Stream URL. Does nothing without a highlight. A
-    /// pick cancels a search still in flight, so a late result never reopens the results over the filled fields.
+    /// search still in flight is not cancelled (D89): its rows apply when they land, with the results closed and nothing
+    /// highlighted, so a late result never reopens the results over the picked fields and never changes them.
     /// </summary>
     public RelayCommand SelectEntryCommand { get; }
 
@@ -236,6 +238,10 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>What the detail pane shows: the highlighted row, else the picked one.</summary>
     public CatalogResultRow? DetailRow => detailRow;
+
+    /// <summary>The detail pane with nothing to show (D89): how to search and browse once the catalog has stations, else only
+    /// what shows here (while loading, and for a loaded empty catalog).</summary>
+    public string DetailPlaceholder => index.Entries.Count > 0 ? UiText.CatalogDetailPlaceholder : UiText.CatalogDetailPlaceholderEmpty;
 
     /// <summary>The detail row's logo; null shows its monogram.</summary>
     public Bitmap? DetailLogo { get => detailLogo; private set => SetProperty(ref detailLogo, value); }
@@ -260,16 +266,20 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>
     /// Enter in the search box; returns whether Enter is handled (when not, it goes on to the default button, Save).
-    /// While a search is pending (scheduled, not yet applied) it runs at once on the current text and filters, without the
-    /// rest of its delay, and its first row is picked; with no match nothing is picked, the overlay stays closed and the
-    /// status line says so. Enter is handled either way, so a half-typed form is never saved while a search is pending
-    /// (D87 item 6). With no search pending, it picks the highlighted row of the open results (D85).
+    /// A pending search (scheduled, not yet applied) runs at once on the current text and filters, without the rest of its
+    /// delay. When it would open the results (the user typed or changed a filter), its first row is picked; with no match
+    /// nothing is picked, the overlay stays closed and the status line says so, and Enter is handled either way, so a
+    /// half-typed form is never saved while a search is pending (D87 item 6). A pending search that would leave the results
+    /// closed (the first browse after the load, or one the user closed with Escape, the form or a pick) is only applied, and
+    /// Enter goes on to Save (D89). If the search fails, nothing is picked from the earlier rows: the failure is reported and
+    /// Enter is handled (D89). With no search pending, it picks the highlighted row of the open results (D85).
     /// </summary>
     public bool PickOnEnter()
     {
         if (searchInFlight)
         {
-            RunPendingSearchNow();
+            var pick = openOnApply;
+            if (!RunPendingSearchNow() || !pick) return pick;
             if (results.Count > 0)
             {
                 HighlightedResult = results[0];
@@ -351,8 +361,10 @@ public sealed class StationEditorViewModel : EditorViewModel
             pendingSearch?.TrySetResult();
             return;
         }
-        // The index's entry count feeds StatusLineText; CatalogStatusText changes below with it and raises that change.
+        // The index's entry count feeds StatusLineText (CatalogStatusText changes below with it and raises that change) and
+        // DetailPlaceholder.
         index = loaded.Result.Catalog;
+        OnPropertyChanged(nameof(DetailPlaceholder));
         CountryOptions = options.Country;
         CityOptions = options.City;
         TypeOptions = options.Type;
@@ -404,9 +416,10 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>
     /// Replaces the search in flight with one run here, on the UI thread, and applies it: a search is budgeted under 10 ms
-    /// on the full catalog (D69), and Enter needs the rows of the text as typed now.
+    /// on the full catalog (D69), and Enter needs the rows of the text as typed now. Returns false when the search failed
+    /// (reported through <see cref="FailSearch"/>): the rows still shown are then not this text's.
     /// </summary>
-    private void RunPendingSearchNow()
+    private bool RunPendingSearchNow()
     {
         var generation = ++searchGeneration;
         CancelAndDispose(ref searchCts);
@@ -419,20 +432,10 @@ public sealed class StationEditorViewModel : EditorViewModel
         catch (Exception ex)
         {
             FailSearch(generation, ex);
-            return;
+            return false;
         }
         ApplySearch(new SearchOutcome(request, result));
-    }
-
-    /// <summary>Drops the search in flight like a superseded one: its result, when it lands, is ignored, the results stay as
-    /// they were, and PendingSearch settles now (D87 item 7).</summary>
-    private void CancelSearch()
-    {
-        if (!searchInFlight) return;
-        searchInFlight = false;
-        ++searchGeneration;
-        CancelAndDispose(ref searchCts);
-        pendingSearch?.TrySetResult();
+        return true;
     }
 
     private async Task RunSearchAsync(SearchRequest request, CancellationToken token)
@@ -464,10 +467,13 @@ public sealed class StationEditorViewModel : EditorViewModel
         }
     }
 
+    /// <summary>Reports a failed search. The rows still listed are an earlier search's, so the results close and nothing
+    /// stays highlighted, and a following Enter does not pick from them (D89).</summary>
     private void FailSearch(int generation, Exception error)
     {
         if (closed || generation != searchGeneration) return;
         searchInFlight = false;
+        IsResultsOpen = false;
         pendingSearch?.TrySetResult();
         onError(error);
     }
@@ -499,13 +505,13 @@ public sealed class StationEditorViewModel : EditorViewModel
     private void SelectHighlighted()
     {
         if (highlighted is not { } row) return;
-        CancelSearch();
         var entry = row.Entry;
         Name = Truncate(entry.Name, NameMaxLength).TrimEnd();
         Tag = Truncate(entry.Tag, TagMaxLength);
         Url = entry.StreamUrl;
         selectedRow = row;
         SelectedEntry = entry;
+        // Also clears openOnApply, so a search still in flight lands with the results closed (D89).
         IsResultsOpen = false;
         HighlightedResult = null;
     }

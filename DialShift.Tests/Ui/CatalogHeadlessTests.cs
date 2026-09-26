@@ -349,9 +349,8 @@ internal static partial class CatalogHeadlessTests
 
     /// <summary>
     /// D87 items 6–9 against the app's real 200 ms debounce (QA M1, m2): Enter while a search is pending runs it at once and
-    /// picks its first row, or nothing on no match, and never saves; a pick cancels a pending search; any close other than a
-    /// pick (Escape, focus into a form field, a press outside) lets a search in flight apply without reopening the results;
-    /// the overlay never opens without rows.
+    /// picks its first row, or nothing on no match, and never saves; any close (a pick, D89; Escape, focus into a form field,
+    /// a press outside) lets a search in flight apply without reopening the results; the overlay never opens without rows.
     /// </summary>
     private static async Task EnterAndEscapeBeforeTheDebounce()
     {
@@ -427,19 +426,24 @@ internal static partial class CatalogHeadlessTests
         await PastTheDelayAsync();
         Check("CAT-12 D87 item 6 past the delay the pick stays and the results stay closed", !Overlay(dialog).IsVisible && name.Text == "Kosmos 93.6");
 
-        // Item 7: a pointer pick cancels a pending search; the results stay as they were.
+        // Item 7 as amended by D89: a pointer pick leaves a pending search to land, with the results closed.
         await SearchAsync(dialog, editor, "radio");
-        var radioRows = editor.Results;
         await TypeAsync(search, "melodia");
         raced = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
         await ClickAsync(ItemOf(dialog, KolnAm));
         Report("pointer pick while \"melodia\" is pending");
         Check("CAT-10 D87 fixture: the row is clicked while the search for \"melodia\" is pending", raced);
-        Check("CAT-10 D87 item 7 a pointer pick while a search is pending picks the clicked row (Radio Köln AM) and cancels the search at once",
-            name.Text == "Radio Köln AM" && editor.SelectedEntry == KolnAm && !Overlay(dialog).IsVisible && editor.PendingSearch.IsCompleted);
+        Check("CAT-10 D89 a pointer pick while a search is pending picks the clicked row (Radio Köln AM) and closes the results",
+            name.Text == "Radio Köln AM" && editor.SelectedEntry == KolnAm && !Overlay(dialog).IsVisible);
+        var pickedLanded = await CompletesAsync(editor.PendingSearch);
         await PastTheDelayAsync();
-        Check("CAT-10 D87 item 7 past the delay the cancelled search never lands: the results stay as they were and closed",
-            ReferenceEquals(editor.Results, radioRows) && !Overlay(dialog).IsVisible && name.Text == "Radio Köln AM");
+        Report("after the pointer pick, past the delay");
+        Check("CAT-10 D89 past the delay the search for \"melodia\" lands closed: its rows (Melodia 99.2 first) and footer, nothing highlighted; " +
+              "the picked fields and the detail pane keep Radio Köln AM",
+            pickedLanded && editor.Results.Count > 0 && editor.Results[0].Entry == Melodia
+            && editor.TotalCountText == UiText.ResultCount(editor.Results.Count, editor.TotalCount)
+            && !editor.IsResultsOpen && !Overlay(dialog).IsVisible && editor.HighlightedResult == null
+            && name.Text == "Radio Köln AM" && editor.SelectedEntry == KolnAm && editor.DetailRow?.Entry == KolnAm);
 
         // Items 8 and 9(b): Escape, focus into a form field and a press outside each let the search in flight apply, closed.
         async Task CloseWhilePendingAsync(string how, Func<Task> close)

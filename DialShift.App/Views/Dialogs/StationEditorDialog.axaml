@@ -23,6 +23,11 @@
       <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
       <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
+    <!-- While the pickers are disabled (loading, no catalog) their labels step down to the hint ink, still 5.86:1 on the
+         window (D45, D89). -->
+    <Style Selector="TextBlock.filterLabel:disabled">
+      <Setter Property="Foreground" Value="{StaticResource DsSubtleBrush}"/>
+    </Style>
     <!-- A value that does not fit ends in an ellipsis (D44), in the closed picker and in the drop-down alike (the item
          template is also the selection box's); the tooltip has the whole value. -->
     <Style Selector="ComboBox.filter">
@@ -52,10 +57,11 @@
       <Setter Property="Background" Value="Transparent"/>
     </Style>
     <!-- Rows never take focus: typing stays in the search box while the arrow keys or the pointer walk the list. The right
-         padding keeps the frequency clear of the overlay's scroll bar. -->
+         padding reserves the overlay's scroll bar at its expanded width (16 px, under the pointer), so no text, the
+         frequency included, ever sits under it (D89). -->
     <Style Selector="ListBox#ResultsList ListBoxItem" x:DataType="vm:CatalogResultRow">
       <Setter Property="Focusable" Value="False"/>
-      <Setter Property="Padding" Value="8,5,14,5"/>
+      <Setter Property="Padding" Value="8,5,20,5"/>
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}"/>
     </Style>
@@ -257,7 +263,7 @@
           </MultiBinding>
         </Border.IsVisible>
         <Panel>
-          <TextBlock Classes="hint" Text="{x:Static vm:UiText.CatalogDetailPlaceholder}" VerticalAlignment="Center" TextAlignment="Center"
+          <TextBlock Classes="hint" Text="{Binding DetailPlaceholder}" VerticalAlignment="Center" TextAlignment="Center"
                      IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNull}}" />
           <!-- Page Down / Page Up in the search box scroll it. The margin keeps the text clear of the scroll bar even when the
                pointer expands it to its full width over the content (P9). -->
