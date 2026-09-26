@@ -887,7 +887,7 @@ jobs:
               if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw '(s6) The relaunched uninstaller deleted from a folder with an uninstaller of another size.' }
               Remove-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')
               Add-UninstallerCopy $mangled
-              (Get-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')).LastWriteTimeUtc = [DateTime]::new(2000, 1, 1, 0, 0, 0, 'Utc')
+              (Get-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')).LastWriteTimeUtc = [DateTime]::SpecifyKind([DateTime]'2000-01-01', [DateTimeKind]::Utc)
               Assert-Code 's6 uninstaller relaunched with /D=, another time' (Invoke-Exe $aside "/S /D=$root\x/DialShift") 0
               Wait-Relaunched 's6 relaunched, another time'
               if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw '(s6) The relaunched uninstaller deleted from a folder with a same-size uninstaller written at another time.' }
