@@ -24,7 +24,7 @@
 # gh login, the tag on the target repository at the same commit, and no release for it there yet.
 # Then, like build.yml: build (-warnaserror) -> tests -> package (Windows, macOS) -> verify the zips that are
 # uploaded -> macOS native smoke (build output, --recovery-test) and bundle smoke (the app unzipped from the release
-# zip). Not run here: the tests' Windows-only checks (SKIP on macOS), the Windows native smoke and build.yml's
+# zip) -> the CAT-03 package verifier fixtures (tags from brief 3 on). Not run here: the tests' Windows-only checks (SKIP on macOS), the Windows native smoke and build.yml's
 # Install.ps1 cases.
 # CFBundleVersion: the number of the release.yml run that the tag push started on the target repository (a run whose
 # jobs GitHub refused still has one), else the next run number, so the build sorts like a CI release (D53).
@@ -196,6 +196,22 @@ phase "Bundle smoke (the app unzipped from DialShift-macos-arm64.zip, --smoke-te
 unzip -q "$OUT/DialShift-macos-arm64.zip" -d "$WORK/bundle"
 smoke "$WORK/bundle-smoke" "$WORK/bundle/DialShift.app/Contents/MacOS/DialShift" --smoke-test
 CHECKED+=("the bundle smoke of the app unzipped from DialShift-macos-arm64.zip")
+
+# build.yml's CAT-03 steps (brief 3): the tag's own fixture script, on the bundle and, when pwsh extracted it above,
+# on the Windows package. Tags before brief 3 have no station catalog and no such script.
+if [ -f scripts/test-package-verifiers.sh ]; then
+    phase "Package verifier fixtures (CAT-03, scripts/test-package-verifiers.sh)"
+    fixture_args=(--mac-app dist/DialShift.app)
+    fixture_packages="the macOS bundle"
+    if [ -d "$WORK/DialShift-win-x64" ]; then
+        fixture_args+=(--win-package "$WORK/DialShift-win-x64")
+        fixture_packages="the macOS bundle and the extracted Windows zip"
+    else
+        NOT_CHECKED+=("the CAT-03 verifier fixtures on the Windows package (pwsh not found)")
+    fi
+    bash scripts/test-package-verifiers.sh "${fixture_args[@]}"
+    CHECKED+=("the CAT-03 package verifier fixtures on $fixture_packages")
+fi
 
 phase "SHA256SUMS.txt and release notes"
 (cd "$OUT" && shasum -a 256 DialShift-win-x64.zip DialShift-macos-arm64.zip > SHA256SUMS.txt)
