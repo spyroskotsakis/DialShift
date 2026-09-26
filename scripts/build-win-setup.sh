@@ -22,9 +22,10 @@
 # NSIS_ZIP_SHA256 together, with a decision, and check that the Mac and CI still build the same setup.
 #
 # The payload is the package minus Install.ps1 plus licenses/NSIS-COPYING.txt (the NSIS licence, brief 4 §10); the
-# setup writes "Uninstall DialShift.exe" at install time. The script generates defines.nsh (version and size),
-# install-files.nsh (the payload in a fixed, host-independent order) and uninstall-files.nsh (the uninstaller's file and
-# folder list) into a temporary folder, never into the repository, runs makensis -WX -V2 on
+# setup writes "Uninstall DialShift.exe" at install time. The script generates defines.nsh (version, size and the
+# payload's top-level names, which the setup uses to tell a DialShift install from a folder with other files),
+# install-files.nsh (the payload in a fixed, host-independent order) and uninstall-files.nsh (the uninstaller's file
+# list, DialShift.exe last, and folder list) into a temporary folder, never into the repository, runs makensis -WX -V2 on
 # scripts/windows-setup/DialShift.nsi, then scripts/verify-win-setup.sh (with the package, so the contents are
 # compared when 7-Zip is found) and prints the size and SHA-256. Deterministic: the same payload, version and NSIS give
 # the same bytes (SetDateSave off).
@@ -225,11 +226,20 @@ def write(name, lines):
     with open(os.path.join(generated, name), "w", encoding="utf-8-sig", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
 
+# The payload's top-level names that the setup's .dll/.json rule does not already cover (DialShift.nsi,
+# IsDialShiftEntry): NAME is one top-level entry of a folder; RESULT becomes 1 when it is one of them.
+top_level = sorted({path.split("/")[0] for path in files})
+named = [name for name in top_level
+         if "/" in next(p for p in files if p.split("/")[0] == name) or not name.lower().endswith((".dll", ".json"))]
+macro = ["!macro PAYLOAD_TOP_LEVEL_NAME NAME RESULT"]
+for name in named:
+    macro += ["    ${If} ${NAME} == \"%s\"" % name, "        StrCpy ${RESULT} 1", "    ${EndIf}"]
+macro.append("!macroend")
 write("defines.nsh", [
     "!define VERSION \"%s\"" % version,
     "!define VERSION_NUMERIC \"%s\"" % numeric,
     "!define ESTIMATED_SIZE_KB %d" % estimated_kb,
-])
+] + macro)
 
 # Folder by folder in code-point order, files by name: the order is the setup's, not the file system's (D98).
 by_folder = {}
@@ -243,10 +253,13 @@ for folder in sorted(by_folder):
         install.append("File \"%s\"" % source(path))
 write("install-files.nsh", install)
 
+# DialShift.exe last: while it is there, the folder is still an install (the setup's running check and R4).
 uninstall = []
 for folder in sorted(by_folder):
     for path in sorted(by_folder[folder]):
-        uninstall += ["Push \"%s\"" % nsis(path), "Call un.DeleteListed"]
+        if path != "DialShift.exe":
+            uninstall += ["Push \"%s\"" % nsis(path), "Call un.DeleteListed"]
+uninstall += ["Push \"DialShift.exe\"", "Call un.DeleteListed"]
 for folder in sorted(folders, key=lambda f: (-f.count("/"), f)):
     uninstall.append("RMDir \"$INSTDIR\\%s\"" % nsis(folder))
 write("uninstall-files.nsh", uninstall)

@@ -19,8 +19,8 @@
 # With --package and 7-Zip (7z, 7zz, or $SEVEN_ZIP): the installer is listed and extracted, and its payload must equal
 # the package minus Install.ps1 plus licenses/NSIS-COPYING.txt: the same paths, sizes and CRC-32; DialShift.exe,
 # app-catalog.json, libvlc/win-x64/libvlc.dll, THIRD-PARTY-NOTICES.md and every licence text present, Install.ps1
-# absent. The only other entries allowed are NSIS's own files under $PLUGINSDIR (the System and nsDialogs plugins and
-# the wizard bitmap) and an uninstaller entry, if a 7-Zip version shows one. Without 7-Zip the contents are reported
+# absent. The only other entries allowed are exactly NSIS's own $PLUGINSDIR/System.dll, $PLUGINSDIR/nsDialogs.dll and
+# $PLUGINSDIR/modern-wizard.bmp, and an uninstaller entry, if a 7-Zip version shows one. Without 7-Zip the contents are reported
 # as not checked and the script still passes, unless --require-contents (CI) is given.
 # Not checkable without running it: the install logic, which build.yml's setup cases run on windows-latest, and the
 # wizard, SmartScreen and Apps & features, which NC-19 checks by hand.
@@ -113,7 +113,7 @@ if magic != 0x10B:
 subsystem = struct.unpack_from("<H", data, optional + 68)[0]
 if subsystem != 2:
     fail("subsystem is %d, expected 2 (Windows GUI)." % subsystem)
-resource_rva, resource_size = struct.unpack_from("<II", data, optional + 96 + 2 * 8)
+resource_rva = struct.unpack_from("<I", data, optional + 96 + 2 * 8)[0]
 table = optional + optional_size
 section_list = []
 image_end = 0
@@ -286,13 +286,15 @@ else:
     if len(prefixes) != 1:
         fail("7-Zip lists no single payload folder holding DialShift.exe (found %s)." % sorted(prefixes))
     prefix = prefixes.pop() + "/"
+    # NSIS's own files: the System plugin, nsDialogs (the Modern UI's pages) and the Welcome/Finish bitmap.
+    nsis_files = {"$PLUGINSDIR/System.dll", "$PLUGINSDIR/nsDialogs.dll", "$PLUGINSDIR/modern-wizard.bmp"}
     listed = {}
     for path, length in entries.items():
         if path == prefix + "Uninstall DialShift.exe":
             continue
         if path.startswith(prefix):
             listed[path[len(prefix):]] = length
-        elif not path.startswith("$PLUGINSDIR/") and not path.endswith("/Uninstall DialShift.exe"):
+        elif path not in nsis_files and not path.endswith("/Uninstall DialShift.exe"):
             fail("unexpected entry outside the payload: %s" % path)
     for required in ("DialShift.exe", "app-catalog.json", "libvlc/win-x64/libvlc.dll", "THIRD-PARTY-NOTICES.md",
                      "licenses/NSIS-COPYING.txt"):
