@@ -64,9 +64,9 @@ XPStyle on
 !define EXIT_FOLDER 13          ; the folder is refused (R3, R4, another install location; the uninstaller's root)
 !define EXIT_FAILED 14          ; the extraction, the swap or an uninstall delete failed; the previous state is kept
 !define EXIT_CHECK_FAILED 15     ; DialShift.exe could not be opened to check whether it runs
-; CheckRequestedFolder refuses a command line this long or longer: NSIS keeps at most NSIS_MAX_STRLEN - 1 characters
-; of it, so its /D= could be cut short or unseen (D101).
-!define /math CMDLINE_LIMIT ${NSIS_MAX_STRLEN} - 1
+; The most of the command line NSIS keeps ($CMDLINE, its /D= and the System plugin's copy; lstrcpyn with
+; NSIS_MAX_STRLEN): CheckRequestedFolder refuses a longer one, whose /D= could be cut short or unseen (D101).
+!define /math CMDLINE_MAX ${NSIS_MAX_STRLEN} - 1
 
 Name "${PRODUCT}"
 OutFile "${OUTPUT}"
@@ -156,8 +156,8 @@ Var IsInstall       ; 1 when the install folder holds an install to swap out
 !endif
 
 ; $2 = 1 when $INSTDIR is a root: a drive ("C:", which is how NSIS reads "C:\") or a network server or share
-; ("\\server", "\\server\share"; also "\\?\C:"), which has at most one backslash after its leading two. No read of
-; $INSTDIR ends with a backslash (validate_filename), so there is none to strip here. Changes $0-$4.
+; ("\\server", "\\server\share"), which has at most one backslash after its leading two. No read of $INSTDIR ends
+; with a backslash (validate_filename), so there is none to strip here. Changes $0-$4.
 Function ${UN}IsRootFolder
     StrLen $0 $INSTDIR
     StrCpy $1 $INSTDIR 1 1
@@ -186,9 +186,22 @@ FunctionEnd
 
 ; R3 (exit 13): $INSTDIR must not be a root (D101), before it is normalized ("C:" alone would resolve to the current
 ; folder of drive C) and after GetFullPathName ("C:\." and "C:\x\.." are the root of C), which leaves $INSTDIR
-; normalized. The setup's /D= and, since AllowRootDirInstall also admits one there, the uninstaller's _?= (an
-; uninstaller placed in a root would otherwise delete DialShift-named files from it). Changes $0-$4.
+; normalized. A leading \\?\ is dropped first ("\\?\C:\x" is "C:\x", "\\?\UNC\server\share\x" is
+; "\\server\share\x"): GetFullPathName leaves such a path as it is, and the one-install rule, the settings-folder rule,
+; InstallLocation, the Run value and the shortcuts all compare or store the ordinary form. The setup's /D= and, since
+; AllowRootDirInstall also admits one there, the uninstaller's _?= (an uninstaller placed in a root would otherwise
+; delete DialShift-named files from it). Changes $0-$4.
 Function ${UN}RefuseRoot
+    StrCpy $0 $INSTDIR 4
+    ${If} $0 == "\\?\"
+        StrCpy $0 $INSTDIR 4 4
+        ${If} $0 == "UNC\"
+            StrCpy $0 $INSTDIR "" 7
+            StrCpy $INSTDIR "\$0"
+        ${Else}
+            StrCpy $INSTDIR $INSTDIR "" 4
+        ${EndIf}
+    ${EndIf}
     Call ${UN}IsRootFolder
     ${If} $2 = 0
         GetFullPathName $0 $INSTDIR
@@ -508,8 +521,9 @@ FunctionEnd
 ;   all, is the folder. Before .onInit it replaces a folder it can't use (no drive or share root, as "DialShift" or
 ;   "C:DialShift"; a drive that doesn't exist; a file in the path; nothing) with the InstallDirRegKey folder or
 ;   InstallDir, and cuts " /D=<folder>" off $CMDLINE. So the process's own command line (GetCommandLineW) holds " /D="
-;   exactly at the length of $CMDLINE when NSIS took one. Both copies hold at most ${NSIS_MAX_STRLEN} - 1 characters, so
-;   a command line of that length or longer, whose /D= NSIS may have cut short or never seen, is refused first.
+;   exactly at the length of $CMDLINE when NSIS took one. Both copies hold at most CMDLINE_MAX (1023) characters, so a
+;   longer command line, whose /D= NSIS may have cut short or never seen, is refused first; one of exactly
+;   CMDLINE_MAX characters is kept whole.
 ; - Rule: $INSTDIR, as NSIS set it and as every read returns it, must equal the /D= text with only its trailing
 ;   backslashes and spaces removed, character for character (S!=). Every read of $INSTDIR goes through NSIS's
 ;   validate_filename, which removes trailing backslashes and spaces (the same folder) but also control characters and
@@ -521,8 +535,8 @@ FunctionEnd
 Function CheckRequestedFolder
     System::Call 'kernel32::GetCommandLineW() p .r5'
     System::Call 'kernel32::lstrlenW(p r5) i .r1'
-    ${If} $1 >= ${CMDLINE_LIMIT}
-        !insertmacro REFUSE ${EXIT_FOLDER} "DialShift Setup's command line is too long to read ($1 characters). Keep it under ${CMDLINE_LIMIT} characters, for example with a shorter /D= folder."
+    ${If} $1 > ${CMDLINE_MAX}
+        !insertmacro REFUSE ${EXIT_FOLDER} "DialShift Setup's command line is too long to read ($1 characters). Keep it to ${CMDLINE_MAX} characters or fewer, for example with a shorter /D= folder."
     ${EndIf}
     System::Call 'kernel32::GetCommandLineW() w .r0'
     StrLen $1 $CMDLINE
@@ -776,8 +790,9 @@ Function .onInit
     ; R2, held from here until the setup exits.
     Call AcquireInstallLock
 
-    ; R3: a /D= folder exactly as given (D101); not a drive or share root (RefuseRoot also normalizes the path); not,
-    ; not inside and not holding the settings folder (textual, case-insensitive, one trailing backslash, as D56).
+    ; R3: a /D= folder exactly as given (D101); not a drive or share root (RefuseRoot also normalizes the path, a
+    ; leading \\?\ dropped); not, not inside and not holding the settings folder (textual, case-insensitive, one
+    ; trailing backslash, as D56).
     Call CheckRequestedFolder
     Call RefuseRoot
     StrCpy $0 "$INSTDIR\"

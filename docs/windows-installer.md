@@ -1,8 +1,10 @@
 # Windows Installer — a per-user NSIS setup beside the zip (brief 4)
 
-> **Status: implemented, 2026-09-26.** Branch `feature/windows-installer` (from `main` at `fb0ef0b`); Windows CI green
-> at `b655d67` (public run `36230181228`), with D101's second round pending its run. Where the build departs from this
-> spec, the D93–D99 "Update" notes and D101 in `docs/decisions.md` say so, and §5 below follows the build.
+> **Status: implemented, 2026-09-26.** Branch `feature/windows-installer` (from `main` at `fb0ef0b`); public CI green
+> on `windows-latest`, `macos-latest` and the cross-build job at `b655d67` (run `36230181228`) and at `cf21fc1` (run
+> `36231552864`, the Mac-built and Windows-built setups byte-identical), with D101's third round pending its run; NC-19
+> (a real PC) open. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
+> `docs/decisions.md` say so, and §5 below follows the build.
 > This is brief 4, after `single-codebase-refactor.md` (brief 1), `schedule-timezone-research.md` (brief 2) and
 > `add-station-catalog-search.md` (brief 3). Its decisions are **D93–D99** in `docs/decisions.md` (§14's defaults,
 > adopted); its acceptance rows are **INS-01..INS-20** in `docs/acceptance-matrix.md` §12; its by-hand check is
@@ -161,7 +163,7 @@ Checked in this order, before anything changes. Interactive runs show the messag
 |---|---|---|---|
 | R1 | Not 64-bit Windows, or older than Windows 10 (`${RunningX64}`, `${AtLeastWin10}`) | `DialShift needs 64-bit Windows 10 or later.` | 12 |
 | R2 | Another install holds `Local\DialShift.Install` for 5 s (created with the System plugin; a `WAIT_ABANDONED` counts as acquired, as in D56). Held from here until the setup exits, so a double-click and a concurrent `Install.ps1` never interleave | `Another DialShift install is running. Wait for it to finish, then run DialShift Setup again.` | 11 |
-| R3 | (a) D101: the command line has 1,023 characters or more (NSIS keeps only 1,023, so its `/D=` could be cut short or unseen); or the folder the setup would use, `$INSTDIR` as NSIS reads it, is not exactly the `/D=` text with its trailing `\` and spaces removed: `/D=` names a folder NSIS can't use and replaces before the setup's checks run (no drive or share root, such as `DialShift` or `C:DialShift`; a drive that doesn't exist; a file in the path; nothing), or one NSIS keeps but reads as another folder (a `/`, `"`, `*`, `?`, `\|`, `<`, `>` or `:` after the drive, which NSIS drops, or anything after the folder, such as ` /S`, since `/D=` takes the rest of the line); or the command line carries a `/D=` NSIS does not take (quoted as a whole, lowercase, no space before it); (b) the install folder is a drive or network share root (`C:\`, `\\server\share`), before and after the path is normalized; (c) it is, is inside, or contains `%LOCALAPPDATA%\DialShift` (textual, case-insensitive, one trailing `\`, as D56) | (a) `DialShift Setup's command line is too long to read (<n> characters). Keep it under 1023 characters, for example with a shorter /D= folder.`, `/D=<text> isn't a folder DialShift can be installed in. Put /D= last on the command line, followed by a full path with backslashes on a drive that exists, such as /S /D=C:\Apps\DialShift.` or `DialShift Setup could not read its /D= switch. Put it last on the command line, in capitals and without quotes, even when the folder has spaces: /S /D=C:\My Apps\DialShift.`; (b) `DialShift can't be installed in <root>\, the top of a drive or network share. Choose a folder in it, such as <root>\DialShift.`; (c) `DialShift can't be installed in <folder>: that folder holds your DialShift settings. Choose another folder.` | 13 |
+| R3 | (a) D101: the command line has more than 1,023 characters (NSIS keeps 1,023, so its `/D=` could be cut short or unseen; exactly 1,023 is kept whole); or the folder the setup would use, `$INSTDIR` as NSIS reads it, is not exactly the `/D=` text with its trailing `\` and spaces removed: `/D=` names a folder NSIS can't use and replaces before the setup's checks run (no drive or share root, such as `DialShift` or `C:DialShift`; a drive that doesn't exist; a file in the path; nothing), or one NSIS keeps but reads as another folder (a `/`, `"`, `*`, `?`, `\|`, `<`, `>` or `:` after the drive, or a control character, which NSIS drops, or anything after the folder, such as ` /S`, since `/D=` takes the rest of the line); or the command line carries a `/D=` NSIS does not take (quoted as a whole, lowercase, no space before it); (b) the install folder is a drive or network share root (`C:\`, `\\server\share`), before and after the path is normalized (a leading `\\?\` is dropped first, `\\?\UNC\` becoming `\\`, so R3 (c), R4, the entry, the Run value and the shortcuts see the ordinary path); (c) it is, is inside, or contains `%LOCALAPPDATA%\DialShift` (textual, case-insensitive, one trailing `\`, as D56) | (a) `DialShift Setup's command line is too long to read (<n> characters). Keep it to 1023 characters or fewer, for example with a shorter /D= folder.`, `/D=<text> isn't a folder DialShift can be installed in. Put /D= last on the command line, followed by a full path with backslashes on a drive that exists, such as /S /D=C:\Apps\DialShift.` or `DialShift Setup could not read its /D= switch. Put it last on the command line, in capitals and without quotes, even when the folder has spaces: /S /D=C:\My Apps\DialShift.`; (b) `DialShift can't be installed in <root>\, the top of a drive or network share. Choose a folder in it, such as <root>\DialShift.`; (c) `DialShift can't be installed in <folder>: that folder holds your DialShift settings. Choose another folder.` | 13 |
 | R4 | The install folder is neither missing, nor empty, nor a DialShift install holding nothing else (an install: `Uninstall DialShift.exe`, or `DialShift.exe`, `DialShift.dll` and `libvlc\` as `Install.ps1` leaves them; every top-level entry DialShift's); then, while a setup install elsewhere still has its uninstaller, any other folder (one Apps & features entry per user) | `<folder> already holds other files. Choose an empty folder or the folder DialShift is installed in.`, `<folder> holds files that are not part of DialShift, such as <name>. Move them out of that folder, then run DialShift Setup again.`, or `DialShift is already installed in <folder>. To install it in <other>, uninstall it in Settings > Apps first.` | 13 |
 | R5 | `DialShift.exe` in the install folder is running: opening it for writing fails (Windows denies write access to a running executable's image; this also catches the retired WPF app, same file name) | `DialShift is running. Quit it from its tray menu (Quit DialShift), then choose Retry.` with **Retry** / **Cancel**; any other failure to open it is reported with its reason | 10 (Cancel); 15 (could not open it) |
 
@@ -230,7 +232,9 @@ on every upgrade, removed by the uninstaller:
   uninstall key; exact-name leftovers beside the install (§5.3 rules). **Never `RMDir /r` of the install folder**:
   a file the user put there stays, with its folder, and the Finish text says `Some files you added were left in
   <folder>.`
-- **Exit codes:** 0, 1 (cancelled), 10, 11, 13, 15; 14 when a listed file cannot be deleted (it is named). NSIS runs an
+- **Exit codes:** 0, 1 (cancelled), 10, 11, 13, 15; 14 when a listed file cannot be deleted (it is named); 2 from NSIS
+  itself, before `un.onInit`, when `_?=` is not a full path to an existing folder (`_?=C:`, `_?=relative`): nothing is
+  deleted, and a run that is not silent shows NSIS's "Error launching installer". NSIS runs an
   uninstaller from a temporary copy and the first process returns at once; automation that needs the result runs
   `"Uninstall DialShift.exe" /S _?=<install folder>` (runs in place and waits; the uninstaller file itself then stays
   and is deleted by the caller). §8 tests both forms.
@@ -385,7 +389,8 @@ and `DialShift.exe` itself (an x64 PE without NSIS data) each fail with the veri
      (`EstimatedSize` recomputed from the tree); no Run value created.
    - **(s2) Upgrade setup over setup** with planted state: a file only the old build has (gone afterwards);
      `DialShift.new-0123abcd` and `DialShift.old-0123abcd` (removed); `DialShift.old-backup` and a junction
-     `DialShift.new-0badf00d` with its target (kept); a Run value `"C:\Old\DialShift\DialShift.exe" --tray` (now
+     `DialShift.new-0badf00d` with its target (kept); run as `/D=\\?\<install>` (D101: the entry, the Run value and the
+     shortcuts hold the ordinary path); a Run value `"C:\Old\DialShift\DialShift.exe" --tray` (now
      `"<install>\DialShift.exe" --tray`); a desktop `DialShift.lnk` pointing elsewhere (now pointing here); the
      uninstall key's `DisplayVersion` rewritten.
    - **(s3) Locked file:** `DialShift.dll` of the install open without delete sharing: exit 14, tree unchanged, no
@@ -394,12 +399,12 @@ and `DialShift.exe` itself (an x64 PE without NSIS data) each fail with the veri
    - **(s5) DialShift running** from the install (`--tray`, `DIALSHIFT_DATA_DIR` in a temp folder, `DIALSHIFT_AUDIO_OUTPUT=dummy`):
      the setup `/S` exits 10 and the uninstaller `/S _?=` exits 10, nothing changed; then the step stops the process.
    - **(s6) Folder refusals**, each with the uninstaller moved aside so that the one-install rule cannot refuse it
-     too: `/D=` the emptied data folder, a folder inside it, a folder with foreign files, a folder with `DialShift.exe`
+     too: `/D=` the emptied data folder (also as `\\?\<folder>`), a folder inside it, a folder with foreign files, a folder with `DialShift.exe`
      among other files, drive roots (an empty `subst` drive as `X:\`, `X:\\` and `X:\sub\..`, and the system
      drive), the uninstaller's `_?=` on the `subst` root (`X:\` and `X:\sub\..`, a planted `DialShift.dll` and the Start
      menu shortcut kept), and (D101) `/D=` folders NSIS can't use (a missing drive, a relative and a drive-relative
      path, a file in the path, a file, forward slashes, a quoted folder, nothing), `/D=` folders it keeps but reads as
-     another (a slash inside, ` /NCRC` after the folder), a 1,030-character argument before `/D=`, and `/D=` switches
+     another (a slash inside, ` /NCRC` after the folder), a 1,030-character argument before `/D=`, a command line of exactly 1,024 characters, and `/D=` switches
      it does not take (quoted, lowercase): exit 13 each, nothing created or changed (not the install, which NSIS would otherwise have
      upgraded in their place, not the default folder, not the named folders); then, with the uninstaller back, a
      second install location: exit 13.
@@ -413,8 +418,8 @@ and `DialShift.exe` itself (an x64 PE without NSIS data) each fail with the veri
      one install, one Start menu shortcut, the key created; then `Uninstall DialShift.exe /S _?=…` exits 0 and a Run
      value pointing at another copy is **kept** byte for byte; a reinstall into the folder that uninstall left (only
      the uninstaller) with `/D=<folder>\` (a trailing backslash) and its uninstall; then (D101) a fresh install into
-     `Spaced Café Folder\DialShift` (spaces, a non-ASCII letter, `/D=` unquoted): the payload, `InstallLocation` and
-     the shortcut, and its in-place uninstall.
+     `Spaced Café Folder\DialShift` (spaces, a non-ASCII letter, `/D=` unquoted) on a command line of exactly 1,023
+     characters: the payload, `InstallLocation` and the shortcut, and its in-place uninstall.
    The step restores or removes the Run, StartupApproved and uninstall-key values, both shortcuts and the sentinel in
    `finally`, and resets `$LASTEXITCODE`, as the `Install.ps1` step does. The existing `Install.ps1` step keeps its
    seven cases unchanged and gains nothing; the D95 refusal is (s7).
