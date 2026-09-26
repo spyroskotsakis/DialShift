@@ -570,10 +570,10 @@ internal static class CatalogViewModelTests
     /// <summary>Waits for an editor built by the app's own wiring (inline dispatcher, the default debounce); false after 10 s.</summary>
     private static async Task<bool> SettleAsync(StationEditorViewModel editor)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10); // real time on purpose: bounds a test's wait only
+        var deadline = new TestDeadline(TimeSpan.FromSeconds(10));
         while (!editor.PendingSearch.IsCompleted)
         {
-            if (DateTime.UtcNow > deadline) return false;
+            if (deadline.HasPassed) return false;
             await Task.Delay(1);
         }
         return true;

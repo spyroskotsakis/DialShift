@@ -356,6 +356,7 @@ internal static partial class CatalogHeadlessTests
     /// D87 items 6–9 against the app's real 200 ms debounce (QA M1, m2): Enter while a search is pending runs it at once and
     /// picks its first row, or nothing on no match, and never saves; any close (a pick, D89; Escape, focus into a form field,
     /// a press outside) lets a search in flight apply without reopening the results; the overlay never opens without rows.
+    /// After Escape, Enter picks from a pending search only if the results were reopened; without a reopen it is Save (D89).
     /// </summary>
     private static async Task EnterAndEscapeBeforeTheDebounce()
     {
@@ -502,8 +503,48 @@ internal static partial class CatalogHeadlessTests
         }
         await ReopenThenEnterAsync("a click in the search box", () => ClickAsync(search));
         await ReopenThenEnterAsync("Down", () => PressAsync(dialog, Key.Down));
-        dialog.Close();
-        await PumpAsync();
+
+        // D89: Escape while a typed search is in flight, then Enter at once, with no reopen. Escape closed the results and
+        // cleared openOnApply, so Enter only applies the typed text's search (closed) and is not handled: it goes on to Save.
+        async Task<bool> EscapeThenEnterAsync(string step)
+        {
+            await SearchAsync(dialog, editor, "radio");
+            await TypeAsync(search, "kosmos");
+            var pending = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
+            await PressAsync(dialog, Key.Escape);
+            Layout(dialog);
+            var escaped = pending && !editor.PendingSearch.IsCompleted && !editor.IsResultsOpen && !Overlay(dialog).IsVisible
+                && editor.HighlightedResult == null && Focused(dialog) == search && dialog.IsVisible;
+            await PressAsync(dialog, Key.Enter);
+            if (dialog.IsVisible) Layout(dialog);
+            Report(step);
+            return escaped;
+        }
+        await ClearFormAsync();
+        var picked = editor.SelectedEntry;
+        Check("CAT-12 D89 fixture: Escape lands while the search for \"kosmos\" is pending: the results closed, nothing highlighted, the focus in the search box",
+            await EscapeThenEnterAsync("Enter at once after Escape, the form empty"));
+        Check("CAT-12 D89 Enter at once after Escape (no reopen) is not taken by the search: it is Save, so the missing-name message is in the name field; " +
+              "nothing picked (the name stays empty, the earlier pick stays the selected entry), nothing saved, the dialog open",
+            VisibleError(dialog)?.Text == "Give this station a name." && Focused(dialog) == name && name.Text == "" && editor.SelectedEntry == picked
+            && dialog.IsVisible && rig.Settings.Stations.Count == stations);
+        Check("CAT-12 D89 ... and the typed text's search was applied at once, closed: Kosmos 93.6 its only row, the footer \"1 match\", nothing highlighted, nothing pending",
+            editor.PendingSearch.IsCompleted && editor.Results.Single().Entry == Kosmos && editor.TotalCountText == "1 match"
+            && !editor.IsResultsOpen && !Overlay(dialog).IsVisible && editor.HighlightedResult == null);
+        await PastTheDelayAsync();
+        Check("CAT-12 D89 past the delay nothing late reopens or changes them (the search in flight was superseded): closed on Kosmos 93.6, nothing highlighted, the name still empty",
+            !editor.IsResultsOpen && !Overlay(dialog).IsVisible && editor.HighlightedResult == null && editor.Results.Single().Entry == Kosmos
+            && name.Text == "" && editor.SelectedEntry == picked);
+
+        // The same with the form filled by hand: Enter saves the typed fields, not the search's first row.
+        await TypeAsync(name, "Hand Typed FM");
+        await TypeAsync(Field(dialog, StationEditorViewModel.UrlLabel), "https://streams.example.org/hand-typed");
+        await EscapeThenEnterAsync("Enter at once after Escape, the form filled by hand");
+        Check("CAT-12 D89 BHV-52 Enter at once after Escape (no reopen) with a filled form saves the typed fields, not Kosmos 93.6: the dialog closes, saved, " +
+              "no notes (the URL is not a picked entry's, D73)",
+            await WaitAsync(() => !dialog.IsVisible) && editor.Result == EditorResult.Saved && rig.Settings.Stations.Count == stations + 1
+            && rig.Settings.Stations[^1] is { Name: "Hand Typed FM", Url: "https://streams.example.org/hand-typed", Notes: null }
+            && rig.Settings.Stations.All(s => s.Name != "Kosmos 93.6"));
     }
 
     // ─── CAT-13: loading, no catalog ───

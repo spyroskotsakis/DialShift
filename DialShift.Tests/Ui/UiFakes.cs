@@ -305,15 +305,15 @@ public sealed class QueuedUiDispatcher : IUiDispatcher
         return true;
     }
 
-    /// <summary>Drains until <paramref name="condition"/> holds; false after <paramref name="timeout"/> (default 10 s, real time: it only bounds the wait).</summary>
+    /// <summary>Drains until <paramref name="condition"/> holds; false after <paramref name="timeout"/> (default 10 s, a <see cref="TestDeadline"/>).</summary>
     public async Task<bool> RunUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
+        var deadline = new TestDeadline(timeout ?? TimeSpan.FromSeconds(10));
         while (true)
         {
             Drain();
             if (condition()) return true;
-            if (DateTime.UtcNow > deadline) return false;
+            if (deadline.HasPassed) return false;
             await Task.Delay(1);
         }
     }

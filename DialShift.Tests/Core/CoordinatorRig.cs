@@ -128,13 +128,13 @@ public sealed class CoordinatorRig : IAsyncDisposable
 /// <summary>Small async helpers shared by the coordinator suites.</summary>
 public static class Wait
 {
-    /// <summary>Polls <paramref name="condition"/> (real time) until true or <paramref name="timeout"/> passes. Bounds a test's wait only.</summary>
+    /// <summary>Polls <paramref name="condition"/> until true or <paramref name="timeout"/> (a <see cref="TestDeadline"/>) passes. Bounds a test's wait only.</summary>
     public static async Task<bool> Until(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
+        var deadline = new TestDeadline(timeout ?? TimeSpan.FromSeconds(5));
         while (!condition())
         {
-            if (DateTime.UtcNow > deadline) return false;
+            if (deadline.HasPassed) return false;
             await Task.Delay(1);
         }
         return true;

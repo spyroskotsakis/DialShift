@@ -190,12 +190,12 @@ public sealed class FakePlaybackEngine : IPlaybackEngine, ITrackMetadataProvider
     /// <summary>Blocks until at least <paramref name="count"/> starts were requested (from any thread) or the timeout passes.</summary>
     public bool WaitForStarts(int count, TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout; // real time on purpose: this bounds a test's wait, it is not app time
+        var deadline = new TestDeadline(timeout);
         lock (gate)
         {
             while (starts.Count < count)
             {
-                var remaining = deadline - DateTime.UtcNow;
+                var remaining = deadline.Remaining;
                 if (remaining <= TimeSpan.Zero) return false;
                 Monitor.Wait(gate, remaining);
             }

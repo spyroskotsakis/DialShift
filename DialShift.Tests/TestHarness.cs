@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 
 namespace DialShift.Tests;
@@ -6,6 +7,22 @@ namespace DialShift.Tests;
 public sealed record TestSuite(string Name, Func<Task> Run)
 {
     public TestSuite(string name, Action run) : this(name, () => { run(); return Task.CompletedTask; }) { }
+}
+
+/// <summary>
+/// The bound on a test's wait: <c>budget</c> of <see cref="Stopwatch"/> time from construction, never the wall clock. A
+/// wall-clock deadline expires early when the clock steps or the machine sleeps mid-run, failing a wait that was only
+/// suspended. On macOS <see cref="Stopwatch"/> does not advance while the system sleeps, so an unattended run that enters
+/// Maintenance Sleep resumes with the rest of its budget (two HeadlessUi flakes were exactly that: a 15-minute sleep used up
+/// a 10 s <c>DateTime.UtcNow</c> deadline while the stopwatch showed 1.2 s). It bounds a test's wait only; it is never app time.
+/// </summary>
+public readonly struct TestDeadline(TimeSpan budget)
+{
+    private readonly long start = Stopwatch.GetTimestamp();
+
+    public TimeSpan Remaining => budget - Stopwatch.GetElapsedTime(start);
+
+    public bool HasPassed => Remaining < TimeSpan.Zero;
 }
 
 /// <summary>Thrown by <see cref="TestHarness.Check"/>; its stack trace points at the failing check's file and line.</summary>
