@@ -3,7 +3,7 @@
 > **Status: implemented, 2026-09-26.** Branch `feature/windows-installer` (from `main` at `fb0ef0b`). Public CI is green
 > on `windows-latest`, `macos-latest` and the cross-build job (the Mac-built and Windows-built setups byte-identical) at
 > `b655d67` (run `36230181228`), `cf21fc1` (`36231552864`), `b7017d7` (`36233711767`), `9322106` (`36235173662`) and
-> `b76356e` (`36238278091`), the last two after macOS re-runs; D101's seventh round awaits its run. NC-19 (a real PC) is
+> `b76356e` (`36238278091`), the last two after macOS re-runs; D101's eighth round awaits its run. NC-19 (a real PC) is
 > open. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
 > `docs/decisions.md` say so, and §5 below follows the build.
 > This is brief 4, after `single-codebase-refactor.md` (brief 1), `schedule-timezone-research.md` (brief 2) and
@@ -228,10 +228,12 @@ on every upgrade, removed by the uninstaller:
   would uninstall `C:\tVictim` (`This uninstaller won't remove files from _?=<text>: Windows would read that as another
   folder. …`; exit 13); then `un.CheckOwnFolder` (exit 13, `This uninstaller won't remove files from <folder>: that
   isn't the DialShift install it belongs to. …`): run in place (`_?=`), the folder must hold `Uninstall
-  DialShift.exe` as a regular, readable file (not a folder, not a link); run as the temporary copy (the relaunch from
-  `$TEMP\~nsu<n>.tmp`, made by `CopyFile`, which keeps the size and the last-write time), that file must also have
-  the copy's size and a last-write time within 2 s of the copy's (FAT's resolution, so a `$TEMP` on any file system
-  matches). Any read failure refuses. An uninstaller started without `_?=` runs as a first process with no script,
+  DialShift.exe` as a regular file, by its directory entry (`FindFirstFileW`): not a folder, not a symbolic link or
+  junction (a name-surrogate reparse point; a deduplicated file or a cloud placeholder counts as a file); run as the
+  temporary copy (the relaunch from `$TEMP\~nsu<n>.tmp`, made by `CopyFile`, which keeps the size and the last-write
+  time and gives the copy a new creation time), that file must also have the copy's size and a last-write time
+  within 2 s of the copy's (FAT's resolution, so a `$TEMP` on any file system matches); the creation time is never
+  compared. A file without a directory entry refuses. An uninstaller started without `_?=` runs as a first process with no script,
   which NSIS also gives a `/D=`, and relaunches its copy with that folder already cleaned (`/D=C:\t/Victim` arrives
   as `C:\tVictim`), so the `_?=` text check cannot see it there; this check does. Residual: another DialShift
   install of the same build whose uninstaller was written within those 2 s. And R5 (DialShift running, Retry/Cancel, exit 10; 15 when it
@@ -437,7 +439,8 @@ and `DialShift.exe` itself (an x64 PE without NSIS data) each fail with the veri
    - **(s7) `Install.ps1` over the setup install** (D95): exit 1 with the §5.11 message (whitespace-insensitive, as
      the existing step matches), tree unchanged.
    - **(s8)** First (D101) the uninstaller of a copy of the install, in place: the install's Start menu shortcut, entry
-     and Run value stay. Then the **silent uninstall**, run from `QuietUninstallString` exactly as Windows would, then waiting up to 60 s for
+     and Run value stay. Then the installed uninstaller's creation time is set to 2000-01-01 (a relaunch copy is
+     compared by size and last-write time only), and the **silent uninstall**, run from `QuietUninstallString` exactly as Windows would, then waiting up to 60 s for
      the temporary uninstaller to finish (the key and the files gone): the Run value pointing here is removed together
      with a planted `StartupApproved\Run` value; the shortcuts, the key and every payload file are gone; a file the
      step added to the install folder is still there, with its folder; the settings sentinel is unchanged.

@@ -887,7 +887,10 @@ jobs:
               if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw '(s6) The relaunched uninstaller deleted from a folder with an uninstaller of another size.' }
               Remove-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')
               Add-UninstallerCopy $mangled
-              (Get-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')).LastWriteTimeUtc = [DateTime]::SpecifyKind([DateTime]'2000-01-01', [DateTimeKind]::Utc)
+              # Only the last-write time differs from the running uninstaller's: the creation time is set to its, too.
+              $sameSize = Get-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')
+              $sameSize.CreationTimeUtc = (Get-Item -LiteralPath $aside).CreationTimeUtc
+              $sameSize.LastWriteTimeUtc = [DateTime]::SpecifyKind([DateTime]'2000-01-01', [DateTimeKind]::Utc)
               Assert-Code 's6 uninstaller relaunched with /D=, another time' (Invoke-Exe $aside "/S /D=$root\x/DialShift") 0
               Wait-Relaunched 's6 relaunched, another time'
               if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw '(s6) The relaunched uninstaller deleted from a folder with a same-size uninstaller written at another time.' }
@@ -975,6 +978,9 @@ jobs:
             if ((Get-Run) -ne "`"$installedExe`" --tray") { throw '(s8) The uninstaller of another copy changed the Run value.' }
             Remove-Item -LiteralPath $copyParent -Recurse -Force
             Assert-Unchanged 's8 another copy' $before
+            # The relaunch copy is compared by size and last-write time, never by creation time (a copy gets a new one):
+            # an installed uninstaller created in 2000 must still uninstall below (D101).
+            (Get-Item -LiteralPath $uninstaller).CreationTimeUtc = [DateTime]::SpecifyKind([DateTime]'2000-01-01', [DateTimeKind]::Utc)
             $added = Join-Path $install 'my-notes.txt'
             Set-Content -LiteralPath $added -Value 'mine'
             if ((Get-Run) -ne "`"$installedExe`" --tray") { throw '(s8) The Run value does not point at the install.' }

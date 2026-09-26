@@ -1139,31 +1139,48 @@ FunctionEnd
 ; ---------------------------------------------------------------------------------------------------------------
 ; Uninstaller (D96). NSIS runs it from a temporary copy, so $INSTDIR is the folder of "Uninstall DialShift.exe".
 
-; $R1 = "<size high>/<size low>" and $R8 = the last-write time (a 64-bit count of 100 ns) of the regular file $R0 (not a
-; folder, not a reparse point; GetFileAttributesExW), or $R1 = "" when it can't be read or isn't one. Changes $R1-$R8.
+; $R1 = "<size high>/<size low>" and $R8 = the last-write time (a 64-bit count of 100 ns) of the file $R0, from its
+; directory entry (FindFirstFileW), or $R1 = "" when it has none or isn't a regular file: a folder, or a name-surrogate
+; reparse point (a symbolic link or a junction: IsReparseTagNameSurrogate, bit 0x20000000 of the tag). Other reparse
+; points, such as a deduplicated file or a cloud placeholder, count as files. Changes $R1-$R8.
 Function un.FileStamp
     StrCpy $R1 ""
     StrCpy $R8 ""
-    System::Call '*(&i36) p .R2'
-    System::Call 'kernel32::GetFileAttributesExW(w R0, i 0, p R2) i .R3'
-    ${If} $R3 <> 0
-        ; WIN32_FILE_ATTRIBUTE_DATA: attributes, creation, last access, last write (low, high), size (high, low).
-        System::Call '*$R2(i .R3, i .R4, i .R4, i .R4, i .R4, i .R4, i .R5, i .R6, i .R7)'
-        IntOp $R3 $R3 & 0x410
-        ${If} $R3 = 0
-            StrCpy $R1 "$R6/$R7"
-            ; high * 2^32 + low, the low half read as unsigned.
-            ${If} $R4 < 0
-                System::Int64Op $R4 + 4294967296
-                Pop $R4
-            ${EndIf}
-            System::Int64Op $R5 * 4294967296
-            Pop $R8
-            System::Int64Op $R8 + $R4
-            Pop $R8
+    System::Call '*(&i592) p .R2'
+    System::Call 'kernel32::FindFirstFileW(w R0, p R2) p .R3'
+    ${If} $R3 = -1
+        System::Free $R2
+        Return
+    ${EndIf}
+    System::Call 'kernel32::FindClose(p R3)'
+    ; WIN32_FIND_DATAW: attributes; creation and last access (16 bytes, skipped: each register is named once, since the
+    ; System plugin keeps the first field a repeated register is given); last write (low, high); size (high, low); the
+    ; reparse tag (dwReserved0).
+    System::Call '*$R2(i .R3, &i16, i .R4, i .R5, i .R6, i .R7, i .R8)'
+    System::Free $R2
+    IntOp $R2 $R3 & 0x10
+    ${If} $R2 <> 0
+        StrCpy $R8 ""
+        Return
+    ${EndIf}
+    IntOp $R2 $R3 & 0x400
+    ${If} $R2 <> 0
+        IntOp $R2 $R8 & 0x20000000
+        ${If} $R2 <> 0
+            StrCpy $R8 ""
+            Return
         ${EndIf}
     ${EndIf}
-    System::Free $R2
+    StrCpy $R1 "$R6/$R7"
+    ; high * 2^32 + low, the low half read as unsigned.
+    ${If} $R4 < 0
+        System::Int64Op $R4 + 4294967296
+        Pop $R4
+    ${EndIf}
+    System::Int64Op $R5 * 4294967296
+    Pop $R8
+    System::Int64Op $R8 + $R4
+    Pop $R8
 FunctionEnd
 
 ; The folder must be the DialShift install this uninstaller belongs to (exit 13, D101). An uninstaller started without
@@ -1171,11 +1188,12 @@ FunctionEnd
 ; CopyFile, which keeps the size and the last-write time) with _?=<$INSTDIR>\; NSIS gives that first process a /D= too
 ; (cut off its command line), and $INSTDIR is then the /D= text already cleaned, so CheckNamedFolder cannot see what was
 ; typed ("/D=C:\t/Victim" arrives as "C:\tVictim"). So:
-; - the folder must hold Uninstall DialShift.exe as a regular, readable file (every install does; it is deleted last);
-; - a temporary copy must have that file's size, and a last-write time within 2 s of it (FAT's resolution, so a copy in
-;   a $TEMP on any file system matches), so another install, of any build, written more than 2 s apart is refused.
-;   Residual: another install of the same build whose uninstaller was written within those 2 s.
-; Any read failure refuses. Changes $0-$4, $R0-$R8.
+; - the folder must hold Uninstall DialShift.exe as a regular file (FileStamp; every install does; it is deleted last);
+; - a temporary copy must have that file's size, and a last-write time within 2 s of it (the copy keeps it exactly on
+;   NTFS; 2 s is FAT's resolution, so a copy in a $TEMP on any file system matches; the creation time is not compared,
+;   since a copy gets a new one), so another install, of any build, written more than 2 s apart is refused. Residual:
+;   another install of the same build whose uninstaller was written within those 2 s.
+; A file whose directory entry can't be read refuses. Changes $0-$4, $R0-$R8.
 Function un.CheckOwnFolder
     StrCpy $R0 "$INSTDIR\${UNINSTALLER}"
     Call un.FileStamp
