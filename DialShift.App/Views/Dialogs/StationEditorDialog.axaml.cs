@@ -16,7 +16,9 @@ namespace DialShift.App.Views.Dialogs;
 /// <remarks>
 /// The search box's keys (docs/catalog-contracts.md §5.5, D85): Down opens the closed results on their first row, or
 /// moves the highlight down in the open ones; Up moves it back; Enter picks the highlighted result while the results are
-/// open (otherwise it falls through to Save); Page Down and Page Up scroll the detail pane (its notes can be long).
+/// open, and while a search the user asked for is still pending it runs that search at once and picks its first row, or
+/// nothing on no match, without saving (D87 item 6); otherwise (the results closed, or a pending search that would leave
+/// them closed, D89) it falls through to Save; Page Down and Page Up scroll the detail pane (its notes can be long).
 /// Escape closes the open results wherever the focus is in the dialog, unless a filter drop-down is open and takes it
 /// first; with the results closed it is not handled, so the Cancel button's <c>IsCancel</c> closes the dialog. The
 /// results list never takes focus: pointing at a row highlights it, pressing it picks it.
@@ -90,7 +92,7 @@ public partial class StationEditorDialog : Window
                 e.Handled = true;
                 break;
             case Key.Enter:
-                // Picks the top match of the text as typed (D87 item 6); when not handled, Enter goes on to Save.
+                // Picks the top match of the text as typed (D87 item 6, D89); when not handled, Enter goes on to Save.
                 e.Handled = editor.PickOnEnter();
                 break;
             case Key.PageDown:

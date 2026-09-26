@@ -100,8 +100,13 @@ public static class UiText
     public const string CatalogNoMatch = "No stations match — adjust filters or enter the stream manually";
     public const string ManualEntrySeparator = "Or enter stream details manually";
 
-    /// <summary>The detail pane before any result is highlighted or picked: how to start, and what shows here.</summary>
+    /// <summary>The detail pane before any result is highlighted or picked, with a catalog that has stations: how to start,
+    /// and what shows here.</summary>
     public const string CatalogDetailPlaceholder = "Type to search, or press Down to browse the most-voted stations. Details and notes show here.";
+
+    /// <summary>The detail pane's placeholder while the catalog loads and when the loaded catalog is empty: there is nothing
+    /// to browse yet, so it only says what shows here (D89).</summary>
+    public const string CatalogDetailPlaceholderEmpty = "Details and notes show here.";
 
     /// <summary>The catalog status line: "8,274 stations · catalog updated 2026-09-25" (the UTC date of generated_utc, CAT-17),
     /// or "8,274 stations" when the file has no usable date.</summary>
