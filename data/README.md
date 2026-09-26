@@ -104,7 +104,7 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
   example
-  `app-catalog: working=8280 url_excluded=7 duplicates_removed=0 exported=8273 -> data/output/app-catalog.json`
+  `app-catalog: working=8277 url_excluded=7 duplicates_removed=0 exported=8270 -> data/output/app-catalog.json`
   and `app-catalog: languages=42 unknown=0`.
 - **Language table (`languages.yaml`):** `languages` (canonical names: a language's usual English
   name), `aliases` (key → one name or a list: spellings, typos, native names, and dialects or
@@ -182,7 +182,14 @@ notes · source`
    (`'no': …`): the build stops on a block that is not all non-empty strings.
    Use it too for **one spelling per place** in the app's City filter: map every spelling of a
    place (typos, `ue`/`ü`, hyphen or accent variants: `thueringen`, `thuringen`, `thunringia` →
-   `Thuringia`) to the spelling most of its rows already have. Map a group to **one** city, and
+   `Thuringia`) to the spelling most of its rows already have. A region's names in two languages
+   and its unambiguous abbreviations are one group too: each German state has one spelling
+   (`bayern`, `bay`, `beieren` → `Bavaria`; `nrw`, `nordrhein westfalen` → `North Rhine-Westphalia`),
+   the one with the most rows (a tie goes to the spelling more rows already had exactly). A value
+   that wraps one unambiguous place in stream details, a region, a postal code or a country
+   (`bayern munchen aac`, `magdeburg sachsen anhalt`, `vernon 27200`, `chania greece`) maps to
+   that place. A value that names several places or only a country (`Deutschland (Germany)`) stays
+   as it is: an alias cannot map to an empty city. Map a group to **one** city, and
    when the city's own normalized form is a key, that key must give the same city (`thuringen`,
    the form of `Thüringen`, maps to `Thuringia` too): the final dedupe normalizes the aliased city
    again, so the build stops on such a chain and names both keys. Leave a place alone when the

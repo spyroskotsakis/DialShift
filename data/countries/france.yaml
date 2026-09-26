@@ -11,6 +11,18 @@ city_aliases:
   occitanie: Occitanie
   pas de calais: Pas-De-Calais
   provence alpes cote d azur: "Provence-Alpes-Côte D'Azur"
+  # one place per value (D90): a postal code, department number, country or region qualifier,
+  # or a second-language name around one unambiguous place maps to that place
+  vernon 27200: Vernon
+  chauvigny 86: Chauvigny
+  ain france: Ain
+  jura francais: Jura
+  provence alpes cote d azur cannes: Cannes
+  besancon doubs: Besançon
+  haguenau bas rhin grand est: Haguenau
+  normandy deauville: Deauville
+  lille rijsel: Lille
+  breizh bretagne: Bretagne
 curated:
 - match:
   - france inter
