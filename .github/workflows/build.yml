@@ -428,17 +428,20 @@ jobs:
       # refuse it; also as \\?\), a folder inside it (also spelled through a missing folder and ..), a foreign folder, a
       # folder with DialShift.exe among other files, drive roots (subst, the system drive), the uninstaller's _?= on the
       # subst root, the volume GUID path of drive C for the setup and the uninstaller (a decoy install in the working
-      # folder kept), \\?\ with a trailing dot or .., a \\.\ device path, a folder path too long for the payload; /D=
-      # folders NSIS cannot use (a missing drive, a relative and a drive-relative path, a file in the path, a file,
-      # forward slashes, quotes, nothing), which it would replace with the install's own folder, /D= folders it keeps
-      # but reads as another (a slash inside, text after /D=), command lines longer than NSIS keeps (exactly 1,024
-      # characters, and one with a 1,030-character argument), and /D= switches it does not take (quoted, lowercase)
-      # (D101); then, with the uninstaller back, a second install location. (s7) Install.ps1 over the setup install
-      # (D95), by the uninstaller and by the entry's InstallLocation. (s8) silent uninstall through
-      # QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another copy's
-      # Run value, then a reinstall (/D= with a trailing backslash) into the folder the in-place uninstall left (only
-      # the uninstaller) and its uninstall; then a fresh install into a folder with spaces and a non-ASCII letter, on a
-      # command line of exactly 1,023 characters, and its uninstall.
+      # folder kept), the uninstaller's _?= with "/" or "|" (decoys at the folders NSIS would read kept) and on a \\.\
+      # path, \\?\ with a trailing dot, a trailing space or .., a \\.\ device path, folder paths too long for the
+      # payload (by one character, and far); /D= folders NSIS cannot use (a missing drive, a relative and a
+      # drive-relative path, a file in the path, a file, forward slashes, quotes, nothing), which it would replace with
+      # the install's own folder, /D= folders it keeps but reads as another (a slash inside, text after /D=), command
+      # lines longer than NSIS keeps (exactly 1,024 characters, and one with a 1,030-character argument), and /D=
+      # switches it does not take (quoted, lowercase) (D101); then, with the uninstaller back, a second install
+      # location. (s7) Install.ps1 over the setup install (D95), by the uninstaller and by the entry's InstallLocation.
+      # (s8) an uninstaller of another copy leaves this install's shortcut, entry and Run value; silent uninstall
+      # through QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another
+      # copy's Run value, then a reinstall (/D= with a trailing backslash) into the folder the in-place uninstall left
+      # (only the uninstaller) and its uninstall; then a fresh install into a folder with spaces and a non-ASCII letter,
+      # on a command line of exactly 1,023 characters, and its uninstall; then one exactly at the path limit, and its
+      # uninstall.
       # The real %LOCALAPPDATA%\DialShift holds a sentinel settings.json whose SHA-256 is checked after every case, and
       # every case but (s5) checks that no DialShift process was started. The Start menu, desktop and HKCU of the runner
       # are real: the Run, StartupApproved and uninstall values, both shortcuts, the subst drive and every ACL change are
@@ -524,6 +527,12 @@ jobs:
           $expectedTree = @(@(Get-Tree $package | Where-Object { $_ -notlike 'Install.ps1 *' }) +
             ('licenses\NSIS-COPYING.txt {0}' -f (Get-FileHash -LiteralPath $copying -Algorithm SHA256).Hash) | Sort-Object)
           $expectedFiles = @($expectedTree | ForEach-Object { $_.Substring(0, $_.LastIndexOf(' ')) })
+          # The longest parent folder the setup accepts (CheckPathLength, D101): the payload's longest file (the uninstaller
+          # included) within 259 characters and its longest folder within 247, both under "<parent>\DialShift.new-<id>".
+          $longestFile = (@($expectedFiles) + 'Uninstall DialShift.exe' | Measure-Object -Property Length -Maximum).Maximum
+          $longestFolder = (@($expectedFiles | ForEach-Object { Split-Path -Parent $_ } | Where-Object { $_ }) | Measure-Object -Property Length -Maximum).Maximum
+          $maxParent = [Math]::Min(259 - 24 - $longestFile, 247 - 24 - $longestFolder)
+          function Get-ParentOfLength([int]$length) { Join-Path $root ('p' * ($length - $root.Length - 1)) }
           function Get-Names([string]$folder) { @(Get-ChildItem -LiteralPath $folder -Force | ForEach-Object Name | Sort-Object) }
           function Assert-OnlyInstall([string]$case) {
             $names = Get-Names $programs
@@ -814,6 +823,18 @@ jobs:
               if (@(Get-ChildItem -LiteralPath $decoy -Force).Count -ne 2) { throw '(s6) The uninstaller deleted from the working folder.' }
               if (Test-Path -LiteralPath 'C:\setup-check-volume') { throw '(s6) A refused run created C:\setup-check-volume.' }
               Remove-Item -LiteralPath $decoyRoot -Recurse -Force
+              # The uninstaller's _?= exactly as given (D101): NSIS drops "/" and "|" from it, so these would work in the
+              # decoys at the folders it reads; both decoys and the Start menu shortcut must stay.
+              foreach ($pair in @(@("$root\x/DialShift", "$root\xDialShift"), @("$root\Dial|Shift", "$root\DialShift"))) {
+                $mangled = New-Item -ItemType Directory -Path $pair[1]
+                Set-Content -LiteralPath (Join-Path $mangled 'DialShift.exe'), (Join-Path $mangled 'DialShift.dll'), (Join-Path $mangled 'notes.txt') -Value 'decoy'
+                Assert-Code "s6 uninstaller _?=$($pair[0])" (Invoke-Exe $aside "/S _?=$($pair[0])") 13
+                if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 3) { throw "(s6) The uninstaller deleted from $($mangled.FullName)." }
+                Remove-Item -LiteralPath $mangled -Recurse -Force
+              }
+              Assert-Shortcut 's6 uninstaller on mangled folders' $startMenu
+              # A \\.\ device path for the uninstaller reaches CheckFolderPath (NSIS accepts it as \\server\share).
+              Assert-Code 's6 uninstaller on a \\.\ path' (Invoke-Exe $aside "/S _?=\\.\$root\DotDevice\DialShift") 13
               Remove-Item -LiteralPath $planted
               # A /D= folder NSIS cannot use, or a /D= switch it does not take (D101): refused, never replaced.
               $missing = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
@@ -846,6 +867,9 @@ jobs:
                 'a \\.\ device path' = "/S /D=\\.\$root\Programs11\DialShift"
                 # Too long for the payload's longest file under Windows' 259-character path limit (CheckPathLength).
                 'a folder path too long' = "/S /D=$root\$('p' * 150)\DialShift"
+                'a parent folder one character too long' = "/S /D=$(Get-ParentOfLength ($maxParent + 1))\DialShift"
+                # \\?\ naming a folder whose name ends with a space ("DialShift " literally).
+                '\\?\ with a trailing space' = "/S /D=\\?\$root\Programs12\DialShift "
               }
               foreach ($case in $unusable.Keys) { Assert-Code "s6 $case" (Invoke-Setup $unusable[$case]) 13 }
               if ((Get-FileHash -LiteralPath $notFolder -Algorithm SHA256).Hash -ne $notFolderHash) { throw '(s6) The file given as the folder changed.' }
@@ -883,6 +907,17 @@ jobs:
             Assert-Clean 's7'
             Write-Host '(s7) Install.ps1 over the setup install: refused (exit 1) by the uninstaller and by the InstallLocation, install unchanged.'
 
+            # The uninstaller of another copy removes that copy's files only: this install's Start menu shortcut, entry and
+            # Run value do not point at the copy, so they stay (D101).
+            $copyParent = New-Item -ItemType Directory -Path (Join-Path $root 'Copy')
+            $copy = Join-Path $copyParent 'DialShift'
+            Copy-Item -LiteralPath $install -Destination $copy -Recurse
+            Assert-Code 's8 another copy' (Invoke-Exe (Join-Path $copy 'Uninstall DialShift.exe') "/S _?=$copy") 0
+            Assert-Shortcut 's8 another copy' $startMenu
+            Assert-Entry 's8 another copy'
+            if ((Get-Run) -ne "`"$installedExe`" --tray") { throw '(s8) The uninstaller of another copy changed the Run value.' }
+            Remove-Item -LiteralPath $copyParent -Recurse -Force
+            Assert-Unchanged 's8 another copy' $before
             $added = Join-Path $install 'my-notes.txt'
             Set-Content -LiteralPath $added -Value 'mine'
             if ((Get-Run) -ne "`"$installedExe`" --tray") { throw '(s8) The Run value does not point at the install.' }
@@ -904,7 +939,7 @@ jobs:
             if ($null -ne (Get-Run)) { throw '(s8) The Run value pointing at the install was kept.' }
             if ($null -ne (Get-Approved)) { throw '(s8) The StartupApproved value was kept.' }
             Assert-Clean 's8'
-            Write-Host '(s8) Silent uninstall: payload, uninstaller, shortcuts, key, Run and StartupApproved removed; the added file and the settings kept.'
+            Write-Host '(s8) An uninstaller of another copy left this install''s shortcut, entry and Run value; silent uninstall: payload, uninstaller, shortcuts, key, Run and StartupApproved removed; the added file and the settings kept.'
 
             Remove-Item -LiteralPath $install -Recurse -Force
             $result = Invoke-Install
@@ -951,8 +986,17 @@ jobs:
             if (Test-Path -LiteralPath $uninstallKey) { throw '(s9) The uninstall key of the install with spaces is still there.' }
             if (Test-Path -LiteralPath $startMenu) { throw '(s9) The Start menu shortcut of the install with spaces is still there.' }
             Remove-Item -LiteralPath $spacedParent -Recurse -Force
+            # Exactly at Windows' path limit for the payload's longest file or folder (CheckPathLength, D101): installs,
+            # then its uninstall; one character more is refused in (s6).
+            $edge = Join-Path (Get-ParentOfLength $maxParent) 'DialShift'
+            Assert-Code 's9 at the path limit' (Invoke-Setup "/S /D=$edge") 0
+            $count = @(Get-ChildItem -LiteralPath $edge -Recurse -Force -File).Count
+            if ($count -ne $expectedFiles.Count + 1) { throw "(s9) $edge holds $count files, expected $($expectedFiles.Count + 1)." }
+            Assert-Code 's9 at the path limit, uninstall' (Invoke-Exe (Join-Path $edge 'Uninstall DialShift.exe') "/S _?=$edge") 0
+            if (Test-Path -LiteralPath $uninstallKey) { throw '(s9) The uninstall key of the install at the path limit is still there.' }
+            Remove-Item -LiteralPath (Split-Path -Parent $edge) -Recurse -Force
             Assert-Clean 's9'
-            Write-Host '(s9) Setup over an Install.ps1 install, then an in-place uninstall: passed; the Run value of another copy was kept; a folder with only the uninstaller was reinstalled (/D= with a trailing backslash); a fresh install into a folder with spaces and a non-ASCII letter, and its uninstall, passed.'
+            Write-Host '(s9) Setup over an Install.ps1 install, then an in-place uninstall: passed; the Run value of another copy was kept; a folder with only the uninstaller was reinstalled (/D= with a trailing backslash); a fresh install into a folder with spaces and a non-ASCII letter, and one exactly at the path limit, and their uninstalls, passed.'
           } finally {
             Get-Process DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$root\*" } | Stop-Process -Force
             foreach ($path in $denied) { if (Test-Path -LiteralPath $path) { Undo-Deny $path } }
