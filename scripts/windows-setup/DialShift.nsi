@@ -16,11 +16,12 @@
 ; holding the install lock Local\DialShift.Install until the setup exits, remove exact-name leftovers beside the
 ; install, extract into DialShift.new-<8 hex> beside it, write the uninstaller there, swap it in by renames (as
 ; Install.ps1 does, D56), delete the previous copy when it holds nothing but DialShift's own files, add the Start menu
-; (and optional desktop) shortcut, move an existing Run value, write the Apps & features entry. A failed extraction or swap leaves the previous install unchanged. DialShift is never closed or
-; killed. Uninstall (D96): the same lock and running check, a keep-settings question (silent: keep), then only the
-; files of the build-time list, empty folders, the shortcuts, the Run/StartupApproved values when they point here, the
-; entry. Settings in %LOCALAPPDATA%\DialShift are never touched, except on an explicit No to the uninstaller's question.
-; Nothing is ever deleted recursively through a link: every recursive delete is SafeRemoveTree (SafeRemoveTree.nsh).
+; (and optional desktop) shortcut, move an existing Run value, write the Apps & features entry. A failed extraction or
+; swap leaves the previous install unchanged. DialShift is never closed or killed. Uninstall (D96): the same lock, root
+; (D101) and running checks, a keep-settings question (silent: keep), then only the files of the build-time list, empty
+; folders, the shortcuts, the Run/StartupApproved values when they point here, the entry. Settings in
+; %LOCALAPPDATA%\DialShift are never touched, except on an explicit No to the uninstaller's question. Nothing is ever
+; deleted recursively through a link: every recursive delete is SafeRemoveTree (SafeRemoveTree.nsh).
 ;
 ; Exit codes of the setup and the uninstaller: 0 done, 1 cancelled by the user (NSIS), and from 10 on, so none meets
 ; NSIS's own 2 ("aborted by script"): the EXIT_* defines below.
@@ -60,9 +61,12 @@ XPStyle on
 !define EXIT_RUNNING 10         ; DialShift runs from the folder (R5)
 !define EXIT_LOCKED 11          ; another install holds the install lock (R2)
 !define EXIT_WINDOWS 12         ; not 64-bit Windows 10 or later (R1)
-!define EXIT_FOLDER 13          ; the folder is refused (R3, R4, another install location)
+!define EXIT_FOLDER 13          ; the folder is refused (R3, R4, another install location; the uninstaller's root)
 !define EXIT_FAILED 14          ; the extraction, the swap or an uninstall delete failed; the previous state is kept
 !define EXIT_CHECK_FAILED 15     ; DialShift.exe could not be opened to check whether it runs
+; CheckRequestedFolder refuses a command line this long or longer: NSIS keeps at most NSIS_MAX_STRLEN - 1 characters
+; of it, so its /D= could be cut short or unseen (D101).
+!define /math CMDLINE_LIMIT ${NSIS_MAX_STRLEN} - 1
 
 Name "${PRODUCT}"
 OutFile "${OUTPUT}"
@@ -71,7 +75,8 @@ OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\DialShift"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 ; Without it, NSIS silently replaces a drive or share root given with /D= before .onInit runs; with it, the root
-; reaches .onInit, where RefuseRoot refuses it (R3, D101).
+; reaches .onInit, where RefuseRoot refuses it (R3, D101). It also admits a root as the uninstaller's _?=, which
+; un.onInit refuses the same way.
 AllowRootDirInstall true
 BrandingText "DialShift ${VERSION}"
 
@@ -143,10 +148,59 @@ Var IsInstall       ; 1 when the install folder holds an install to swap out
 !if "${UN}" == "un."
     !define /redef LOCK_MESSAGE "Another DialShift install is running. Wait for it to finish, then uninstall DialShift again."
     !define /redef CHECK_FIX "then uninstall DialShift again"
+    !define /redef ROOT_MESSAGE "This uninstaller won't remove files from $INSTDIR\, the top of a drive or network share: DialShift Setup never installs there. Delete the uninstaller yourself."
 !else
     !define /redef LOCK_MESSAGE "Another DialShift install is running. Wait for it to finish, then run DialShift Setup again."
     !define /redef CHECK_FIX "then run DialShift Setup again"
+    !define /redef ROOT_MESSAGE "DialShift can't be installed in $INSTDIR\, the top of a drive or network share. Choose a folder in it, such as $INSTDIR\DialShift."
 !endif
+
+; $2 = 1 when $INSTDIR is a root: a drive ("C:", which is how NSIS reads "C:\") or a network server or share
+; ("\\server", "\\server\share"; also "\\?\C:"), which has at most one backslash after its leading two. No read of
+; $INSTDIR ends with a backslash (validate_filename), so there is none to strip here. Changes $0-$4.
+Function ${UN}IsRootFolder
+    StrLen $0 $INSTDIR
+    StrCpy $1 $INSTDIR 1 1
+    StrCpy $2 0
+    ${If} $0 = 2
+    ${AndIf} $1 == ":"
+        StrCpy $2 1
+    ${EndIf}
+    StrCpy $1 $INSTDIR 2
+    ${If} $1 == "\\"
+        StrCpy $2 1
+        StrCpy $3 0
+        StrCpy $4 2
+        ${DoWhile} $4 < $0
+            StrCpy $1 $INSTDIR 1 $4
+            ${If} $1 == "\"
+                IntOp $3 $3 + 1
+            ${EndIf}
+            IntOp $4 $4 + 1
+        ${Loop}
+        ${If} $3 > 1
+            StrCpy $2 0
+        ${EndIf}
+    ${EndIf}
+FunctionEnd
+
+; R3 (exit 13): $INSTDIR must not be a root (D101), before it is normalized ("C:" alone would resolve to the current
+; folder of drive C) and after GetFullPathName ("C:\." and "C:\x\.." are the root of C), which leaves $INSTDIR
+; normalized. The setup's /D= and, since AllowRootDirInstall also admits one there, the uninstaller's _?= (an
+; uninstaller placed in a root would otherwise delete DialShift-named files from it). Changes $0-$4.
+Function ${UN}RefuseRoot
+    Call ${UN}IsRootFolder
+    ${If} $2 = 0
+        GetFullPathName $0 $INSTDIR
+        ${If} $0 != ""
+            StrCpy $INSTDIR $0
+        ${EndIf}
+        Call ${UN}IsRootFolder
+    ${EndIf}
+    ${If} $2 = 1
+        !insertmacro REFUSE ${EXIT_FOLDER} "${ROOT_MESSAGE}"
+    ${EndIf}
+FunctionEnd
 
 ; $R1 = the text of the Windows error code in $R0 (FormatMessage), without the final period and line break.
 Function ${UN}ErrorText
@@ -449,31 +503,44 @@ Function CheckInstallFolder
     ${EndIf}
 FunctionEnd
 
-; R3 (D101): the folder given with /D= is the folder used, or the setup stops (exit 13). Never an install somewhere the
-; command line did not name.
-; - NSIS takes /D= only as the last switch, written in capitals and unquoted, after a space: the rest of the command
-;   line is the folder. Before .onInit it replaces a folder it can't use (no drive or share root, as "DialShift" or
-;   "C:DialShift"; a drive that doesn't exist; a file in the path; quotes; forward slashes; nothing) with the
-;   InstallDirRegKey folder or InstallDir, and cuts " /D=<folder>" off $CMDLINE. So the process's own command line
-;   (GetCommandLineW; both copies are cut at ${NSIS_MAX_STRLEN} - 1 characters alike) holds " /D=" exactly at the
-;   length of $CMDLINE when NSIS took one.
-; - The comparison is NSIS's own: every read of $INSTDIR goes through its validate_filename (trailing backslashes and
-;   spaces, and the characters *?|<>/": after the drive, removed), and NSIS copies a /D= folder it keeps unchanged. So
-;   the /D= folder is put in $INSTDIR, read back, and compared case-sensitively with the folder NSIS chose, read the
-;   same way: equal when NSIS kept it, different when it replaced it.
-; - A /D= that NSIS did not take (quoted, lowercase, not last, no space before it) is left in $CMDLINE: any "/D=" in
-;   the arguments there, in any case, is refused too, rather than installing in the default folder.
+; R3 (D101): the setup installs in exactly the folder /D= names, or stops (exit 13). Changes $0-$5.
+; - NSIS takes /D= only as the last switch, written in capitals, after a space: the rest of the command line, quotes and
+;   all, is the folder. Before .onInit it replaces a folder it can't use (no drive or share root, as "DialShift" or
+;   "C:DialShift"; a drive that doesn't exist; a file in the path; nothing) with the InstallDirRegKey folder or
+;   InstallDir, and cuts " /D=<folder>" off $CMDLINE. So the process's own command line (GetCommandLineW) holds " /D="
+;   exactly at the length of $CMDLINE when NSIS took one. Both copies hold at most ${NSIS_MAX_STRLEN} - 1 characters, so
+;   a command line of that length or longer, whose /D= NSIS may have cut short or never seen, is refused first.
+; - Rule: $INSTDIR, as NSIS set it and as every read returns it, must equal the /D= text with only its trailing
+;   backslashes and spaces removed, character for character (S!=). Every read of $INSTDIR goes through NSIS's
+;   validate_filename, which removes trailing backslashes and spaces (the same folder) but also control characters and
+;   *?|<>/": after the drive (another folder: "C:\t3/DialShift" reads "C:\t3DialShift"). So a /D= that NSIS replaced,
+;   and one it kept that reads as another folder (a slash, a quote, a wildcard, or text after it such as " /S" or
+;   " /NCRC"), are refused.
+; - A /D= that NSIS did not take (quoted, lowercase, no space before it) is left in $CMDLINE: any "/D=" in the arguments
+;   there, in any case, is refused too, rather than installing in the default folder.
 Function CheckRequestedFolder
+    System::Call 'kernel32::GetCommandLineW() p .r5'
+    System::Call 'kernel32::lstrlenW(p r5) i .r1'
+    ${If} $1 >= ${CMDLINE_LIMIT}
+        !insertmacro REFUSE ${EXIT_FOLDER} "DialShift Setup's command line is too long to read ($1 characters). Keep it under ${CMDLINE_LIMIT} characters, for example with a shorter /D= folder."
+    ${EndIf}
     System::Call 'kernel32::GetCommandLineW() w .r0'
     StrLen $1 $CMDLINE
     StrCpy $2 $0 4 $1
     ${If} $2 S== " /D="
         IntOp $1 $1 + 4
         StrCpy $2 $0 "" $1
-        StrCpy $3 $INSTDIR
-        StrCpy $INSTDIR $2
+        StrCpy $3 $2
+        ${Do}
+            StrCpy $4 $3 1 -1
+            ${If} $4 != "\"
+            ${AndIf} $4 != " "
+                ${Break}
+            ${EndIf}
+            StrCpy $3 $3 -1
+        ${Loop}
         ${If} $INSTDIR S!= $3
-            !insertmacro REFUSE ${EXIT_FOLDER} "/D=$2 isn't a folder DialShift can be installed in. Give a full path on a drive that exists, with no file in its place, such as /D=C:\Apps\DialShift."
+            !insertmacro REFUSE ${EXIT_FOLDER} "/D=$2 isn't a folder DialShift can be installed in. Put /D= last on the command line, followed by a full path with backslashes on a drive that exists, such as /S /D=C:\Apps\DialShift."
         ${EndIf}
     ${EndIf}
     ; The arguments start after the program name, as NSIS reads it: up to the closing quote, else the first space.
@@ -499,38 +566,6 @@ Function CheckRequestedFolder
         ${EndIf}
         IntOp $4 $4 + 1
     ${Loop}
-FunctionEnd
-
-; R3 (exit 13): $INSTDIR must not be a root: a drive ("C:", which is how NSIS reads "C:\") or a network server or share
-; ("\\server", "\\server\share"; also "\\?\C:"), which has at most one backslash after its leading two. No read of
-; $INSTDIR ends with a backslash (validate_filename), so there is none to strip here.
-Function RefuseRoot
-    StrLen $0 $INSTDIR
-    StrCpy $1 $INSTDIR 1 1
-    StrCpy $2 0
-    ${If} $0 = 2
-    ${AndIf} $1 == ":"
-        StrCpy $2 1
-    ${EndIf}
-    StrCpy $1 $INSTDIR 2
-    ${If} $1 == "\\"
-        StrCpy $2 1
-        StrCpy $3 0
-        StrCpy $4 2
-        ${DoWhile} $4 < $0
-            StrCpy $1 $INSTDIR 1 $4
-            ${If} $1 == "\"
-                IntOp $3 $3 + 1
-            ${EndIf}
-            IntOp $4 $4 + 1
-        ${Loop}
-        ${If} $3 > 1
-            StrCpy $2 0
-        ${EndIf}
-    ${EndIf}
-    ${If} $2 = 1
-        !insertmacro REFUSE ${EXIT_FOLDER} "DialShift can't be installed in $INSTDIR\, the top of a drive or network share. Choose a folder in it, such as $INSTDIR\DialShift."
-    ${EndIf}
 FunctionEnd
 
 ; $0 = 1 when $DESKTOP\DialShift.lnk starts $INSTDIR\DialShift.exe (IShellLinkW::GetPath through IPersistFile::Load).
@@ -741,15 +776,9 @@ Function .onInit
     ; R2, held from here until the setup exits.
     Call AcquireInstallLock
 
-    ; R3: a /D= folder exactly as given (D101); not a drive or share root; not, not inside and not holding the settings
-    ; folder (textual, case-insensitive, one trailing backslash, as D56). The root check runs before the path is
-    ; normalized ("C:" alone would resolve to the current folder of drive C) and after it ("C:\." is the root of C).
+    ; R3: a /D= folder exactly as given (D101); not a drive or share root (RefuseRoot also normalizes the path); not,
+    ; not inside and not holding the settings folder (textual, case-insensitive, one trailing backslash, as D56).
     Call CheckRequestedFolder
-    Call RefuseRoot
-    GetFullPathName $0 $INSTDIR
-    ${If} $0 != ""
-        StrCpy $INSTDIR $0
-    ${EndIf}
     Call RefuseRoot
     StrCpy $0 "$INSTDIR\"
     StrCpy $1 "$LOCALAPPDATA\DialShift\"
@@ -832,6 +861,8 @@ Function un.onInit
     SetShellVarContext current
     StrCpy $KeepSettings 1
     Call un.AcquireInstallLock
+    ; _?= may name a root (AllowRootDirInstall applies to it too): refused with 13 (D101).
+    Call un.RefuseRoot
     Call un.CheckNotRunning
     ${If} $0 <> 0
         SetErrorLevel $0

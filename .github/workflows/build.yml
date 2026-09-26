@@ -425,13 +425,16 @@ jobs:
       # install is moved back (14). (s4) install lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder
       # refusals (13), each with the uninstaller moved aside so that only its own rule can refuse it: the settings folder
       # (emptied, so only R3 can refuse it), a folder inside it, a foreign folder, a folder with DialShift.exe among other
-      # files, drive roots (subst, the system drive); /D= folders NSIS cannot use (a missing drive, a relative and a
-      # drive-relative path, a file in the path, a file, forward slashes, quotes, nothing) and /D= switches it does not
-      # take (quoted, lowercase), which it would replace with the install's own folder (D101); then, with the
-      # uninstaller back, a second install location. (s7) Install.ps1
-      # over the setup install (D95), by the uninstaller and by the entry's InstallLocation. (s8) silent uninstall through
+      # files, drive roots (subst, the system drive), the uninstaller's _?= on the subst root; /D= folders NSIS cannot
+      # use (a missing drive, a relative and a drive-relative path, a file in the path, a file, forward slashes, quotes,
+      # nothing), which it would replace with the install's own folder, /D= folders it keeps but reads as another (a
+      # slash inside, text after /D=), a command line too long for NSIS, and /D= switches it does not take (quoted,
+      # lowercase) (D101); then, with the uninstaller back, a second install location. (s7) Install.ps1 over the setup
+      # install (D95), by the uninstaller and by the entry's InstallLocation. (s8) silent uninstall through
       # QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another copy's Run
-      # value, then a reinstall into the folder the in-place uninstall left (only the uninstaller) and its uninstall.
+      # value, then a reinstall (/D= with a trailing backslash) into the folder the in-place uninstall left (only the
+      # uninstaller) and its uninstall; then a fresh install into a folder with spaces and a non-ASCII letter, and its
+      # uninstall.
       # The real %LOCALAPPDATA%\DialShift holds a sentinel settings.json whose SHA-256 is checked after every case, and
       # every case but (s5) checks that no DialShift process was started. The Start menu, desktop and HKCU of the runner
       # are real: the Run, StartupApproved and uninstall values, both shortcuts, the subst drive and every ACL change are
@@ -773,6 +776,16 @@ jobs:
                 Assert-Code "s6 drive root $target" (Invoke-Setup "/S /D=$target") 13
               }
               if ((Get-Names $emptyRoot.FullName).Count) { throw '(s6) A refused run wrote into the subst drive.' }
+              # The uninstaller's _?= on a root (AllowRootDirInstall admits it there too): refused before it deletes
+              # anything, so a DialShift-named file in the root and the real Start menu shortcut stay (D101).
+              $planted = Join-Path "${letter}:\" 'DialShift.dll'
+              Set-Content -LiteralPath $planted -Value 'not an install'
+              foreach ($target in "${letter}:\", "${letter}:\sub\..") {
+                Assert-Code "s6 uninstaller on the root $target" (Invoke-Exe $aside "/S _?=$target") 13
+              }
+              if (-not (Test-Path -LiteralPath $planted)) { throw '(s6) The uninstaller deleted a file in the drive root.' }
+              Assert-Shortcut 's6 uninstaller on the root' $startMenu
+              Remove-Item -LiteralPath $planted
               # A /D= folder NSIS cannot use, or a /D= switch it does not take (D101): refused, never replaced.
               $missing = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
               if (-not $missing) { throw '(s6) No free drive letter for the missing-drive case.' }
@@ -787,11 +800,16 @@ jobs:
                 'drive-relative path' = "/S /D=$env:SystemDrive$relative"
                 'a file in the path' = "/S /D=$notFolder\DialShift"
                 'a file' = "/S /D=$notFolder"
-                'forward slashes' = "/S /D=$($root -replace '\\', '/')/Programs3/DialShift"
+                'forward slashes' = "/S /D=$($root -replace '\\', '/')/Programs5/DialShift"
                 'quoted folder' = "/S /D=`"$spaced`""
                 'empty /D=' = '/S /D='
                 'quoted switch' = "/S `"/D=$spaced`""
-                'lowercase switch' = "/S /d=$root\Programs4\DialShift"
+                'lowercase switch' = "/S /d=$root\Programs6\DialShift"
+                # Kept by NSIS but read as another folder: $root\Programs3DialShift, "$root\Programs4\DialShift NCRC".
+                'a slash inside' = "/S /D=$root\Programs3/DialShift"
+                'text after /D=' = "/S /D=$root\Programs4\DialShift /NCRC"
+                # Longer than NSIS keeps (1023 characters or more): its /D= would be cut short or never seen.
+                'a long command line' = "/S /X=$('x' * 1030) /D=$root\Programs7\DialShift"
               }
               foreach ($case in $unusable.Keys) { Assert-Code "s6 $case" (Invoke-Setup $unusable[$case]) 13 }
               if ((Get-FileHash -LiteralPath $notFolder -Algorithm SHA256).Hash -ne $notFolderHash) { throw '(s6) The file given as the folder changed.' }
@@ -813,7 +831,7 @@ jobs:
             Assert-Unchanged 's6' $before
             Assert-Entry 's6'
             Assert-Clean 's6'
-            Write-Host '(s6) Folder refusals (the emptied settings folder, a folder inside it, a foreign folder, DialShift.exe among other files, drive roots, unusable /D= folders and switches, a second location): exit 13, nothing created or changed.'
+            Write-Host '(s6) Folder refusals (the emptied settings folder, a folder inside it, a foreign folder, DialShift.exe among other files, drive roots, the uninstaller on a root, unusable /D= folders and switches, a command line too long, a second location): exit 13, nothing created or changed.'
 
             $message = "DialShift in $install was installed with DialShift Setup. To upgrade it, run the new DialShift-Setup-win-x64.exe, or uninstall DialShift in Settings > Apps first." -replace '\s', ''
             $result = Invoke-Install
@@ -874,14 +892,30 @@ jobs:
             $left = @(Get-ChildItem -LiteralPath $install -Recurse -Force | ForEach-Object Name)
             if ("$left" -ne 'Uninstall DialShift.exe') { throw "(s9) The install folder holds '$($left -join "', '")', expected only the uninstaller." }
             # A folder with only the uninstaller (an in-place or interrupted uninstall) is still an install to repair.
-            Assert-Code 's9 reinstall' (Invoke-Setup "/S /D=$install") 0
+            # With a trailing backslash, which NSIS and the setup take as the same folder (D101).
+            Assert-Code 's9 reinstall' (Invoke-Setup "/S /D=$install\") 0
             Assert-OnlyInstall 's9 reinstall'
             Assert-Installed 's9 reinstall'
             Assert-Entry 's9 reinstall'
             Assert-Code 's9 second uninstall' (Invoke-Exe $uninstaller "/S _?=$install") 0
             Remove-Item -LiteralPath $install -Recurse -Force
+            # A fresh install into a folder with spaces and a non-ASCII letter, /D= unquoted as NSIS requires (D101).
+            $spacedParent = Join-Path $root "Spaced Caf$([char]0x00E9) Folder"
+            $spacedInstall = Join-Path $spacedParent 'DialShift'
+            Assert-Code 's9 spaces' (Invoke-Setup "/S /D=$spacedInstall") 0
+            if ("$(Get-Names $spacedParent)" -ne 'DialShift') { throw "(s9) $spacedParent holds '$((Get-Names $spacedParent) -join "', '")', expected only DialShift." }
+            $diff = @(Compare-Object $expectedTree @(Get-Tree $spacedInstall | Where-Object { $_ -notlike 'Uninstall DialShift.exe *' }))
+            if ($diff.Count) { throw "(s9) The files installed in $spacedInstall differ from the package: $(($diff | Select-Object -First 10 | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" }) -join '; ')" }
+            $location = (Get-ItemProperty -Path $uninstallKey).InstallLocation
+            if ($location -cne $spacedInstall) { throw "(s9) InstallLocation is '$location', expected '$spacedInstall'." }
+            $target = $shell.CreateShortcut($startMenu).TargetPath
+            if ($target -ne (Join-Path $spacedInstall 'DialShift.exe')) { throw "(s9) The Start menu shortcut starts '$target'." }
+            Assert-Code 's9 spaces uninstall' (Invoke-Exe (Join-Path $spacedInstall 'Uninstall DialShift.exe') "/S _?=$spacedInstall") 0
+            if (Test-Path -LiteralPath $uninstallKey) { throw '(s9) The uninstall key of the install with spaces is still there.' }
+            if (Test-Path -LiteralPath $startMenu) { throw '(s9) The Start menu shortcut of the install with spaces is still there.' }
+            Remove-Item -LiteralPath $spacedParent -Recurse -Force
             Assert-Clean 's9'
-            Write-Host '(s9) Setup over an Install.ps1 install, then an in-place uninstall: passed; the Run value of another copy was kept; a folder with only the uninstaller was reinstalled.'
+            Write-Host '(s9) Setup over an Install.ps1 install, then an in-place uninstall: passed; the Run value of another copy was kept; a folder with only the uninstaller was reinstalled (/D= with a trailing backslash); a fresh install into a folder with spaces and a non-ASCII letter, and its uninstall, passed.'
           } finally {
             Get-Process DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$root\*" } | Stop-Process -Force
             foreach ($path in $denied) { if (Test-Path -LiteralPath $path) { Undo-Deny $path } }
