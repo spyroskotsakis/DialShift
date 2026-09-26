@@ -3,7 +3,8 @@
 > **Status: implemented, 2026-09-26.** Branch `feature/windows-installer` (from `main` at `fb0ef0b`). Public CI is green
 > on `windows-latest`, `macos-latest` and the cross-build job (the Mac-built and Windows-built setups byte-identical) at
 > `b655d67` (run `36230181228`), `cf21fc1` (`36231552864`), `b7017d7` (`36233711767`), `9322106` (`36235173662`) and
-> `b76356e` (`36238278091`), the last two after macOS re-runs; D101's eighth round awaits its run. NC-19 (a real PC) is
+> `b76356e` (`36238278091`), the last two after macOS re-runs, and at `6cbc311` (`36240957220`), the last of
+> D101's eight rounds. NC-19 (a real PC) is
 > open. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
 > `docs/decisions.md` say so, and §5 below follows the build.
 > This is brief 4, after `single-codebase-refactor.md` (brief 1), `schedule-timezone-research.md` (brief 2) and
