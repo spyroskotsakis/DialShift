@@ -208,7 +208,8 @@ public static class AppLifecycleTests
         app.App.Quit();
         var code = await app.WaitForExitAsync();
         watch.Stop();
-        Console.WriteLine($"  quit with a hanging coordinator took {watch.Elapsed.TotalSeconds:F1} s");
+        // The code, so a failure says which half broke: none means the wait gave up (Headless.WaitTimeout), not a wrong code.
+        Console.WriteLine($"  quit with a hanging coordinator took {watch.Elapsed.TotalSeconds:F1} s, exit code {code?.ToString() ?? "none"}");
         Check("HS-14 CR-02 HZ-02 a coordinator whose dispose hangs cannot block quit: exit 0 within the documented bound (< 8 s)",
             code == 0 && watch.Elapsed < TimeSpan.FromSeconds(8));
         Check("HS-14 CR-02 the timeout is logged and app.exit reports clean=False",

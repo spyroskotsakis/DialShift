@@ -14,8 +14,8 @@ namespace DialShift.Tests.Catalog;
 /// Content item copies <c>app-catalog.json</c> next to the test binary through the project reference), CAT-04's "the
 /// default location in the test process loads the real file", and CAT-01's export contract, read independently of the
 /// provider and compared with it and with <c>data/canonical/*.csv</c>, including the D84 shape of <c>language</c> (a
-/// normalized list of single names), the D86/D90 one spelling per place among the city values, and CAT-08's Language
-/// filter over the real entries.
+/// normalized list of single names), D88's rule 9 on <c>frequency_fm</c>, the D86/D90 one spelling per place among the
+/// city values, and CAT-08's Language filter over the real entries.
 /// </summary>
 /// <remarks>
 /// These are the only catalog checks that read the real file. They assert its contract, never its contents: the station
@@ -81,6 +81,7 @@ internal static class CatalogExportContractTests
         Order(result.Catalog.Entries);
         Languages(result.Catalog.Entries);
         TagNotes(result.Catalog.Entries);
+        Frequencies(result.Catalog.Entries);
         Cities(result.Catalog.Entries);
         LanguageFilter(result.Catalog.Entries);
         Canonical(root, result.Catalog.Entries);
@@ -264,6 +265,55 @@ internal static class CatalogExportContractTests
                                  && t.Any(char.IsLetterOrDigit))
                 && tags.Select(t => t.Normalize(NormalizationForm.FormC)).Distinct(StringComparer.OrdinalIgnoreCase).Count() == tags.Length;
         }
+    }
+
+    /// <summary>A number as §2.3 rule 9 reads one (the pipeline's <c>_FREQUENCY_NUMBER</c>): ASCII digits with at most one '.'.</summary>
+    private static readonly Regex FrequencyNumber = new(@"^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)\z", RegexOptions.CultureInvariant);
+
+    /// <summary>The shape of a band word (D88, <c>data/frequency-bands.yaml</c>): one word of letters only, at most 16 characters.
+    /// The words themselves are the YAML's; the check names none.</summary>
+    private static readonly Regex BandWordShape = new(@"^\p{L}{1,16}\z", RegexOptions.CultureInvariant);
+
+    /// <summary>A band word is the exception (1 entry at <c>02400f5</c>): more than this many entries means values the
+    /// FM/kHz rules should cover are being listed as words instead.</summary>
+    private const int MaxBandWordEntries = 5;
+
+    /// <summary>
+    /// D88, §2.1 <c>frequency_fm</c> and §2.3 rule 9, mirrored over the checked-in file: every value is <c>""</c>; an FM value
+    /// written with a '.' from 64 to 108; a kHz integer (no '.') from 150 to 30,000; or a band word (<see cref="BandWordShape"/>),
+    /// which at most <see cref="MaxBandWordEntries"/> entries use. Core's <c>BandOf</c> agrees on each class: FM, kHz, and
+    /// neither for a band word, which the app shows as written.
+    /// </summary>
+    private static void Frequencies(IReadOnlyList<StationCatalogEntry> entries)
+    {
+        int fm = 0, khz = 0, empty = 0;
+        var highestKhz = 0m;
+        var bandWords = new List<string>();
+        var bad = new List<StationCatalogEntry>();
+        foreach (var e in entries)
+        {
+            var value = e.FrequencyFm;
+            var number = FrequencyNumber.IsMatch(value)
+                && decimal.TryParse(value, System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var n)
+                ? n : (decimal?)null;
+            var band = StationCatalogQuery.BandOf(value);
+            if (value.Length == 0) empty++;
+            else if (number is >= 64 and <= 108 && value.Contains('.') && band == FrequencyBand.Fm) fm++;
+            else if (number is >= 150 and <= 30_000 && !value.Contains('.') && band == FrequencyBand.Kilohertz)
+            {
+                khz++;
+                highestKhz = Math.Max(highestKhz, number.Value);
+            }
+            else if (number is null && BandWordShape.IsMatch(value) && band == FrequencyBand.None) bandWords.Add(value);
+            else bad.Add(e);
+        }
+        Console.WriteLine($"  frequency_fm: {fm} FM, {khz} kHz (highest {highestKhz}), {bandWords.Count} band word ({string.Join(", ", bandWords.Distinct())}), {empty} empty");
+        foreach (var e in bad.Take(10)) Console.WriteLine($"  frequency_fm {CatalogFixtures.Show(e.FrequencyFm)}: {e.Name} ({e.Country})");
+        Check($"CAT-01 D88 rule 9: every frequency_fm is \"\", an FM value with a '.' (64–108), a kHz integer (150–30,000) or a band word " +
+              $"(letters only, ≤ 16 characters), and Core's BandOf agrees (FM, kHz, none) (actual {bad.Count} other)",
+            bad.Count == 0 && fm > 0 && khz > 0);
+        Check($"CAT-01 D88 band words are the exception: at most {MaxBandWordEntries} entries use one (actual {bandWords.Count})",
+            bandWords.Count <= MaxBandWordEntries);
     }
 
     /// <summary>

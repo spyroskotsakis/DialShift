@@ -344,10 +344,10 @@ internal static class CatalogPerfTests
 
         async Task<bool> PostedAsync()
         {
-            var deadline = DateTime.UtcNow + Headless.WaitTimeout; // real time: only bounds the wait
+            var deadline = new TestDeadline(Headless.WaitTimeout);
             while (ui.Pending == 0)
             {
-                if (DateTime.UtcNow > deadline) return false;
+                if (deadline.HasPassed) return false;
                 await Task.Delay(1);
             }
             return true;

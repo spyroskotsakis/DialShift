@@ -99,8 +99,8 @@ public static class PlaybackLoopTests
             clean && engine.IsDisposed && coordinator.Snapshot.Status == PlaybackStatus.Disposing);
         var starts = engine.Starts.Count;
         await coordinator.PlayAsync(settings.Stations[0].Id);
-        var until = DateTime.UtcNow + TimeSpan.FromSeconds(1.5);
-        await WaitAsync(() => DateTime.UtcNow > until);
+        var quiet = new TestDeadline(TimeSpan.FromSeconds(1.5));
+        await WaitAsync(() => quiet.HasPassed);
         Check("HS-14 BHV-43 after quit no tick runs and no command starts playback", coordinator.Ticks == ticks && engine.Starts.Count == starts);
         Check("HS-14 no tick failed", !log.HasEvent("playback.tick_failed"));
     }
@@ -116,8 +116,8 @@ public static class PlaybackLoopTests
         var host = new PlaybackHost(fake, log);
         host.Start();
         host.Start();
-        var until = DateTime.UtcNow + TimeSpan.FromSeconds(2.4);
-        await WaitAsync(() => DateTime.UtcNow > until);
+        var ticking = new TestDeadline(TimeSpan.FromSeconds(2.4));
+        await WaitAsync(() => ticking.HasPassed);
         Console.WriteLine($"  ticks in 2.4 s after two Start calls: {fake.Ticks}");
         Check("HS-14 D18 Start is idempotent: one 1 s loop (2 ticks in 2.4 s, not 4)", fake.Ticks is >= 1 and <= 3);
         Check("HS-14 D18 ticks run on the UI thread", Avalonia.Threading.Dispatcher.UIThread.CheckAccess());

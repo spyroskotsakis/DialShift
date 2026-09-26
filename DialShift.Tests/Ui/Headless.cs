@@ -72,10 +72,10 @@ public static class Headless
     /// <summary>Pumps until <paramref name="condition"/> holds; false after <see cref="WaitTimeout"/>.</summary>
     public static async Task<bool> WaitAsync(Func<bool> condition)
     {
-        var deadline = DateTime.UtcNow + WaitTimeout; // real time on purpose: bounds a test's wait only
+        var deadline = new TestDeadline(WaitTimeout);
         while (!condition())
         {
-            if (DateTime.UtcNow > deadline) return false;
+            if (deadline.HasPassed) return false;
             await PumpAsync(1);
         }
         return true;
