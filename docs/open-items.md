@@ -50,7 +50,7 @@
 - the small follow-ups in [§2.9](#29-follow-ups-that-depend-on-the-above), which depend on what these checks observe;
 - the release-engineering and maintainer items in [§2.10](#210-release-engineering-not-blocked-on-hardware-7-items), which need no hardware.
 
-Native checks: 17 open. NC-01..NC-13 and NC-15..NC-18, where NC-07, NC-13 and NC-17 are partly done; NC-18 comes from brief 3 (the catalog search, D82) and needs only a Windows machine with Windows PowerShell 5.1 ([§2.11](#211-a-windows-machine-with-windows-powershell-51-1-item-brief-3)). NC-14 (Intel) is not applicable (D13).
+Native checks: 18 open. NC-01..NC-13, NC-15..NC-18 and NC-20, where NC-07, NC-13, NC-17 and NC-20 are partly done; NC-18 comes from brief 3 (the catalog search, D82) and needs only a Windows machine with Windows PowerShell 5.1 ([§2.11](#211-a-windows-machine-with-windows-powershell-51-1-item-brief-3)). NC-20, added for the 0.4.1 fix for `https://` stations on Windows (D100), is PASS (partial): its SomaFM part passed by hand on 2026-09-26 in a Windows 11 ARM64 VM, and the full row is to be re-run on the release build ([§2.14](#214-a-windows-machine-whose-root-store-can-be-edited-1-item-partly-done-d100)). NC-14 (Intel) is not applicable (D13).
 
 ---
 
@@ -183,9 +183,9 @@ How to read the tables:
 | NC-04 + NC-10 | BHV-59, MX-07, MX-15, DOD-06 | 4 |
 | NC-03 | BHV-39 | 1 |
 | NC-03 + NC-11 | BHV-37 | 1 |
-| NC-03 + NC-15 | MX-10 | 1 |
+| NC-03 + NC-15 + NC-20 | MX-10 | 1 |
 | NC-11 + NC-16 | MX-11 | 1 |
-| NC-03 + NC-11 + NC-15 + NC-16 | MX-13 | 1 |
+| NC-03 + NC-11 + NC-15 + NC-16 + NC-20 | MX-13 | 1 |
 | **Total** | | **44** |
 
 Outside §3, these rows flip as well:
@@ -243,6 +243,14 @@ The run also settles brief §10's definition of done ("the 24 existing suites pl
 | Greek-script `norm()` keys (D90 (b)) | `norm()`'s Greek transliteration does not cover accented Greek letters, so a Greek-script city value gives a mixed-script key (`norm('Βέροια (Greece)')` = `vεroia greece`); an alias for such a value must be written in that mixed form. The Greek-script values (`Αθήνα`, `Θεσσαλονίκη`, `Καστοριά`, …) and `Берлин` are still separate City values | Limitation of the pipeline; affects only how those aliases are written | maintainer (data), then the data lane | Either the transliteration covers the tonos (a pipeline change, which would change keys and so needs a decision), or the Greek-script values are aliased in the mixed form |
 | German state names: the tie-break (D90 item 1) | Each state has the spelling with the most exported rows; on a tie the spelling more rows already carried exactly wins (accepted: `Saxony-Anhalt` over `Sachsen-Anhalt`, 43 to 43, decided 43 to 42). After a `--refresh` the majority can move: the aliases then still map to the old choice, and any change of target is a new decision, not a silent re-run | Note for the next refresh | maintainer (data) | Checked at each refresh: the D90 counts in the run's output and the committed JSON |
 
+### 2.14 A Windows machine whose root store can be edited (1 item, partly done, D100)
+
+**Partly done on 2026-09-26, by hand, in a virtual machine, not on a physical PC.** The full row is re-run by the orchestrator on the release build. The hosted `windows-latest` runners have every root installed, which is why CI never showed the defect D100 fixes (0.4.0 played no `https://` station on a Windows whose root store lacked the station's root), and this Mac has no Windows root store.
+
+| Item | What's left | Result so far | Procedure | Pass (short) | Rows it unblocks |
+|---|---|---|---|---|---|
+| NC-20 | The whole row on the release build: step (3)'s `https://` catalog station, the event 4097 record and the "no `playback.tls_warmup` warning" criterion were not recorded | **PASS (partial).** Windows 11 ARM64 in a Parallels VM (build 26100, the x64 app under emulation). The root removed from `LocalMachine\AuthRoot` (`LocalMachine\Root` view count 0). Builds `0.4.1+0a472f6` and `0.4.1+afc5644`: 12 of 12 SomaFM starts played each time (Drone Zone, Secret Agent, Groove Salad ×4), 0 `TlsFailure`; the root was back afterwards (view count 1). Same VM, root removed, 0.4.0: 0 plays, 37 `TlsFailure` | §9 NC-20 | SomaFM and a catalog station play on the first attempt; no `TlsFailure` and no `playback.tls_warmup` warning; event 4097 adds the root; it is back in the store | MX-10 and MX-13, together with NC-03 and NC-15 (MX-13 also NC-11, NC-16); D100's by-hand verification |
+
 
 ---
 
@@ -258,13 +266,13 @@ The fastest wins come first. They run on the dev box, and each one unblocks the 
 | 4 | **NC-10 + NC-13 LaunchAgent half** | Dev box, 3–4 log out/in cycles | 45–60 min | One session closes both. After it, the launch-at-login rows wait only on NC-04 |
 | 5 | **NC-11** (network faults) | Dev box, plus a captive-portal network | 30–60 min, plus finding a captive portal | Needed for BHV-37, MX-11 and MX-13 |
 | 6 | **NC-08** (lid close) | A MacBook | 45–60 min, plus a platform-lane dev build with `MacPowerEvents.Start` disabled for step 4 (about 15 min) | Pairs with NC-02 for the sleep rows, QA-N1 and TZ-12 |
-| 7 | **Windows hardware block**, in this order: NC-01, NC-06, NC-04, NC-02, NC-03, NC-15 (and NC-05 (a) if the PC is clean; NC-18 on the same PC, or earlier on any Windows VM) | One Windows 11 x64 PC with speakers | NC-01: 1.25–1.75 h (about 15 min of it for step 4b, the Add-station dialog); NC-06: 15 min; NC-04: 45–60 min (several sign-outs); NC-02: 1.5–2 h, plus a dev build for step 4 and for recording the thread; NC-03: 2–3 h; NC-15: 1–2 h including the UI Automation script; NC-05 (a): 15 min; NC-18: about 30 min with the contracts §8 CAT-03 fixtures | With steps 2–4 done, NC-01 and NC-06 flip 25 rows, and NC-04 flips the 4 launch-at-login rows. NC-02 unblocks SR-02 and HZ-04 |
+| 7 | **Windows hardware block**, in this order: NC-01, NC-06, NC-04, NC-02, NC-03, NC-15 (and NC-05 (a) if the PC is clean; NC-18 and the rest of NC-20 on the same PC, or earlier on any Windows VM) | One Windows 11 x64 PC with speakers | NC-01: 1.25–1.75 h (about 15 min of it for step 4b, the Add-station dialog); NC-06: 15 min; NC-04: 45–60 min (several sign-outs); NC-02: 1.5–2 h, plus a dev build for step 4 and for recording the thread; NC-03: 2–3 h; NC-15: 1–2 h including the UI Automation script; NC-05 (a): 15 min; NC-18: about 30 min with the contracts §8 CAT-03 fixtures | With steps 2–4 done, NC-01 and NC-06 flip 25 rows, and NC-04 flips the 4 launch-at-login rows. NC-02 unblocks SR-02 and HZ-04 |
 | 8 | **SR-02** comment fix | Any machine | About 10 min, platform lane | Right after NC-02 |
 | 9 | **NC-07** (clean Apple Silicon Mac) | A clean Mac | 30–45 min once the machine exists | The last check for MX-12, SP-02, DOD-04 and DOD-05, and it changes the README wording |
 | 10 | **NC-16** (macOS 14 corpus) | A macOS 14 Mac | 1–2 h | May change the README "Formats" line or the minimum version |
 | 11 | **Signing: NC-05 (b), NC-09** | Release pipeline | Getting the certificates is outside the team and can take days to weeks. Then about half a day to a day of release-lane script work (Developer ID signing, hardened runtime, entitlements, notarization, Authenticode), plus about 1 h to verify each | Release gate only. No §3 row depends on it |
 
-The [§2.10](#210-release-engineering-not-blocked-on-hardware-7-items) items need no hardware. All are done; the private repository's Actions stay refused for billing until the maintainer fixes it, and the local backup path (D58) releases without them. `v0.3.0` (D57) and `v0.4.0` (D92) are released, so the native checks above run against a released build and are tracked for 0.4.x; run the Windows hardware block and NC-18 from the `v0.4.0` release's `DialShift-win-x64.zip`, so that NC-01's smoke (36/36) and step (4b) cover the station catalog. Any zip built at or after `65771f7` (the `v0.3.0` and `v0.4.0` releases' included) has the fixed `Install.ps1` that NC-04 step 6 tests.
+The [§2.10](#210-release-engineering-not-blocked-on-hardware-7-items) items need no hardware. All are done; the private repository's Actions stay refused for billing until the maintainer fixes it, and the local backup path (D58) releases without them. `v0.3.0` (D57) and `v0.4.0` (D92) are released, so the native checks above run against a released build and are tracked for 0.4.x; run the Windows hardware block and NC-18 from the `DialShift-win-x64.zip` of `v0.4.1` or later, so that NC-01's smoke (36/36) and step (4b) cover the station catalog, and so that `https://` stations (the starter stations among them) play on a PC that lacks their root certificate: 0.4.0 fails them there (D100). NC-20 needs 0.4.1 or later; its SomaFM part passed on `0.4.1+0a472f6` and `0.4.1+afc5644` (§2.14). Any zip built at or after `65771f7` (the `v0.3.0` and `v0.4.0` releases' included) has the fixed `Install.ps1` that NC-04 step 6 tests.
 
 ---
 

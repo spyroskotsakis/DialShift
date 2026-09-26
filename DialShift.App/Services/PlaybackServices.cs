@@ -56,8 +56,8 @@ public sealed record PlaybackEngineOptions(string? AudioOutput)
 }
 
 /// <summary>
-/// Creates the one <see cref="IPlaybackEngine"/> for this OS: Windows → <see cref="LibVlcPlaybackEngine"/>, macOS →
-/// <see cref="MacAvPlayerPlaybackEngine"/>.
+/// Creates the one <see cref="IPlaybackEngine"/> for this OS: Windows → <see cref="LibVlcPlaybackEngine"/> with its
+/// <see cref="WindowsTrustWarmup"/> (D100), macOS → <see cref="MacAvPlayerPlaybackEngine"/>.
 /// </summary>
 /// <remarks>
 /// <para><b>Why a factory and not an <see cref="IPlaybackEngine"/> service (D17).</b> <see cref="PlaybackCoordinator"/> owns
@@ -97,7 +97,8 @@ public sealed class PlaybackEngineFactory
             throw new InvalidOperationException("The playback engine is created once, for the playback coordinator, which owns it (D17).");
         LogAudioOutputOverride();
         if (OperatingSystem.IsWindows())
-            return new LibVlcPlaybackEngine(log, options.DummyAudioOutput ? LibVlcEngineOptions.Dummy : LibVlcEngineOptions.Default);
+            return new LibVlcPlaybackEngine(log, options.DummyAudioOutput ? LibVlcEngineOptions.Dummy : LibVlcEngineOptions.Default,
+                new WindowsTrustWarmup(WindowsTrustWarmup.CreateHandler(), log)); // owned by the engine (D100)
         if (OperatingSystem.IsMacOS()) return new MacAvPlayerPlaybackEngine(log);
         throw new PlatformNotSupportedException("DialShift plays audio on Windows (LibVLC) and macOS (AVPlayer) only.");
     }
