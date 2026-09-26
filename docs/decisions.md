@@ -28,7 +28,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D22 | 2026-09-25 | `LSMinimumSystemVersion` is 14.0; the AVPlayer corpus is verified only on macOS 26.5 | brief 1 §4.3, §7.2, §8 |
 | D23 | 2026-09-25 | The engine comes from a single-use `PlaybackEngineFactory`; `IPlaybackEngine` is never registered | brief 1 §4.2, §5.4–§5.6 |
 | D24 | 2026-09-25 | Single instance keeps a listening server instance armed, handles at most 2 connections at once, uses `FirstPipeInstance` only on a real bind, and tightens socket permissions on every (re-)bind (SI-D1) | brief 1 §7.5 |
-| D25 | 2026-09-25 | `FileAppLog` serializes processes with a lock file in the per-user temp dir, waits at most 250 ms, and never throws (LOG-D1) | brief 1 §7.9, §11 DoD |
+| D25 | 2026-09-25 | `FileAppLog` serializes processes with a lock file in the per-user temp dir, waits at most 250 ms, and never throws (LOG-D1); amended by D103 (the 250 ms counts from the holder's last progress; 2 s in total) | brief 1 §7.9, §11 DoD |
 | D26 | 2026-09-25 | No track metadata on macOS; LibVLC titles on Windows only for `http://` streams | brief 1 §4.3 step 7, §7.8 |
 | D27 | 2026-09-25 | Objective-C interop lives only in `DialShift.App/Interop/` | brief 1 §6, §7.8 |
 | D28 | 2026-09-25 | SIGTERM/SIGINT use the normal quit path; an OS-initiated shutdown is never vetoed, and settings are saved synchronously | brief 1 §4.1, BHV-11 |
@@ -106,6 +106,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D100 | 2026-09-26 | Windows https streams: before LibVLC opens an https source, the engine has Windows fetch any missing trusted root through one .NET request to the stream (`IStreamTrustWarmup`, `WindowsTrustWarmup`): redirects followed, default validation, no user-info, headers only, 5 s bound, the answering origin cached, failures logged and ignored; a playlist's https entry is warmed too. Found on a Windows 11 VM lacking the root, where every https station failed `TlsFailure`; NC-20 PASS in that VM on `0.4.1+8742646` and on the released `v0.4.1` zip (SomaFM and a catalog station, 12 of 12 each); HS-17 LV-01..LV-12 green on `windows-latest` (CI `36231303045`); released as `v0.4.1` on 2026-09-26 at `faaf781` (public Release run `36232921118`; private by `release-local.sh`) | brief 1 §5.6, §7.8, §11; D17, D40 |
 | D101 | 2026-09-26 | Setup `/D=` and uninstaller `_?=`: each works in exactly the folder its switch names; the setup installs in exactly the folder `/D=` names (its text less trailing `\` and spaces, as `$INSTDIR` reads) or exits 13, never in a folder NSIS substituted or reads differently; a `/D=` NSIS does not take and a command line longer than 1,023 characters are refused too; `AllowRootDirInstall true`, so drive and share roots reach the refusal; the folder (and the uninstaller's `_?=`) must be an ordinary absolute path after a leading `\\?\` is dropped, not a root, and short enough for the payload; records the exit codes 10–15 (amends D94, D96) | brief 4 §5.2, §5.4, §5.9, §8.1 (s6); D94, D96, D99 |
 | D102 | 2026-09-26 | CAT-16 timings measured at the JIT's steady state, retried only on a busy machine: budgets unchanged; before anything is gated, 3 rounds of 20 loads of each file, a search per query and calibration passes, each round then a 250 ms pause, so attempts 1, 2 and 3 agree whatever the suite order (the gated real load is about 13 ms instead of 26 ms standalone, 14–15 ms in a full run); a calibration workload that runs none of the code under test is timed around each attempt: over budget on a quiet machine (within 1.2× of the fastest calibration) fails at once, over budget on a busy one is retried after 10 s, then 30 s (up to 3 attempts, each gate on its best), busy in all three fails as inconclusive. Found by the public v0.4.1 Release run `36232921118`, attempt 1 (`FAIL: CAT-16 load median (synthetic 10000) 67.1 ms < 50 ms` on a slow hosted runner; its re-run passed and published 0.4.1). The first implementation (`ca2b676`, retries in the same process or in a fresh one) was rejected by QA for depending on the suite order. Proofs: a 45 ms load regression fails fast on a quiet machine; contention in attempt 1 only is retried and passes; contention in every attempt fails as inconclusive (amends D69, D80) | brief 3 §5.2, §9, §10; D69, D80 |
+| D103 | 2026-09-26 | Log lock: a waiter keeps waiting while the lock's holder makes progress (the log file's size or write time changes) and gives up only after 250 ms without progress or 2 s in total. Before, it gave up 250 ms after its first refused attempt, even on a busy holder: on Windows, where `Thread.Sleep(1)` lasts 15.6 ms, it could miss every gap between another writer's holds, then appended without the lock and overwrote a line (LOG-D2; public CI `36240070619`, `windows-latest`, LOG-D1 rotation). A deterministic check fails 10 of 10 runs before the fix (amends D25) | brief 1 §7.9, §11 DoD; D25 |
 | D104 | 2026-09-26 | The setup's Welcome and Finish image is DialShift's own: the app icon's clock mark on its dark background, drawn deterministically by `scripts/windows-setup/wizard-image.py` at 100–300 % during the build, the drawing nearest the image control's width shown at run time (extracted once, the 100 % one if it fails to load), each checked by `verify-win-setup.sh`, replacing the Modern UI's stock art; seen at 200 % in NC-19; slightly out of round at some scales (known limitation) | brief 4 §5.10; NC-19; D98, D101 |
 
 
@@ -315,6 +316,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Rationale:** This fixes LOG-D1. A second launch logs to the same file while the primary runs. .NET's `FileMode.Append` is not an atomic append, so two processes overwrote each other's lines, and two rotations could lose `dialshift.log.1`. The lock file lives in the temp dir because the data directory holds only the files §8.2.6 lists.
 - **Consequence:** Tested by LOG-D1: two processes write 4 000 lines with none lost or torn, and under rotation each process's kept lines are consecutive. Also by the §8.2.7 never-throws checks.
 - **Brief ref:** brief 1 §7.9, §11 DoD; matrix §8.2.7.
+- **Amended by D103:** the 250 ms count from the holder's last progress (the log file changing), not from the first refused attempt, and a write waits at most 2 s in total (`LockWaitLimit`). Giving up on a busy holder lost a line on a Windows runner (LOG-D2).
 
 ## D26 — No track metadata on macOS; `http://` only on Windows
 
@@ -1396,9 +1398,53 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   - Contracts §8 CAT-16 and matrix §11 CAT-16 describe the gate, and the matrix row carries this evidence. CAT-16 stays GREEN.
 - **Brief ref:** brief 3 §5.2, §9 (performance), §10 (CI on both OSes); D69, D80.
 
+## D103 — Log lock: wait while the holder makes progress (LOG-D2)
+
+- **Status:** Adopted (platform lane, 2026-09-26, `fix/log-rotation`, after an intermittent LOG-D1 failure on a hosted Windows runner). Amends D25 (the wait) and matrix §8.2.7. (D101 is used on another branch.)
+- **Context.**
+  - **The failure.** Public CI run [`36240070619`](https://github.com/spyroskotsakis/DialShift/actions/runs/36240070619), attempt 1, `build / windows-latest`, `main` at `df9c232`: `FAIL: LOG-D1 rotation: each process's kept lines (.1, then the live file) are consecutive and end with its newest`. Every kept line was valid JSON (`dialshift.log` 730,645 bytes, `dialshift.log.1` 1,048,529 bytes, 18,821 of 30,000 lines kept). Its re-run passed. The only change since the last green `main` run was test code in another suite (CAT-16, D102).
+  - **Root cause: the waiter gave up on a busy holder, not a stuck one.** D25's lock is not fair. A waiter polls: 3 yields, then `Thread.Sleep(1)` between attempts. Each writer holds the lock for one hold, releases it and takes it again for its next line a few microseconds later. A waiter gets the lock only if one of its polls lands in such a gap. On Windows `Thread.Sleep(1)` lasts a whole 15.6 ms timer tick, so a waiter polls about 16 times in 250 ms. On the runner a hold took about 340 µs (30,000 writes in 10 s). A waiter could therefore miss every gap for 250 ms while the holder was writing normally. D25 then took the holder for stuck and appended without the lock. `FileMode.Append` is not an atomic append (LOG-D1): the writer that gave up writes at the end it found when it opened the file. When the holder appends in between, the second write overwrites that line. Two lines of the same length leave only valid JSON and one line missing, which is the CI signature. A shorter one leaves a torn tail.
+  - **The test's expectation was right.** Under the lock every rotation drops a prefix of the global order, so each writer's kept lines are a suffix of its own sequence. No line can straddle a rotation: the size check, the rename and the append run under the lock, and the write is flushed and closed before the lock is released (`using` order). The other suspects were ruled out:
+    - A rename while a writer holds the old file open: under the lock no writer has the log open.
+    - A buffered write flushed after the release: the log stream is disposed before the lock stream.
+    - A replaced `.1` still open elsewhere: only a writer that gave up can hold it, and that is this defect.
+  - **Evidence on macOS** (Apple M4 Max, Debug; the probes were temporary and are reverted):
+    - A probe that printed each give-up to stderr: none in 20 runs of the suite. At stock timing macOS polls about every 1 ms and the lock is taken quickly.
+    - With the poll sleep set to 15 ms, as on Windows, the waiters gave up on busy holders: 4 give-ups in 20 runs of the suite.
+    - The 8-writer check below, before the fix: 20 of 20 runs passed at stock timing. With the 15 ms poll, 2 of 10 failed, each run with exactly one give-up. One lost a line: `15999 lines of 16000`, all valid JSON. The other tore one: `dialshift.log.1 line 5884 is not a whole x.child line: "}"`.
+    - The deterministic check below, before the fix: it failed in 10 of 10 runs. The write returned after 250 ms and its line was in the middle of the holder's (`H … H W H … H`).
+- **Decision.** A waiter keeps waiting while the holder makes progress. It measures from the holder's last progress, not from its own first refused attempt:
+  - **Progress.** Each hold appends a line, so the log file's size or last-write time changes. Only after a refused attempt, the waiter reads them (`FileInfo`: one stat per poll).
+  - **Stuck.** When the log file has not changed for **`LockWaitBudget` (250 ms)**, the holder is stuck (for example suspended in a debugger). Then the waiter appends without the lock and without rotating, as in D25.
+  - **Limit.** It waits at most **`LockWaitLimit` (2 s)** in total, even while the holders keep writing. After that it appends without the lock, and the D25 overwrite can happen.
+  - An uncontended write is unchanged: no clock is started and no stat is made.
+  - The poll back-off is unchanged. Spinning instead would compete with the holders for the runner's cores.
+- **Not adopted.**
+  - *A larger fixed budget.* A stuck holder would block every write of every other process for that long.
+  - *A named `Mutex`.* D25 rejected it as thread-affine, with semantics that differ between platforms.
+  - *An `O_APPEND` / `FILE_APPEND_DATA` writer for the give-up path.* It would need P/Invoke on Unix and still leaves the give-up path unordered. It would also hide a waiter that gives up on a healthy holder, which is the actual defect.
+- **Limits.**
+  - **A log call can now wait up to 2 s instead of 250 ms**, on the UI thread too. That happens only against another process that keeps logging for that long without a pause, which the app's writers never do: a second launch logs a few lines and exits, and the primary logs events, not a stream of lines.
+  - **A hold that stalls for 250 ms.** For example, an antivirus scan inside one open, rename or close. A waiter reads that as stuck, and the D25 overwrite can happen. The slowest write in the suite's children is printed on every run: about 25–70 ms on this Mac. On the hosted Windows runner (public CI [`36243041055`](https://github.com/spyroskotsakis/DialShift/actions/runs/36243041055), at `530a3c1`) the slowest child writes on `windows-latest`: two processes 100.3 / 83.3 ms, rotation 168.9 / 141.1 ms, 8 writers round 1 up to 260.8 ms (in two children, 1 of 2,000 writes took 250 ms or more; every line was still kept). Those are waits for busy holders, not single stalled holds, and none gave up.
+  - **Starvation beyond 2 s.** With the 15 ms poll on this Mac and 8 writers, the longest wait was 326 ms over 10 runs of the suite (203 waits over 100 ms, none gave up). A Windows runner is slower. If the limit is reached, the check reports the gap and each child's slowest write.
+- **Consequence.**
+  - `DialShift.App/Services/FileAppLog.cs`: `LockWaitLimit`, the progress-based wait in `TryAcquireCrossProcessLock`, and the class remarks.
+  - `DialShift.Tests/App/FileAppLogTests.cs`, the LOG-D2 checks:
+    - **A writer keeps waiting while the holder writes.** The test holds the lock file for 750 ms and appends a line every 20 ms. The write must land after all of the holder's lines. Before the fix it failed in 10 of 10 runs.
+    - **It gives up on a silent holder** after 250 ms, before the holder lets go, and still writes its line.
+    - **It waits at most 2 s** for a holder that never stops writing.
+    - **Eight processes, three rounds,** 2,000 lines each: each round is about 1.5 MB, so the file rotates exactly once and every line must be kept. Before the fix it failed 2 of 10 runs with the 15 ms poll.
+  - **The two-process checks explain their failures:**
+    - each writer's first gap: the expected and the found sequence, the file and line of each, whether it crosses the rotation boundary, and the lines around it with their writers;
+    - the first invalid line, with its text;
+    - each child's slowest write, and how many took 250 ms or more.
+  - Matrix §7.10 LOG-D2 and §8.2.7.
+- **Windows-only, not run here.** The 15.6 ms `Thread.Sleep(1)`, sharing-violation locking, NTFS metadata, and Defender's effect on hold times. The simulation above only reproduces the poll interval. **Windows evidence:** public CI [`36243041055`](https://github.com/spyroskotsakis/DialShift/actions/runs/36243041055) at `530a3c1` is green on `windows-latest` and `macos-latest`; on Windows LOG-D1 (two processes, rotation) and every LOG-D2 check passed (QA accept).
+- **Brief ref:** brief 1 §7.9, §11 DoD; matrix §8.2.7; D25.
+
 ## D104 — The setup's own Welcome and Finish image, drawn for every display scale
 
-- **Status:** Adopted (orchestrator request after NC-19, 2026-09-26; release lane; QA: ACCEPT at `41a19de`, with the follow-ups below). D103 is `main`'s (`fix/log-rotation`).
+- **Status:** Adopted (orchestrator request after NC-19, 2026-09-26; release lane; QA: ACCEPT at `41a19de`, with the follow-ups below). D103, the log lock's wait, came from `main` (`fix/log-rotation`).
 - **Context:** NC-19 (partial, in a Windows 11 ARM64 VM at 200 %) found the Welcome and Finish pages showing NSIS's stock Modern UI wizard bitmap (`Contrib\Graphics\Wizard\win.bmp`): generic blue installer art, not DialShift's, and blurry, since the Modern UI stretches its 164 × 314 pixels to the image control (109 × 193 dialog units: 328 × 628 pixels at 200 %).
 - **Decision:**
   1. **The picture:** the app icon's green clock mark (`#C2F278`) on its dark background (`#172523`), in the icon's proportions (`DialShift.App/Assets/icon-512.png`), centred in the upper part of the tall image; no text, so no font enters the build.
