@@ -17,17 +17,13 @@ city_aliases:
   berlim: Berlin
   berlin brandenburg: Berlin-Brandenburg
   babaria: Bavaria
-  baxern: Bayern
   augsburg mp3 192 kbits: Augsburg
   augsburg mp3 192kbits: Augsburg
   baden wurttemberg: Baden-Württemberg
   baden wuerttemberg: Baden-Württemberg
   baden wuertemberg: Baden-Württemberg
   mecklenburg vorpommern: Mecklenburg-Vorpommern
-  niedersachcen: Niedersachsen
-  nordrhein westfalen: Nordrhein-Westfalen
   north rhine westphalia: North Rhine-Westphalia
-  sachsen anstalt: Sachsen-Anhalt
   saxonia: Saxony
   sachsonia: Saxony
   sassonia: Saxony
@@ -36,6 +32,65 @@ city_aliases:
   thuringen: Thuringia
   thueringen: Thuringia
   thunringia: Thuringia
+  # one spelling per German state (D90): every German, English, other-language and abbreviated
+  # spelling of a state maps to the spelling with the most exported rows (Saxony-Anhalt and
+  # Sachsen-Anhalt tie at 43; Saxony-Anhalt has more rows under its exact spelling, 43 to 42).
+  # `ba` (one Antenne Bayern stream; could be Bamberg) and `saxon` (MDR Kultur; Saxony or
+  # Saxony-Anhalt) are left as they are.
+  bw: Baden-Württemberg
+  bayern: Bavaria
+  baxern: Bavaria
+  bay: Bavaria
+  beieren: Bavaria
+  берлин: Berlin
+  hesse: Hessen
+  niedersachsen: Lower Saxony
+  niedersachcen: Lower Saxony
+  nds: Lower Saxony
+  nrw: North Rhine-Westphalia
+  nordrhein westfalen: North Rhine-Westphalia
+  nordrhine westfalia: North Rhine-Westphalia
+  rhineland palatinate: Rheinland-Pfalz
+  rlp: Rheinland-Pfalz
+  saarland germany: Saarland
+  sachsen: Saxony
+  sn: Saxony
+  sachsen anhalt: Saxony-Anhalt
+  sachsen anstalt: Saxony-Anhalt
+  st: Saxony-Anhalt
+  sh: Schleswig-Holstein
+  th: Thuringia
+  # one place per value (D90): a state, stream details or a qualifier around one unambiguous
+  # place map to that place (Frankfurt is Frankfurt am Main, as above); a value naming several
+  # places, only a country or an unclear place stays as it is
+  baden wurttemberg aac 128 kbit: Baden-Württemberg
+  baden wurttemberg stuttgart aac 96 kbits: Stuttgart
+  bayern munchen aac: Munich
+  bayern munchen aac 128: Munich
+  augsburg 192 kbits: Augsburg
+  bayern augsburg 192 kbit: Augsburg
+  bayern gersthofen: Gersthofen
+  bayern oberschleissheim: Oberschleißheim
+  bayern straubing: Straubing
+  bawaria nurnberg: Nuremberg
+  hessen frankfurt hls 96 kbits: Frankfurt
+  hessen frankfurt hls 192 kbits: Frankfurt
+  hessen kassel: Kassel
+  hessen limburg: Limburg
+  hessen waldeck frankenberg: Waldeck-Frankenberg
+  niedersachsen bs: Braunschweig
+  niedersachsen oldenburg: Oldenburg
+  niedersachsen ostfriesland: Ostfriesland
+  nordrhein westfalen bochum: Bochum
+  moers nrw: Moers
+  hexbachtal essen: Essen
+  saarland saarbrucken mp3 256 kbits: Saarbrücken
+  magdeburg sachsen anhalt: Magdeburg
+  bitterfeld wolfen sachsen anhalt: Bitterfeld-Wolfen
+  dessau rosslau sachsen anhalt: Dessau-Roßlau
+  burgenlandkreis sachsen anhalt: Burgenlandkreis
+  mansfeld sudharz sachsen anhalt: Mansfeld-Südharz
+  thuringen erfurt mp3 128 kbit: Erfurt
 focus:
   city: Munich
   label: Munich

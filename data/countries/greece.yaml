@@ -28,6 +28,16 @@ city_aliases:
   nafpli: Nafplio
   rethimno: Rethymno
   sparta: Sparti
+  # one place per value (D90): a country or region qualifier around one unambiguous place maps to
+  # that place (Greek-script values and `Mytilini (Lesbos)`, a curated city, are left as they are)
+  attica athens: Athens
+  thessaloniki notia macedonia: Thessaloniki
+  chania greece: Chania
+  lamia greece: Lamia
+  argolis greece: Argolis
+  nafpaktos greece: Nafpaktos
+  siatista greece: Siatista
+  trikala greece: Trikala
 national_programmes:
 - id: first programme
   match_names:
