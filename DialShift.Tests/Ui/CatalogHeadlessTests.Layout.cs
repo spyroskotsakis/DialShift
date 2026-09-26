@@ -27,7 +27,7 @@ namespace DialShift.Tests.Ui;
 /// The Add dialog's D85 geometry, tiles and ink on the headless platform (docs/catalog-contracts.md §5.5, §8 CAT-10,
 /// CAT-14): the overlay covers exactly the form column (B1), the monogram hides behind a logo (B2) on a light tile (P8),
 /// the detail pane is a Group control element (B3) whose name is a live region (P4), the overlay's shadow is the theme's
-/// (B4), a result row's texts reach 4.5:1 in every state (B5), the frequency column is never trimmed (P1), Clear is 36 px tall
+/// (B4), a result row's texts reach 4.5:1 in every state (B5; D91: the " · " separator's brush is gated, its rendered pixels reported), the frequency column is never trimmed (P1), Clear is 36 px tall
 /// (P7), the filter drop-downs are at most 280 px wide with an ellipsis (D83, D44), and the Edit dialog (D83).
 /// </summary>
 internal static partial class CatalogHeadlessTests
@@ -260,23 +260,80 @@ internal static partial class CatalogHeadlessTests
     private static string RowState(ListBoxItem item) =>
         string.Concat(new[] { ":selected", ":pointerover", ":pressed" }.Where(item.Classes.Contains)) is { Length: > 0 } state ? state : "normal";
 
+    /// <summary>The part name <see cref="RowContrast"/> gives line 1's " · " between the name and the place.</summary>
+    private const string SeparatorPart = "separator";
+
     /// <summary>
-    /// Measures <paramref name="item"/> in its current state, prints its line of the contrast table, and checks that every
-    /// text reaches 4.5:1 both as the brushes resolve and in the rendered pixels. Returns the row's fill over the card.
+    /// The B5 gate (D91): every text of the row reaches 4.5:1 as its brush resolves; every word (the name, the place, line 2,
+    /// the frequency) also in the rendered pixels. The " · " separator is a decorative punctuation mark between words whose
+    /// tiny glyph each OS antialiases its own way (Windows measured its brush 5.02:1, its rendered pixels 4.22:1): its
+    /// rendered pixels are reported, not gated.
+    /// </summary>
+    private static bool RowContrastPasses(IReadOnlyList<(string Part, string Text, double Contrast, double Rendered)> parts) =>
+        parts.Select(p => p.Part).SequenceEqual(["name", SeparatorPart, "place", "line 2", "frequency"])
+        && parts.All(p => p.Contrast >= MinContrast && (p.Part == SeparatorPart || p.Rendered >= MinContrast));
+
+    /// <summary>
+    /// Measures <paramref name="item"/> in its current state, prints its line of the contrast table, and checks the B5 gate
+    /// (<see cref="RowContrastPasses"/>). Returns the row's fill over the card.
     /// </summary>
     private static Color CheckRowContrast(Window dialog, ListBoxItem item, string how)
     {
-        var card = ((ISolidColorBrush)Overlay(dialog).Background!).Color;
-        var presenter = Find<ContentPresenter>(item).First(p => p.Name == "PART_ContentPresenter" && p.TemplatedParent == item);
-        var fill = Over(InkOf(presenter.Background, presenter, item), card);
+        var fill = RowFill(dialog, item);
         var parts = RowContrast(dialog, item);
         var state = RowState(item);
         Console.WriteLine($"  row {state} ({how}) on {fill}, brush contrast / rendered pixels: " +
                           string.Join("; ", parts.Select(p => $"{p.Part} \"{p.Text}\" {p.Contrast:F2}:1 / {p.Rendered:F2}:1")));
-        Check($"CAT-14 D85 B5 row {state} ({how}): every text reaches 4.5:1 against the row's fill over the card, as the brushes resolve and in the rendered pixels: " +
-              string.Join(", ", parts.Select(p => $"{p.Part} {p.Contrast:F2}/{p.Rendered:F2}")),
-            parts.Count == 5 && parts.All(p => p.Contrast >= MinContrast && p.Rendered >= MinContrast));
+        Check($"CAT-14 D85 B5 D91 row {state} ({how}): every text reaches 4.5:1 against the row's fill over the card as the brushes resolve, " +
+              "every word also in the rendered pixels (the separator's pixels reported, not gated): " +
+              string.Join(", ", parts.Select(p => p.Part == SeparatorPart ? $"{p.Part} {p.Contrast:F2}/({p.Rendered:F2})" : $"{p.Part} {p.Contrast:F2}/{p.Rendered:F2}")),
+            RowContrastPasses(parts));
         return fill;
+    }
+
+    /// <summary>The fill of <paramref name="item"/> in its current state, composited over the card.</summary>
+    private static Color RowFill(Window dialog, ListBoxItem item)
+    {
+        var card = ((ISolidColorBrush)Overlay(dialog).Background!).Color;
+        var presenter = Find<ContentPresenter>(item).First(p => p.Name == "PART_ContentPresenter" && p.TemplatedParent == item);
+        return Over(InkOf(presenter.Background, presenter, item), card);
+    }
+
+    /// <summary>
+    /// The D91 gate's mutation proof on <paramref name="item"/> in its current state: its separator's brush lowered to just
+    /// under 4.5:1 against the row's fill fails the gate; its XAML brush put back, the gate passes again. And the gate's word
+    /// rule on the Windows measurement: the separator's antialiased pixels at 4.22:1 (brush 5.02:1) pass, the same 4.22:1 in
+    /// a word's rendered pixels fails.
+    /// </summary>
+    private static async Task CheckSeparatorMutation(Window dialog, ListBoxItem item)
+    {
+        var fill = RowFill(dialog, item);
+        var separator = Find<TextBlock>(item).Single(t => t.Classes.Contains("resultTitle")).Inlines!.Cast<Run>().ElementAt(1);
+        var original = separator.Foreground;
+        var ink = (ISolidColorBrush)original!;
+        var opacity = 1.0;
+        while (opacity > 0 && Contrast(Over(new Ink(ink.Color, opacity * ink.Opacity), fill), fill) >= MinContrast) opacity -= 0.01;
+        var lowered = new SolidColorBrush(ink.Color, opacity * ink.Opacity);
+        separator.Foreground = lowered;
+        await PumpAsync();
+        Layout(dialog);
+        var mutated = RowContrast(dialog, item);
+        var dot = mutated.Single(p => p.Part == SeparatorPart);
+        separator.Foreground = original;
+        await PumpAsync();
+        Layout(dialog);
+        var restored = RowContrast(dialog, item);
+        Console.WriteLine($"  D91 mutation ({RowState(item)}): separator {lowered.Color} at {lowered.Opacity:F2} opacity, {dot.Contrast:F2}:1 / {dot.Rendered:F2}:1; " +
+                          $"restored {restored.Single(p => p.Part == SeparatorPart).Contrast:F2}:1");
+        Check($"CAT-14 D91 mutation: the separator's brush lowered to {dot.Contrast:F2}:1 (under 4.5) fails the B5 gate; its XAML brush put back, the gate passes",
+            dot.Contrast is < MinContrast and > 4.0 && !RowContrastPasses(mutated) && ReferenceEquals(separator.Foreground, original) && RowContrastPasses(restored));
+
+        (string Part, string Text, double Contrast, double Rendered)[] windows =
+            [("name", "Radio", 10.81, 10.81), (SeparatorPart, " · ", 5.02, 4.22), ("place", "Place", 4.76, 4.76), ("line 2", "Kind", 4.76, 4.76), ("frequency", "101.5 FM", 8.37, 8.37)];
+        var wordPixels = windows.Select(p => p.Part == "place" ? p with { Rendered = 4.22 } : p).ToArray();
+        Check("CAT-14 D91 the gate on the Windows measurement: the separator's antialiased pixels (4.22:1, brush 5.02:1) pass; " +
+              "the same 4.22:1 in a word's rendered pixels (the place, brush 4.76:1) fails",
+            RowContrastPasses(windows) && !RowContrastPasses(wordPixels));
     }
 
     private static async Task HighlightContrast()
@@ -334,9 +391,14 @@ internal static partial class CatalogHeadlessTests
             Layout(dialog);
             CheckRowContrast(dialog, other, "state set directly");
         }
-        pseudo.Set(":selected", false);
+        // D91's mutation proof, on the state Windows failed before D91 (selected, set directly).
+        pseudo.Set(":selected", true);
         pseudo.Set(":pointerover", false);
         pseudo.Set(":pressed", false);
+        await PumpAsync();
+        Layout(dialog);
+        await CheckSeparatorMutation(dialog, other);
+        pseudo.Set(":selected", false);
 
         // A real press on the row under the pointer.
         dialog.MouseDown(center, MouseButton.Left);
