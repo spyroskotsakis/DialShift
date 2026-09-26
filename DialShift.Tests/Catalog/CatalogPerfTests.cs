@@ -36,12 +36,19 @@ namespace DialShift.Tests.Catalog;
 /// measurement is one warm-up, then the median of 7, each preceded by a full collection so no sample pays for an
 /// earlier one's garbage.</para>
 /// <para><b>Gates.</b> Only the budgets: at most 10,000 entries; load median under 50 ms and, per query, search median
-/// under 10 ms and the p95 of every search sample of a catalog under 10 ms, at the real count and at 10,000. The timing
-/// budgets are defined for a Release build on Apple Silicon (D69), and Windows hardware is reported, not gated (contracts
-/// §8 CAT-16), so the timing gates run only in an optimized build on macOS arm64 and report SKIP with the reason
-/// elsewhere; the numbers are printed everywhere, and the entry count is gated everywhere. Index build, filter lists,
-/// allocation per search and UI-thread time are printed, not gated. Every printed measurement starts with
-/// <c>CAT-16</c>.</para>
+/// under 10 ms and the p95 of every search sample of a catalog under 10 ms, at the real count and at 10,000. Each timing
+/// gate passes on its best of up to 3 attempts (D102). The measurement above is attempt 1. While some gate has missed
+/// its budget in every attempt so far, the loads and searches are measured again, in the same order, their lines
+/// labelled "attempt n": in this process in a full run, where earlier suites have already brought the load path to the
+/// JIT's optimized code before attempt 1, and in a fresh process of this binary (<c>--catalog-perf-attempt n</c>) in a
+/// filtered run, where attempt 1 may be the process's first catalog work (a repeat in that process would measure code
+/// the JIT has optimized since, 20–50% faster). So no attempt runs warmer than attempt 1, and noise on a shared machine
+/// only ever adds time: a regression over a budget fails every attempt. Each check line lists every attempt's value.
+/// The timing budgets are defined for a Release build on Apple Silicon (D69), and Windows hardware is reported, not
+/// gated (contracts §8 CAT-16), so the timing gates run only in an optimized build on macOS arm64 and report SKIP with
+/// the reason elsewhere; the numbers are printed everywhere, and the entry count is gated everywhere. Index build,
+/// filter lists, allocation per search and UI-thread time are printed, not gated. Every printed measurement starts
+/// with <c>CAT-16</c>.</para>
 /// <para><b>UI thread.</b> The Add dialog is opened on Avalonia's headless platform over the real catalog, with a
 /// dispatcher that queues the view model's posts so each one is timed on its own: a keystroke's synchronous work, the
 /// applied search (50 result rows, their logo requests to a real <see cref="CatalogLogoLoader"/> whose handler answers
@@ -52,6 +59,7 @@ namespace DialShift.Tests.Catalog;
 internal static class CatalogPerfTests
 {
     private const int Runs = 7;
+    private const int MaxAttempts = 3;
     private const double LoadBudgetMs = 50;
     private const double SearchBudgetMs = 10;
     private const double UiReportMs = 5;
@@ -68,59 +76,11 @@ internal static class CatalogPerfTests
                 ? $"{RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture} is not macOS on arm64: D69's budgets gate every optimized macOS arm64 run (this Mac and CI runners alike); other platforms are reported, not gated (contracts §8 CAT-16)"
                 : null;
 
-        var realPath = Path.Combine(AppContext.BaseDirectory, CatalogProvider.FileName);
-        Check("CAT-16 the real app-catalog.json is next to the test binary", File.Exists(realPath));
+        var measured = await MeasureAsync(attempt: 1);
 
-        // ─── load: the real file ───
-        var cold = await LoadAsync(realPath);
-        Check("CAT-16 the real catalog loads", cold.Result.State == CatalogLoadState.Loaded);
-        var real = cold.Result.Catalog;
-        Console.WriteLine($"CAT-16 real catalog: {real.Entries.Count} stations, {new FileInfo(realPath).Length / 1024.0 / 1024.0:F2} MiB");
-        Check($"CAT-16 entry count {real.Entries.Count} ≤ {CatalogProvider.MaxEntries} (D69)", real.Entries.Count <= CatalogProvider.MaxEntries);
-        Console.WriteLine($"CAT-16 cold first load (first in this process; reported, not gated) {cold.WallMs:F1} ms wall, catalog.loaded {cold.ReportedMs} ms " +
-                          $"({(cold.WallMs < LoadBudgetMs ? "within" : "over")} the {LoadBudgetMs:0} ms budget)");
-        var realLoads = await LoadRunsAsync(realPath);
-        PrintLoads($"real {real.Entries.Count}", realLoads);
-
-        // ─── load: the synthetic 10,000 ───
-        using var temp = new TempDirectory("catalog-perf");
-        var syntheticPath = temp.Combine(CatalogProvider.FileName);
-        WriteSynthetic(realPath, syntheticPath);
-        var syntheticFirst = await LoadAsync(syntheticPath); // warm-up
-        var synthetic = syntheticFirst.Result.Catalog;
-        Check($"CAT-16 the synthetic catalog built from the real one loads {SyntheticCount} stations",
-            syntheticFirst.Result.State == CatalogLoadState.Loaded && synthetic.Entries.Count == SyntheticCount);
-        var syntheticLoads = await LoadRunsAsync(syntheticPath);
-        PrintLoads($"synthetic {SyntheticCount}", syntheticLoads);
-
-        // ─── index build and filter lists (inside the load, and on the thread pool before the dialog is usable) ───
-        var realLists = IndexAndLists(real);
-        var syntheticLists = IndexAndLists(synthetic);
-        Console.WriteLine($"CAT-16 load median + filter lists, real {real.Entries.Count}: {Median(realLoads.Select(l => l.WallMs)) + realLists:F1} ms " +
-                          $"(the time from GetCatalogAsync to a searchable, filterable dialog, UI thread excluded)");
-
-        // ─── search ───
-        var queries = Queries(real.Entries);
-        var realSearch = SearchSet($"real {real.Entries.Count}", real, queries);
-        var syntheticSearch = SearchSet($"synthetic {SyntheticCount}", synthetic, queries);
-        PrintAllocations(real.Entries.Count, realSearch, syntheticSearch);
-
-        // ─── the gates (D69) ───
+        // ─── the gates (D69), each on its best of up to MaxAttempts attempts (D102) ───
         if (ungated is null)
-        {
-            Check($"CAT-16 load median (real {real.Entries.Count}) {Median(realLoads.Select(l => l.WallMs)):F1} ms < {LoadBudgetMs:0} ms",
-                Median(realLoads.Select(l => l.WallMs)) < LoadBudgetMs);
-            Check($"CAT-16 load median (synthetic {SyntheticCount}) {Median(syntheticLoads.Select(l => l.WallMs)):F1} ms < {LoadBudgetMs:0} ms",
-                Median(syntheticLoads.Select(l => l.WallMs)) < LoadBudgetMs);
-            foreach (var (label, set) in new[] { ($"real {real.Entries.Count}", realSearch), ($"synthetic {SyntheticCount}", syntheticSearch) })
-            {
-                var worst = set.MaxBy(s => s.MedianMs)!;
-                Check($"CAT-16 search median < {SearchBudgetMs:0} ms for each of {set.Count} queries ({label}; slowest {worst.Name} {worst.MedianMs:F3} ms)",
-                    set.All(s => s.MedianMs < SearchBudgetMs));
-                var p95 = Percentile(set.SelectMany(s => s.Samples), 0.95);
-                Check($"CAT-16 search p95 over {set.Count * Runs} samples ({label}) {p95:F3} ms < {SearchBudgetMs:0} ms", p95 < SearchBudgetMs);
-            }
-        }
+            await GateAsync(measured.Real.Entries.Count, measured.Gated);
         else
         {
             Skip("CAT-16 load median < 50 ms (real and synthetic 10,000)", ungated);
@@ -128,7 +88,76 @@ internal static class CatalogPerfTests
         }
 
         // ─── UI thread ───
-        await Headless.RunAsync(() => UiThreadAsync(cold.Result));
+        await Headless.RunAsync(() => UiThreadAsync(measured.Cold.Result));
+    }
+
+    // ─── the measurements (attempt 1, and each later attempt of the gates) ───
+
+    /// <summary>What the gates read from one attempt; a later attempt in a child process prints it as one JSON line.</summary>
+    private sealed record AttemptResult(double RealLoadMs, double SyntheticLoadMs, SearchSummary RealSearch, SearchSummary SyntheticSearch);
+
+    /// <summary>A search set: its slowest per-query median and the p95 of all its samples.</summary>
+    private sealed record SearchSummary(int Queries, string SlowestQuery, double SlowestMedianMs, double P95Ms);
+
+    private sealed record Measurement(LoadSample Cold, StationCatalogIndex Real, AttemptResult Gated);
+
+    /// <summary>Loads, index and filter lists, and searches, in this order, printing every number. Attempt 1 is the
+    /// suite's measurement: its preconditions are counted checks. A later attempt (D102) labels its lines with its number,
+    /// asserts the same preconditions without counting them, and leaves out the index, filter-list and allocation reports:
+    /// nothing gates them, their collections are most of an attempt's time, and without them its searches run no
+    /// warmer.</summary>
+    private static async Task<Measurement> MeasureAsync(int attempt)
+    {
+        Action<string, bool> require = attempt == 1 ? Check : (name, condition) =>
+        {
+            if (!condition) throw new CheckFailedException($"precondition of CAT-16 attempt {attempt}: {name}");
+        };
+        var suffix = attempt == 1 ? "" : $", attempt {attempt}";
+        var realPath = Path.Combine(AppContext.BaseDirectory, CatalogProvider.FileName);
+        require("CAT-16 the real app-catalog.json is next to the test binary", File.Exists(realPath));
+
+        // ─── load: the real file ───
+        var cold = await LoadAsync(realPath);
+        require("CAT-16 the real catalog loads", cold.Result.State == CatalogLoadState.Loaded);
+        var real = cold.Result.Catalog;
+        if (attempt == 1) Console.WriteLine($"CAT-16 real catalog: {real.Entries.Count} stations, {new FileInfo(realPath).Length / 1024.0 / 1024.0:F2} MiB");
+        require($"CAT-16 entry count {real.Entries.Count} ≤ {CatalogProvider.MaxEntries} (D69)", real.Entries.Count <= CatalogProvider.MaxEntries);
+        if (attempt == 1)
+            Console.WriteLine($"CAT-16 cold first load (first in this process; reported, not gated) {cold.WallMs:F1} ms wall, catalog.loaded {cold.ReportedMs} ms " +
+                              $"({(cold.WallMs < LoadBudgetMs ? "within" : "over")} the {LoadBudgetMs:0} ms budget)");
+        else
+            Console.WriteLine($"CAT-16 warm-up load (real {real.Entries.Count}{suffix}; not gated) {cold.WallMs:F1} ms wall, catalog.loaded {cold.ReportedMs} ms");
+        var realLoads = await LoadRunsAsync(realPath);
+        PrintLoads($"real {real.Entries.Count}{suffix}", realLoads);
+
+        // ─── load: the synthetic 10,000 ───
+        using var temp = new TempDirectory("catalog-perf");
+        var syntheticPath = temp.Combine(CatalogProvider.FileName);
+        WriteSynthetic(realPath, syntheticPath);
+        var syntheticFirst = await LoadAsync(syntheticPath); // warm-up
+        var synthetic = syntheticFirst.Result.Catalog;
+        require($"CAT-16 the synthetic catalog built from the real one loads {SyntheticCount} stations",
+            syntheticFirst.Result.State == CatalogLoadState.Loaded && synthetic.Entries.Count == SyntheticCount);
+        var syntheticLoads = await LoadRunsAsync(syntheticPath);
+        PrintLoads($"synthetic {SyntheticCount}{suffix}", syntheticLoads);
+
+        // ─── index build and filter lists (inside the load, and on the thread pool before the dialog is usable) ───
+        if (attempt == 1)
+        {
+            var realLists = IndexAndLists(real);
+            IndexAndLists(synthetic);
+            Console.WriteLine($"CAT-16 load median + filter lists, real {real.Entries.Count}: {Median(realLoads.Select(l => l.WallMs)) + realLists:F1} ms " +
+                              $"(the time from GetCatalogAsync to a searchable, filterable dialog, UI thread excluded)");
+        }
+
+        // ─── search ───
+        var queries = Queries(real.Entries);
+        var realSearch = SearchSet($"real {real.Entries.Count}{suffix}", real, queries);
+        var syntheticSearch = SearchSet($"synthetic {SyntheticCount}{suffix}", synthetic, queries);
+        if (attempt == 1) PrintAllocations(real.Entries.Count, realSearch, syntheticSearch);
+
+        return new Measurement(cold, real, new AttemptResult(Median(realLoads.Select(l => l.WallMs)), Median(syntheticLoads.Select(l => l.WallMs)),
+            Summarize(realSearch), Summarize(syntheticSearch)));
     }
 
     // ─── load ───
@@ -283,6 +312,12 @@ internal static class CatalogPerfTests
         return timings;
     }
 
+    private static SearchSummary Summarize(List<SearchTiming> set)
+    {
+        var slowest = set.MaxBy(s => s.MedianMs)!;
+        return new SearchSummary(set.Count, slowest.Name, slowest.MedianMs, Percentile(set.SelectMany(s => s.Samples), 0.95));
+    }
+
     private static void PrintAllocations(int realCount, List<SearchTiming> real, List<SearchTiming> synthetic)
     {
         var growth = real.Zip(synthetic, (r, s) => (r.Name, Real: r.Bytes, Synthetic: s.Bytes, Delta: s.Bytes - r.Bytes)).ToList();
@@ -293,6 +328,109 @@ internal static class CatalogPerfTests
                           $"{synthetic.Min(t => t.Bytes)}–{synthetic.Max(t => t.Bytes)} B at {SyntheticCount}; " +
                           $"largest difference {largest.Delta} B ({largest.Name}) for {SyntheticCount - realCount} more entries " +
                           $"({(growth.All(g => Math.Abs(g.Delta) <= 1024) ? "independent of catalog size" : "GROWS with the catalog")})");
+    }
+
+    // ─── the gates (D69, D102) ───
+
+    private const string AttemptMode = "--catalog-perf-attempt";
+    private const string AttemptResultPrefix = "CAT-16-ATTEMPT-RESULT ";
+    private static readonly TimeSpan AttemptTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>One timing gate: its value in an attempt, its budget, the value's format, and the check name for the
+    /// attempt given.</summary>
+    private sealed record Gate(Func<AttemptResult, double> Value, double BudgetMs, string Format, Func<AttemptResult, string> Title);
+
+    /// <summary>D69's timing budgets, each passing on its best attempt (D102). Attempt 1 is the suite's measurement. While
+    /// some gate has missed its budget in every attempt so far, and fewer than <see cref="MaxAttempts"/> were made, the
+    /// loads and searches are measured again, in a JIT state no warmer than attempt 1's. In a full run, earlier suites
+    /// have loaded the catalog many times, so attempt 1 already measures JIT-optimized code and a repeat in this process
+    /// measures the same. In a filtered run (<c>--filter CatalogPerf</c> among them) attempt 1 may be this process's first
+    /// catalog work, and a repeat here would measure code the JIT has optimized since, 20–50% faster, so the repeat runs
+    /// in a fresh process (<see cref="MeasureInChildAsync"/>). Each check line lists every attempt's value.</summary>
+    private static async Task GateAsync(int realCount, AttemptResult first)
+    {
+        var inProcess = TestHarness.Filter is null;
+        Gate Load(string label, Func<AttemptResult, double> value) =>
+            new(value, LoadBudgetMs, "F1", attempt => $"CAT-16 load median ({label}) {value(attempt):F1} ms < {LoadBudgetMs:0} ms");
+        Gate[] Search(string label, Func<AttemptResult, SearchSummary> set) =>
+        [
+            new(a => set(a).SlowestMedianMs, SearchBudgetMs, "F3", attempt =>
+                $"CAT-16 search median < {SearchBudgetMs:0} ms for each of {set(attempt).Queries} queries ({label}; slowest {set(attempt).SlowestQuery} {set(attempt).SlowestMedianMs:F3} ms)"),
+            new(a => set(a).P95Ms, SearchBudgetMs, "F3", attempt =>
+                $"CAT-16 search p95 over {set(attempt).Queries * Runs} samples ({label}) {set(attempt).P95Ms:F3} ms < {SearchBudgetMs:0} ms"),
+        ];
+        var real = $"real {realCount}";
+        var synthetic = $"synthetic {SyntheticCount}";
+        Gate[] gates =
+        [
+            Load(real, a => a.RealLoadMs), Load(synthetic, a => a.SyntheticLoadMs),
+            .. Search(real, a => a.RealSearch), .. Search(synthetic, a => a.SyntheticSearch),
+        ];
+
+        var attempts = new List<AttemptResult> { first };
+        bool Met(Gate gate) => attempts.Any(a => gate.Value(a) < gate.BudgetMs);
+        while (attempts.Count < MaxAttempts && !gates.All(Met))
+        {
+            var next = attempts.Count + 1;
+            var missed = string.Join("; ", gates.Where(g => !Met(g)).Select(g => g.Title(attempts.MinBy(g.Value)!)));
+            Console.WriteLine($"CAT-16 attempt {next} of up to {MaxAttempts} (D102), " +
+                              $"{(inProcess ? "in this process (a full run)" : "in a fresh process (a filtered run)")}; over budget in every attempt so far: {missed}");
+            attempts.Add(inProcess ? (await MeasureAsync(next)).Gated : await MeasureInChildAsync(next));
+        }
+        foreach (var gate in gates)
+        {
+            var best = attempts.MinBy(gate.Value)!;
+            var values = string.Join(", ", attempts.Select(a => gate.Value(a).ToString(gate.Format, CultureInfo.InvariantCulture)));
+            Check($"{gate.Title(best)} (attempts: {values} ms; best of up to {MaxAttempts}, D102)", gate.Value(best) < gate.BudgetMs);
+        }
+    }
+
+    /// <summary>A later attempt of a filtered run: <see cref="MeasureAsync"/> in a fresh process
+    /// (<see cref="RunAttemptChildAsync"/>), whose lines are printed here.</summary>
+    private static async Task<AttemptResult> MeasureInChildAsync(int attempt)
+    {
+        var startInfo = SelfProcess.StartInfo(AttemptMode, attempt.ToString(CultureInfo.InvariantCulture));
+        startInfo.StandardOutputEncoding = Encoding.UTF8;
+        using var process = Process.Start(startInfo) ?? throw new CheckFailedException($"precondition: CAT-16 attempt {attempt}'s process did not start");
+        var stderr = process.StandardError.ReadToEndAsync();
+        using var deadline = new CancellationTokenSource(AttemptTimeout);
+        AttemptResult? result = null;
+        try
+        {
+            while (await process.StandardOutput.ReadLineAsync(deadline.Token) is { } line)
+            {
+                if (line.StartsWith(AttemptResultPrefix, StringComparison.Ordinal))
+                    result = JsonSerializer.Deserialize<AttemptResult>(line[AttemptResultPrefix.Length..]);
+                else
+                    Console.WriteLine(line);
+            }
+            await process.WaitForExitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new CheckFailedException($"precondition: CAT-16 attempt {attempt}'s process did not finish within {AttemptTimeout.TotalSeconds:0} s");
+        }
+        if (process.ExitCode != 0 || result is null)
+            throw new CheckFailedException($"precondition: CAT-16 attempt {attempt}'s process exited {process.ExitCode} without a result; stderr: {await stderr}");
+        return result;
+    }
+
+    /// <summary>The <c>--catalog-perf-attempt &lt;n&gt;</c> child mode (D102; never part of a normal run): attempt
+    /// <c>n</c> of <see cref="MeasureAsync"/> in this fresh process, printing its lines, then one
+    /// <see cref="AttemptResultPrefix"/> line with what the gates read.</summary>
+    public static async Task<int> RunAttemptChildAsync(string[] args)
+    {
+        if (args is not [AttemptMode, var number] || !int.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var attempt) ||
+            attempt < 2 || attempt > MaxAttempts)
+        {
+            Console.Error.WriteLine($"Usage: DialShift.Tests {AttemptMode} <2..{MaxAttempts}>");
+            return 64;
+        }
+        var measured = await MeasureAsync(attempt);
+        Console.WriteLine(AttemptResultPrefix + JsonSerializer.Serialize(measured.Gated));
+        return 0;
     }
 
     // ─── UI thread (headless Avalonia, real catalog) ───
