@@ -1,13 +1,16 @@
 # Windows Installer — a per-user NSIS setup beside the zip (brief 4)
 
-> **Status: implemented, 2026-09-26.** Branch `feature/windows-installer` (from `main` at `fb0ef0b`). Public CI is green
-> on `windows-latest`, `macos-latest` and the cross-build job (the Mac-built and Windows-built setups byte-identical) at
-> `b655d67` (run `36230181228`), `cf21fc1` (`36231552864`), `b7017d7` (`36233711767`), `9322106` (`36235173662`) and
-> `b76356e` (`36238278091`), the last two after macOS re-runs, and at `6cbc311` (`36240957220`), the last of
-> D101's eight rounds. Prepared for release as `0.5.0` (not tagged or published). NC-19 passed in part on 2026-09-26
-> in a Windows 11 ARM64 VM, not on a physical PC (§13); the Welcome/Finish image it found wanting is DialShift's own
-> since D104. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
-> `docs/decisions.md` say so, and §5 below follows the build.
+> **Status: implemented and released as `v0.5.0`, 2026-09-26.** Branch `feature/windows-installer` (from `main` at
+> `fb0ef0b`). Public CI is green on `windows-latest`, `macos-latest` and the cross-build job (the Mac-built and
+> Windows-built setups byte-identical) at `b655d67` (run `36230181228`), `cf21fc1` (`36231552864`), `b7017d7`
+> (`36233711767`), `9322106` (`36235173662`) and `b76356e` (`36238278091`), the last two after macOS re-runs, at
+> `6cbc311` (`36240957220`), the last of D101's eight rounds, and at `41a19de` (`36243801937`, D104). Merged to `main`
+> at `7e08c3b` (public CI `36246725331` green on all three jobs) and released as `v0.5.0` on 2026-09-26 on both
+> repositories: public Release run `36247644298` and, on the private repository, `scripts/release-local.sh` (D58);
+> INS-17 and INS-18 are GREEN (D99's update). NC-19 passed in part on 2026-09-26 in a Windows 11 ARM64 VM, on a local
+> build, not on a physical PC (§13); the Welcome/Finish image it found wanting is DialShift's own since D104. Where the
+> build departs from this spec, the D93–D99 "Update" notes and D101 in `docs/decisions.md` say so, and §5 below follows
+> the build.
 > This is brief 4, after `single-codebase-refactor.md` (brief 1), `schedule-timezone-research.md` (brief 2) and
 > `add-station-catalog-search.md` (brief 3). Its decisions are **D93–D99** in `docs/decisions.md` (§14's defaults,
 > adopted); its acceptance rows are **INS-01..INS-20** in `docs/acceptance-matrix.md` §12; its by-hand check is
@@ -489,12 +492,13 @@ the job also installs `sevenzip` and compares listings). Its artifacts do not ma
   for your user, no administrator rights; Apps & features uninstall"); the Install section puts the setup first and
   the zip second; the Windows checksum snippet names both Windows files; the signing status names the setup.
 - **`scripts/release-local.sh`** (D58): requires `makensis` `v3.12` (`brew install makensis`), builds the setup from
-  the cross-built package folder (or from `--win-zip` through `--zip`), runs `verify-win-setup.sh` (contents when
-  `7zz` is present, else listed under "not checked"), includes it in `SHA256SUMS.txt` and `gh release create`. Its
-  "not checked" line adds "the setup's install, upgrade and uninstall cases (they need Windows)".
-- **The first release with the setup** is `0.5.0` (prepared: csproj `<Version>` and CHANGELOG `[0.5.0]`; not tagged or
-  published), with a CHANGELOG section that states the
-  setup's testing status (CI only until NC-19).
+  the zip it uploads (as built: the cross-built one or `--win-zip`, through `--zip`), runs `verify-win-setup.sh`
+  (contents when `7zz` is present, else listed under "not checked"), includes it in `SHA256SUMS.txt` and
+  `gh release create`. Its "not checked" line adds "the setup's install, upgrade and uninstall cases (they need
+  Windows)".
+- **The first release with the setup** is `v0.5.0`, published on 2026-09-26 on both repositories (public Release run
+  `36247644298`; private by `release-local.sh`), with a CHANGELOG section `[0.5.0]` that states the setup's testing
+  status (CI, and NC-19 only in part).
 
 ## 10. Docs, README and notices
 
