@@ -17,8 +17,9 @@ public static partial class LibVlcEngineTests
     /// source is warmed before LibVLC opens it, and an http source never is; a warm-up that blocks its caller never blocks
     /// StartAsync's, and is still cut off at TrustWarmupLimit or by cancellation; a warm-up that throws, faults or never
     /// finishes does not stop the start; cancellation, a newer start and disposal during the warm-up keep the engine
-    /// contract; a playlist's https entry is warmed before it is played, and not played at all if the session was stopped
-    /// meanwhile. The https source points at a closed loopback port: LibVLC's MediaPlayer.Opening (raised as it starts the
+    /// contract; a playlist's https entry is warmed before it is played, and if the session is stopped, superseded or
+    /// disposed meanwhile, the entry warm-up's token is cancelled and the entry is never played (a listening
+    /// <see cref="LocalTlsServer"/> as the entry proves LibVLC never connects to it). The https source points at a closed loopback port: LibVLC's MediaPlayer.Opening (raised as it starts the
     /// media) proves the player was created, and the connection then fails at once. The real warm-up's own checks are the
     /// TrustWarmup suite.
     /// </summary>
@@ -164,39 +165,57 @@ public static partial class LibVlcEngineTests
         await engine.StopAsync(CancellationToken.None);
 
         // A playlist's https entry: the http playlist is not warmed, its entry is, and LibVLC plays the entry only after
-        // that. The entry points at a closed port, so once played it fails the session at once.
-        var entry = new Uri($"https://127.0.0.1:{LocalMediaServer.ClosedPort()}/entry.mp3");
+        // that. The entry is a listening HTTPS server, so the probe's accepted connections show whether LibVLC ever
+        // connected to it (its handshake then fails on the test certificate, which does not matter here).
+        await using var probe = LocalTlsServer.Start();
+        var entry = probe.Url("/stream");
         rig.Server.HttpsPlaylistEntry = entry;
         var playlist = new StreamSource(rig.Server.Url("/https-entry.m3u"), "https entry");
-        bool Ended(long id) => events.Any(e => e.Session == id && e.What.StartsWith("Failed", StringComparison.Ordinal));
         var entryGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         warmup.Behavior = (_, _) => entryGate.Task;
         calls = warmup.Calls.Count;
-        var listed = ++session;
         await engine.StartAsync(playlist, 0.5, CancellationToken.None);
+        ++session;
         var entryAsked = await Wait.Until(() => warmup.Calls.Count == calls + 1, TimeSpan.FromSeconds(15));
         await Task.Delay(TimeSpan.FromSeconds(1.5));
-        var heldBack = !Ended(listed);
+        var heldBack = probe.Accepted == 0;
         entryGate.SetResult();
-        var entryPlayed = await Wait.Until(() => Ended(listed), TimeSpan.FromSeconds(15));
+        var entryPlayed = await Wait.Until(() => probe.Accepted > 0, TimeSpan.FromSeconds(15));
         Check($"HS-17 LV-12 an http playlist with an https entry: only the entry is warmed ({string.Join(", ", warmup.Calls.Skip(calls))}), "
-            + $"and LibVLC plays it only after that (no failure while the warm-up runs: {heldBack}; the closed port fails it afterwards; events: {Events()})",
+            + $"and LibVLC connects to it only after that (none while the warm-up runs: {heldBack}; {probe.Accepted} afterwards; events: {Events()})",
             entryAsked && warmup.Calls.Skip(calls).SequenceEqual([entry]) && heldBack && entryPlayed);
         await engine.StopAsync(CancellationToken.None);
 
-        // Stopped while the entry is warmed: releasing the warm-up afterwards plays nothing.
-        var stoppedGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        warmup.Behavior = (_, _) => stoppedGate.Task;
-        calls = warmup.Calls.Count;
-        var stoppedList = ++session;
-        await engine.StartAsync(playlist, 0.5, CancellationToken.None);
-        var stoppedAsked = await Wait.Until(() => warmup.Calls.Count == calls + 1, TimeSpan.FromSeconds(15));
-        await engine.StopAsync(CancellationToken.None);
-        stoppedGate.SetResult();
-        await Task.Delay(TimeSpan.FromSeconds(2));
-        // Had the entry been played, its closed port would fail the session within that time.
-        Check($"HS-17 LV-12 stopped while the playlist entry is warmed: the entry is never played, so the session neither plays nor fails (events: {Events()})",
-            stoppedAsked && !Ended(stoppedList) && !Saw(stoppedList, nameof(PlaybackEngineState.Playing)));
+        // Stopped, or superseded by a newer start, while the entry is warmed: the warm-up's token is cancelled (its request
+        // ends), and releasing the warm-up afterwards connects nothing.
+        foreach (var how in new[] { "stopped", "superseded" })
+        {
+            var entryWarmupGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var entryToken = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+            warmup.Behavior = (_, token) => { entryToken.TrySetResult(token); return entryWarmupGate.Task; };
+            await engine.StartAsync(playlist, 0.5, CancellationToken.None);
+            ++session;
+            var asked2 = await Wait.Finishes(entryToken.Task, TimeSpan.FromSeconds(15));
+            var accepted = probe.Accepted;
+            var replacementPlays = true;
+            if (how == "stopped")
+            {
+                await engine.StopAsync(CancellationToken.None);
+            }
+            else
+            {
+                await engine.StartAsync(http, 0.5, CancellationToken.None);
+                var replacement = ++session;
+                replacementPlays = await Wait.Until(() => Saw(replacement, nameof(PlaybackEngineState.Playing)), TimeSpan.FromSeconds(15));
+            }
+            var tokenCancelled = asked2 && await Wait.Until(() => entryToken.Task.Result.IsCancellationRequested, TimeSpan.FromSeconds(5));
+            entryWarmupGate.SetResult();
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            Check($"HS-17 LV-12 {how} while the playlist entry is warmed: the warm-up's token is cancelled ({tokenCancelled}), and after it is released "
+                + $"LibVLC never connects to the entry ({probe.Accepted - accepted} connections; events: {Events()})",
+                tokenCancelled && probe.Accepted == accepted && replacementPlays);
+            await engine.StopAsync(CancellationToken.None);
+        }
 
         // Disposed during the warm-up: disposal finishes, disposes the warm-up it owns, and the pending start creates nothing.
         var disposeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -213,5 +232,27 @@ public static partial class LibVlcEngineTests
         await Task.Delay(TimeSpan.FromSeconds(1));
         Check($"HS-17 LV-12 ... the pending start then ends without a player or any event ({pending.Status}; events: {Events()})",
             pendingEnded && pending.IsCompletedSuccessfully && !Raised(last));
+
+        // Disposed while a playlist entry is warmed (a second engine: the first is disposed).
+        var entryWarmup = new FakeTrustWarmup();
+        var entryGateAtDispose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tokenAtDispose = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        entryWarmup.Behavior = (_, token) => { tokenAtDispose.TrySetResult(token); return entryGateAtDispose.Task; };
+        var second = new LibVlcPlaybackEngine(rig.Log, LibVlcEngineOptions.Dummy, entryWarmup);
+        var secondEvents = new ConcurrentQueue<string>();
+        second.StateChanged += (_, e) => secondEvents.Enqueue($"{e.SessionId}:{e.State}");
+        second.Failed += (_, e) => secondEvents.Enqueue($"{e.SessionId}:Failed({e.Kind})");
+        await second.StartAsync(playlist, 0.5, CancellationToken.None);
+        var entryWarming = await Wait.Finishes(tokenAtDispose.Task, TimeSpan.FromSeconds(15));
+        var acceptedAtDispose = probe.Accepted;
+        var secondDisposed = await Wait.Finishes(second.DisposeAsync().AsTask(), TimeSpan.FromSeconds(10));
+        var cancelledAtDispose = entryWarming && await Wait.Until(() => tokenAtDispose.Task.Result.IsCancellationRequested, TimeSpan.FromSeconds(5));
+        var eventsAtDispose = secondEvents.Count;
+        entryGateAtDispose.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        Check($"HS-17 LV-12 disposed while a playlist entry is warmed: DisposeAsync finishes, disposes the warm-up and cancels its token ({cancelledAtDispose}); "
+            + $"released afterwards, nothing connects to the entry ({probe.Accepted - acceptedAtDispose} connections) and nothing is raised "
+            + $"(events: [{string.Join(", ", secondEvents)}])",
+            secondDisposed && entryWarmup.Disposed && cancelledAtDispose && probe.Accepted == acceptedAtDispose && secondEvents.Count == eventsAtDispose);
     }
 }

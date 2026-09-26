@@ -39,8 +39,9 @@
 // TrustWarmupLimit (6 s) backs up the warm-up's own 5 s, and a warm-up never fails a start: whatever happens, LibVLC
 // then connects and reports its own failure as before. Cancellation during it is the same as during those waits, and a
 // session superseded or disposed during it never creates a player. The first entry of a .pls/.m3u playlist is warmed
-// too when it is https (it may be on another host), before it is played. http:// URLs are never warmed. Not covered:
-// hosts that only an HLS playlist names (its segment and variant URLs are fetched inside LibVLC).
+// too when it is https (it may be on another host), before it is played, and that warm-up is cancelled when its session
+// is retired. http:// URLs are never warmed. Not covered: hosts that only an HLS playlist names (its segment and
+// variant URLs are fetched inside LibVLC).
 //
 // ─── Threading ────────────────────────────────────────────────────────────────────────────────────────────────────────
 // • Public members may be called from any thread; `gate` guards the session bookkeeping and is never held across an
@@ -375,6 +376,9 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         lock (session.Sync) session.Retired = true;
         retiring.Add(Task.Run(() =>
         {
+            // Cancels a playlist entry's warm-up (D100) on the pool, never under `gate`: its callbacks may run inline.
+            try { session.Retirement.Cancel(); }
+            catch (AggregateException ex) { log.Warn("playback.engine_error", "A retirement cancellation callback threw.", ex); }
             Detach(session);
             try { session.Player?.Stop(); } // can block for seconds on network streams: never on the caller's thread
             catch (Exception ex) { log.Warn("playback.engine_error", "LibVLC MediaPlayer.Stop failed.", ex); }
@@ -394,6 +398,8 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         {
             log.Warn("playback.engine_error", "LibVLC player disposal failed.", ex);
         }
+        // A warm-up still holding its token is unaffected: a disposed source's token stays as it was, cancelled here.
+        session.Retirement.Dispose();
     }
 
     /// <summary>The start's token was cancelled: stop that session silently (no events) if it is still current.</summary>
@@ -522,12 +528,14 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
     /// into them. Plays the first entry within the same session (once), which is what AVPlayer does natively. An https
     /// entry, whatever the playlist's own scheme, is warmed first (D100): off the event queue, then played from it if the
     /// session is still current; true is returned at once, and a refused Play then fails the session as it would here.
+    /// The warm-up is cancelled when the session is retired (stop, a newer start, disposal), so its request ends too.
     /// </summary>
     private bool TryPlayPlaylistEntry(Session session)
     {
         if (session.PlaylistEntry is not null) return false;
         Media entry;
         Uri? httpsEntry;
+        CancellationToken retired;
         lock (session.Sync)
         {
             if (session.Retired) return false;
@@ -537,14 +545,22 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
             session.InputPlaying = false;
             httpsEntry = Uri.TryCreate(first.Mrl, UriKind.Absolute, out var url) && IsHttps(url) ? url : null;
             if (httpsEntry is null) return session.Player!.Play(entry);
+            retired = session.Retirement.Token; // not retired yet, so not disposed yet
         }
-        _ = PlayEntryAfterTrustWarmupAsync(session, entry, httpsEntry);
+        _ = PlayEntryAfterTrustWarmupAsync(session, entry, httpsEntry, retired);
         return true;
     }
 
-    private async Task PlayEntryAfterTrustWarmupAsync(Session session, Media entry, Uri url)
+    private async Task PlayEntryAfterTrustWarmupAsync(Session session, Media entry, Uri url, CancellationToken retired)
     {
-        await WarmTrustAsync(url, StreamUrlRedactor.RedactUrl(url), CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await WarmTrustAsync(url, StreamUrlRedactor.RedactUrl(url), retired).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // retired meanwhile: nothing to play
+        }
         events.Post(() =>
         {
             if (!IsCurrent(session)) return; // stopped, superseded or disposed meanwhile
@@ -721,6 +737,8 @@ public sealed partial class LibVlcPlaybackEngine : IPlaybackEngine, ITrackMetada
         public Media? PlaylistEntry { get; set; }
         public Handlers? Handlers { get; set; }
         public bool Retired { get; set; }
+        /// <summary>Cancelled when the session is retired (stop, a newer start, failure, disposal); read its token only while not <see cref="Retired"/>.</summary>
+        public CancellationTokenSource Retirement { get; } = new();
         public bool InputPlaying { get; set; }
         public bool EverPlayed { get; set; }
         public bool Finished { get; set; }

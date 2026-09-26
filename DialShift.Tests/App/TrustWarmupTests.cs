@@ -177,6 +177,15 @@ public static class TrustWarmupTests
                 + "and the redirecting origin is not cached (the second warm-up requests it again)",
                 plain.Requests.Count == 0 && log.Entries.Count == 0 && server.Requests.Skip(requests).Count(r => r.Path == "/redirect") == 2);
         }
+        using (var multiple = new WindowsTrustWarmup(Pinned(), log))
+        {
+            var requests = server.Requests.Count;
+            await multiple.WarmAsync(server.Url("/redirect-300"), CancellationToken.None);
+            await multiple.WarmAsync(server.Url("/redirect-300"), CancellationToken.None);
+            await Task.Delay(200);
+            Check($"TW-13 ... the same with 300 Multiple Choices: not followed ({plain.Requests.Count} http requests), not logged, not cached",
+                plain.Requests.Count == 0 && log.Entries.Count == 0 && server.Requests.Skip(requests).Count(r => r.Path == "/redirect-300") == 2);
+        }
 
         var max = WindowsTrustWarmup.MaxRedirects;
         using (var chain = new WindowsTrustWarmup(Pinned(), log))

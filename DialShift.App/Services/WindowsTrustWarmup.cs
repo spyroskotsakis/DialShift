@@ -121,8 +121,9 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         client.Dispose(); // cancels the requests in flight
     }
 
+    /// <summary>A response the handler would have followed (the statuses <see cref="SocketsHttpHandler"/> redirects on, with a Location).</summary>
     private static bool IsRedirect(HttpResponseMessage response) =>
-        (int)response.StatusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location is not null;
+        (int)response.StatusCode is 300 or 301 or 302 or 303 or 307 or 308 && response.Headers.Location is not null;
 
     /// <summary><c>scheme://host[:port]</c> (the port only when it is not the scheme's default), without user-info.</summary>
     private static string Origin(Uri url) => url.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);

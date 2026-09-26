@@ -18,7 +18,7 @@ namespace DialShift.Tests.TestServers;
 /// for reuse), 4 KiB every 50 ms until the client closes; <see cref="OpenStreams"/> counts the ones still open.</item>
 /// <item><c>/icy</c>: a Shoutcast v1 status line (<c>ICY 200 OK</c>), then the same endless body unchunked.</item>
 /// <item><c>/auth</c>: 401 with a Basic challenge, whatever the request carries.</item>
-/// <item><c>/redirect</c>: 302 to <see cref="RedirectTarget"/>.</item>
+/// <item><c>/redirect</c>: 302 to <see cref="RedirectTarget"/>; <c>/redirect-300</c>: the same as 300 Multiple Choices.</item>
 /// <item><c>/chain/&lt;n&gt;</c>: 302 to <c>/chain/&lt;n-1&gt;</c> on this server; <c>/chain/0</c> answers 200 with an empty body.</item>
 /// <item><c>/hang</c>: reads the request and never answers.</item>
 /// <item>anything else: 404.</item>
@@ -125,6 +125,9 @@ public sealed class LocalTlsServer : IAsyncDisposable
                     break;
                 case "/redirect":
                     await WriteAsync(tls, $"HTTP/1.1 302 Found\r\nLocation: {RedirectTarget}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", ct).ConfigureAwait(false);
+                    break;
+                case "/redirect-300":
+                    await WriteAsync(tls, $"HTTP/1.1 300 Multiple Choices\r\nLocation: {RedirectTarget}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", ct).ConfigureAwait(false);
                     break;
                 case "/hang":
                     var buffer = new byte[256];
