@@ -6,19 +6,21 @@ One Avalonia app, `DialShift.App`, ships as two self-contained packages, and the
 
 | Package | Platform | Playback | Status |
 |---|---|---|---|
-| `DialShift-Setup-win-x64.exe` | Windows 10/11, x64 | LibVLC (bundled) | Windows setup of the package below (per user, no administrator rights); unsigned; new since `v0.4.0`: CI builds it on `windows-latest` and on macOS (byte-identical), checks it and runs its install, upgrade, refusals and uninstall silently, all green (public CI run `36240957220`); it has not yet been run by hand on a real Windows PC (NC-19) |
+| `DialShift-Setup-win-x64.exe` | Windows 10/11, x64 | LibVLC (bundled) | Windows setup of the package below (per user, no administrator rights); unsigned; new in `v0.5.0`: CI builds it on `windows-latest` and on macOS (byte-identical), checks it and runs its install, upgrade, refusals and uninstall silently, all green (public CI run `36240957220`); it has not yet been run by hand on a real Windows PC (NC-19) |
 | `DialShift-win-x64.zip` | Windows 10/11, x64 | LibVLC (bundled) | Windows build; unsigned; passes CI on `windows-latest`, not yet tested by hand on a real Windows PC |
 | `DialShift-macos-arm64.zip` | macOS 14.0+, Apple Silicon only | Apple AVPlayer (part of macOS) | Native `osx-arm64` (AVPlayer, label `native-avplayer`); development build: ad-hoc signed, not yet notarized or clean-machine tested |
 
 There is no Intel Mac build.
 
-> **Testing status of 0.4.1.** On Windows, the build, the automated checks and the app's smoke test pass in CI on GitHub-hosted `windows-latest` machines, and one check was done by hand in a Windows 11 ARM64 virtual machine (Parallels, the x64 app under emulation): with the stations' root certificate removed from Windows, 0.4.0 played no `https://` station, while 0.4.1 started the three starter stations and a catalog station 12 times out of 12, and Windows installed the missing root certificate by itself (decision D100). This version has **not yet been tested by hand on a physical Windows PC**: the tray, audible playback, launch at sign-in, sleep and wake, and upgrading with `Install.ps1` are unverified on real hardware. The Mac build has been tested on the developer's Apple Silicon Mac only, not on a clean Mac. Please report problems as [issues](https://github.com/spyroskotsakis/DialShift/issues), with your `dialshift.log` (see [Data](#data)). The full list of open checks is in [Open items](#open-items--release-status).
+> **Testing status of 0.5.0.** On Windows, the build, the automated checks, the app's smoke test and the new setup's silent install, upgrade, refusal and uninstall cases pass in CI on GitHub-hosted `windows-latest` machines, and one check was done by hand for 0.4.1 in a Windows 11 ARM64 virtual machine (Parallels, the x64 app under emulation): with the stations' root certificate removed from Windows, 0.4.1 started the three starter stations and a catalog station 12 times out of 12, where 0.4.0 played none, and Windows installed the missing root certificate by itself (decision D100). This version has **not yet been tested by hand on a physical Windows PC**: the tray, audible playback, launch at sign-in, sleep and wake, upgrading with `Install.ps1`, and the setup's wizard, SmartScreen and Apps & features entry (native check NC-19) are unverified on real hardware. The Mac build has been tested on the developer's Apple Silicon Mac only, not on a clean Mac. Please report problems as [issues](https://github.com/spyroskotsakis/DialShift/issues), with your `dialshift.log` (see [Data](#data)). The full list of open checks is in [Open items](#open-items--release-status).
 >
-> **New in 0.4.0: the station catalog search** (the Add station dialog below; see `[0.4.0]` in [CHANGELOG.md](CHANGELOG.md); 0.4.1 only fixes `https://` stations on Windows). Its build, automated checks, package checks and smoke test pass in CI on `windows-latest` and `macos-latest`, which every release must pass before it is published, and it has been tested on the developer's Apple Silicon Mac. It has not yet been used by hand on a real Windows PC, and it has had no screen-reader or real-logo check by hand on either OS.
+> **New in 0.5.0: a Windows setup,** `DialShift-Setup-win-x64.exe` ([Install on Windows](#install-on-windows); see `[0.5.0]` in [CHANGELOG.md](CHANGELOG.md)). The app itself is 0.4.1's. The setup's build, content check and silent install, upgrade and uninstall cases pass in CI, which every release must pass before it is published; it has not yet been run by hand (NC-19).
+>
+> **Since 0.4.0: the station catalog search** (the Add station dialog below; see `[0.4.0]` in [CHANGELOG.md](CHANGELOG.md); 0.4.1 fixes `https://` stations on Windows). Its build, automated checks, package checks and smoke test pass in CI on `windows-latest` and `macos-latest`, and it has been tested on the developer's Apple Silicon Mac. It has not yet been used by hand on a real Windows PC, and it has had no screen-reader or real-logo check by hand on either OS.
 
 ## Download
 
-Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/DialShift/releases)**. Every release has these files (releases up to `v0.4.0` have no setup, and their checksum file covers the two zips):
+Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/DialShift/releases)**. Every release has these files (releases up to `v0.4.1` have no setup, and their checksum file covers the two zips):
 
 | File | For |
 |---|---|
@@ -27,15 +29,15 @@ Download DialShift from the **[Releases page](https://github.com/spyroskotsakis/
 | `DialShift-macos-arm64.zip` | macOS 14.0 or later, Apple Silicon |
 | `SHA256SUMS.txt` | SHA-256 checksums of the three downloads |
 
-**Releases and "latest".** The "latest" links below always point at the newest full release, now `v0.4.1` (`v0.3.0` was the first). Pre-releases, such as `v0.3.0-rc.1` and `v0.3.0-rc.2`, are listed on the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) but are never the "latest" release. `v0.3.0`, `v0.4.0` and `v0.4.1` were released before every native check had passed; see the testing status above and [Open items](#open-items--release-status).
+**Releases and "latest".** The "latest" links below always point at the newest full release, now `v0.5.0` (`v0.3.0` was the first). Pre-releases, such as `v0.3.0-rc.1` and `v0.3.0-rc.2`, are listed on the [Releases page](https://github.com/spyroskotsakis/DialShift/releases) but are never the "latest" release. `v0.3.0`, `v0.4.0`, `v0.4.1` and `v0.5.0` were released before every native check had passed; see the testing status above and [Open items](#open-items--release-status).
 
 - Latest release: <https://github.com/spyroskotsakis/DialShift/releases/latest>
-- Windows setup (from the first release with the setup on): <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-Setup-win-x64.exe>
+- Windows setup (from `v0.5.0` on): <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-Setup-win-x64.exe>
 - Windows zip: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-win-x64.zip>
 - macOS: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/DialShift-macos-arm64.zip>
 - Checksums: <https://github.com/spyroskotsakis/DialShift/releases/latest/download/SHA256SUMS.txt>
 
-A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.4.1/DialShift-win-x64.zip`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+A specific release's files are always at `https://github.com/spyroskotsakis/DialShift/releases/download/<tag>/<file>`, for example `…/download/v0.5.0/DialShift-Setup-win-x64.exe`. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ### Check the download
 
@@ -85,11 +87,11 @@ This applies if you used the earlier separate Windows or macOS app, including `v
 - **Windows, launch at sign-in:** the setup and `Install.ps1` keep it. They use the same `Run` value as before and point it at the new copy. If you run the new `DialShift.exe` from another folder instead, Settings shows "Launch at sign-in points to an older copy of DialShift"; turn it on again to fix it.
 - **macOS, launch at login:** an older app's launch-at-login entry is recognized. Settings shows it on, with a note if the entry came from an older DialShift; turn launch at login off and on to replace it with the new one. If Settings says it "points to an older copy", turn it on again. Move DialShift to `/Applications` first (see [Install on macOS](#install-on-macos)).
 - **Intel Macs:** there is no Intel build of this version, so keep using your current app. The last Intel build's source is kept at the tag `legacy-last-known-good` (see [Earlier versions](#earlier-versions)).
-- **Going back to an older version** keeps your stations and schedule. `v0.3.0` drops the notes of stations added from the catalog the next time it saves; the apps before it also ignore slot time zones and remove them.
+- **Going back to an older version** keeps your stations and schedule. From a setup install, uninstall DialShift in Settings → Apps first (keeping your settings), then use the older version's zip: `Install.ps1` refuses to replace a setup install, and releases before `v0.5.0` have no setup. `v0.3.0` drops the notes of stations added from the catalog the next time it saves; the apps before it also ignore slot time zones and remove them.
 
 ## Open items / release status
 
-Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` was released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), and so are `v0.4.0` (D92) and `v0.4.1` (the D100 fix), with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for the next releases. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
+Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` was released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), and so are `v0.4.0` (D92), `v0.4.1` (the D100 fix) and `v0.5.0` (the Windows setup, D93–D99, D101), with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for the next releases. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
 To run them, use the guided [native-check kit](scripts/native-check/README.md): one script per OS that walks through the checks and produces an evidence zip to send back.
 
 ## Listen
@@ -292,8 +294,8 @@ On macOS, run the bundled executable, `dist/DialShift.app/Contents/MacOS/DialShi
 
 ### Signing tiers
 
-- **Development (what the scripts produce):** the Windows build, its setup and the setup's uninstaller are unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and, so far, for every release, including `v0.3.0` (D57), `v0.4.0` and `v0.4.1`. Gatekeeper and SmartScreen will warn.
-- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials and a clean-machine install test. `v0.3.0` (decision D57), `v0.4.0` and `v0.4.1` shipped in the development tier before them.
+- **Development (what the scripts produce):** the Windows build, its setup and the setup's uninstaller are unsigned; the macOS bundle is ad-hoc signed. Used for local and CI builds and, so far, for every release, including `v0.3.0` (D57), `v0.4.0`, `v0.4.1` and `v0.5.0`. Gatekeeper and SmartScreen will warn.
+- **Signed release (not done yet):** Authenticode on Windows; Developer ID signing with the hardened runtime, notarization and stapling on macOS. Both need credentials and a clean-machine install test. `v0.3.0` (decision D57), `v0.4.0`, `v0.4.1` and `v0.5.0` shipped in the development tier before them.
 
 ## Project
 

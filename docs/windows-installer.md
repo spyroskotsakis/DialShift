@@ -4,7 +4,7 @@
 > on `windows-latest`, `macos-latest` and the cross-build job (the Mac-built and Windows-built setups byte-identical) at
 > `b655d67` (run `36230181228`), `cf21fc1` (`36231552864`), `b7017d7` (`36233711767`), `9322106` (`36235173662`) and
 > `b76356e` (`36238278091`), the last two after macOS re-runs, and at `6cbc311` (`36240957220`), the last of
-> D101's eight rounds. NC-19 (a real PC) is
+> D101's eight rounds. Prepared for release as `0.5.0` (not tagged or published). NC-19 (a real PC) is
 > open. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
 > `docs/decisions.md` say so, and §5 below follows the build.
 > This is brief 4, after `single-codebase-refactor.md` (brief 1), `schedule-timezone-research.md` (brief 2) and
@@ -485,7 +485,8 @@ the job also installs `sevenzip` and compares listings). Its artifacts do not ma
   the cross-built package folder (or from `--win-zip` through `--zip`), runs `verify-win-setup.sh` (contents when
   `7zz` is present, else listed under "not checked"), includes it in `SHA256SUMS.txt` and `gh release create`. Its
   "not checked" line adds "the setup's install, upgrade and uninstall cases (they need Windows)".
-- **The first release with the setup** is the next version after `0.4.0`, with a CHANGELOG section that states the
+- **The first release with the setup** is `0.5.0` (prepared: csproj `<Version>` and CHANGELOG `[0.5.0]`; not tagged or
+  published), with a CHANGELOG section that states the
   setup's testing status (CI only until NC-19).
 
 ## 10. Docs, README and notices

@@ -165,7 +165,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   - **Public release:** requires **Authenticode** on Windows and **Developer ID signing + notarization** on macOS. These are documented as release requirements and are **not performed** in this work.
 - **Rationale:** Signing needs credentials and accounts that this environment does not have. Ad-hoc signing is enough for local and CI verification. SmartScreen and Gatekeeper behavior is a listed native check.
 - **Update (D57):** `v0.3.0` shipped as a full release in the development tier (Windows unsigned, macOS ad-hoc; published 2026-09-25, public Release run `36172793355`), before Authenticode and notarization. The public-release requirement above still stands for later full releases unless another decision says otherwise.
-- **Update (D93, brief 4 spec, 2026-09-26):** the "installer later" of the Windows bullet is specified: an unsigned per-user NSIS setup, `DialShift-Setup-win-x64.exe`, published beside the zip, which stays. MSIX stays out (it needs a trusted certificate). Implemented on `feature/windows-installer` (D93–D99, D101; public CI green at `cf21fc1`), not released yet.
+- **Update (D93, brief 4 spec, 2026-09-26):** the "installer later" of the Windows bullet is specified: an unsigned per-user NSIS setup, `DialShift-Setup-win-x64.exe`, published beside the zip, which stays. MSIX stays out (it needs a trusted certificate). Implemented on `feature/windows-installer` (D93–D99, D101; public CI green at `6cbc311`) and prepared for release as `0.5.0` (not tagged or published).
 - **Brief ref:** brief 1 §8 (artifact format, signing tiers).
 
 ## D8 — Parallel validation via tag + checklist; retirement gated on CI

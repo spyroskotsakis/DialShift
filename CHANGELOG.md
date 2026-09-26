@@ -8,10 +8,22 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-26
+
+Adds a Windows setup, `DialShift-Setup-win-x64.exe`, beside the zip. The app itself works as in [0.4.1](CHANGELOG.md#041---2026-09-26), and what 0.4.1 and 0.4.0 say about testing still applies.
+
+### Testing status and known limitations
+
+Please read this before you install.
+
+- **The setup is checked by automated tests on GitHub's Windows machines, not yet by hand.** CI builds it on `windows-latest` and again on macOS, checks that both builds are byte-identical and that it holds exactly the zip's files, and runs it silently on `windows-latest`: a fresh install, upgrades over a setup install and over an `Install.ps1` install, a locked file, the install lock, a running DialShift, dozens of refused folders, silent and in-place uninstalls, and folders with spaces, a non-ASCII letter and the longest path the setup allows, all green (public CI run `36240957220`). It has not yet been run by hand (native check NC-19): the wizard, SmartScreen and Smart App Control, the Apps & features entry and a real sign-in are unverified.
+- **Everything [0.4.1](CHANGELOG.md#041---2026-09-26) and [0.4.0](CHANGELOG.md#040---2026-09-26) say about testing still applies:** Windows has not been tested by hand on a physical PC (tray, audible playback, launch at sign-in, sleep and wake), and macOS has not been tested on a clean Mac or on macOS 14 and 15.
+- **The setup is not code-signed,** like the rest of the Windows download, so SmartScreen may warn: choose **More info**, then **Run anyway**. Windows 11's Smart App Control, when on, blocks unsigned programs with no way past it, the zip's `DialShift.exe` too.
+- **Going back to 0.4.1 from a setup install:** uninstall DialShift in **Settings → Apps** (choose **Yes** to keep your stations, schedule and settings), then use the [v0.4.1 release](https://github.com/spyroskotsakis/DialShift/releases/tag/v0.4.1)'s zip, with or without `Install.ps1`. `Install.ps1` refuses to replace a setup install.
+
 ### Added
 
 - **A Windows setup, `DialShift-Setup-win-x64.exe`,** published beside the zip, which stays as it is. Double-click it to install DialShift for your user in `%LOCALAPPDATA%\Programs\DialShift`, without administrator rights, with a Start menu shortcut, an optional desktop shortcut and an entry in **Settings → Apps**, from where it uninstalls. Uninstalling asks whether to keep your stations, schedule and settings. Running a newer setup upgrades in place, over a setup install or an `Install.ps1` install, and keeps your settings and launch at sign-in; if DialShift is running, the setup asks you to quit it first and waits for **Retry**. `/S` installs and uninstalls silently; `/D=<folder>` installs into another folder, for automation, and a folder the setup can't use exactly as given is refused (exit code 13), never swapped for another. The setup is built with NSIS 3.12 and is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**. Its licence is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and `licenses/NSIS-COPYING.txt`.
-- **Testing status of the setup:** CI builds it on `windows-latest` and again on macOS, checks that both builds are identical and that it holds exactly the zip's files, and runs its install, upgrade, refusals and uninstall silently on `windows-latest`: all green (public CI run `36240957220`). It has not yet been run by hand on a real Windows PC (native check NC-19): the wizard, SmartScreen and Smart App Control, and the Apps & features entry are unverified there.
 
 ### Changed
 
@@ -137,7 +149,8 @@ The full lists are in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) (the rebui
 - The schedule does not wake a sleeping computer, and slots have no end time.
 - Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
-[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...v0.3.0
