@@ -425,23 +425,24 @@ jobs:
       # be moved aside (14). (s3b) the new build cannot be moved in: the previous install is moved back (14). (s4)
       # install lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder refusals (13), each with the
       # uninstaller moved aside so that only its own rule can refuse it: the settings folder (emptied, so only R3 can
-      # refuse it; also as \\?\), a folder inside it (also spelled through a missing folder and ..), a foreign folder, a
-      # folder with DialShift.exe among other files, drive roots (subst, the system drive), the uninstaller's _?= on the
-      # subst root, the volume GUID path of drive C for the setup and the uninstaller (a decoy install in the working
-      # folder kept), the uninstaller's _?= with "/" or "|" (decoys at the folders NSIS would read kept) and on a \\.\
-      # path, \\?\ with a trailing dot, a trailing space or .., a \\.\ device path, folder paths too long for the
-      # payload (by one character, and far); /D= folders NSIS cannot use (a missing drive, a relative and a
-      # drive-relative path, a file in the path, a file, forward slashes, quotes, nothing), which it would replace with
-      # the install's own folder, /D= folders it keeps but reads as another (a slash inside, text after /D=), command
-      # lines longer than NSIS keeps (exactly 1,024 characters, and one with a 1,030-character argument), and /D=
-      # switches it does not take (quoted, lowercase) (D101); then, with the uninstaller back, a second install
-      # location. (s7) Install.ps1 over the setup install (D95), by the uninstaller and by the entry's InstallLocation.
-      # (s8) an uninstaller of another copy leaves this install's shortcut, entry and Run value; silent uninstall
-      # through QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another
-      # copy's Run value, then a reinstall (/D= with a trailing backslash) into the folder the in-place uninstall left
-      # (only the uninstaller) and its uninstall; then a fresh install into a folder with spaces and a non-ASCII letter,
-      # on a command line of exactly 1,023 characters, and its uninstall; then one exactly at the path limit, and its
-      # uninstall.
+      # refuse it; also as \\?\), a folder inside it (also spelled through a missing folder and ..), the settings folder
+      # through a junction, a subst drive and its 8.3 name, a foreign folder, a folder with DialShift.exe among other
+      # files, drive roots (subst, the system drive), the uninstaller's _?= on the subst root, the volume GUID path of
+      # drive C for the setup and the uninstaller (a decoy install in the working folder kept), the uninstaller's _?=
+      # with "/" or "|" (decoys at the folders NSIS would read kept) and on a \\.\ path, the uninstaller started without
+      # _?= and given a /D= NSIS cleans (the relaunched copy refuses; a decoy there kept), \\?\ with a trailing dot, a
+      # trailing space or .., a \\.\ device path, folder paths too long for the payload (by one character, and far); /D=
+      # folders NSIS cannot use (a missing drive, a relative and a drive-relative path, a file in the path, a file,
+      # forward slashes, quotes, nothing), which it would replace with the install's own folder, /D= folders it keeps
+      # but reads as another (a slash inside, text after /D=), command lines longer than NSIS keeps (exactly 1,024
+      # characters, and one with a 1,030-character argument), and /D= switches it does not take (quoted, lowercase)
+      # (D101); then, with the uninstaller back, a second install location. (s7) Install.ps1 over the setup install
+      # (D95), by the uninstaller and by the entry's InstallLocation. (s8) an uninstaller of another copy leaves this
+      # install's shortcut, entry and Run value; silent uninstall through QuietUninstallString. (s9) setup over an
+      # Install.ps1 install, an in-place uninstall that keeps another copy's Run value, then a reinstall (/D= with a
+      # trailing backslash) into the folder the in-place uninstall left (only the uninstaller) and its uninstall; then a
+      # fresh install into a folder with spaces and a non-ASCII letter, on a command line of exactly 1,023 characters,
+      # and its uninstall; then one exactly at the path limit, and its uninstall.
       # The real %LOCALAPPDATA%\DialShift holds a sentinel settings.json whose SHA-256 is checked after every case, and
       # every case but (s5) checks that no DialShift process was started. The Start menu, desktop and HKCU of the runner
       # are real: the Run, StartupApproved and uninstall values, both shortcuts, the subst drive and every ACL change are
@@ -533,6 +534,12 @@ jobs:
           $longestFolder = (@($expectedFiles | ForEach-Object { Split-Path -Parent $_ } | Where-Object { $_ }) | Measure-Object -Property Length -Maximum).Maximum
           $maxParent = [Math]::Min(259 - 24 - $longestFile, 247 - 24 - $longestFolder)
           function Get-ParentOfLength([int]$length) { Join-Path $root ('p' * ($length - $root.Length - 1)) }
+          # Waits (up to 60 s) until no uninstaller copy runs from $TEMP\~nsu<n>.tmp: the first process returns at once.
+          function Wait-Relaunched {
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            do { Start-Sleep -Milliseconds 500 }
+            while ([DateTime]::UtcNow -lt $deadline -and @(Get-Process | Where-Object { $_.Path -like '*\~nsu*.tmp\*' }).Count)
+          }
           function Get-Names([string]$folder) { @(Get-ChildItem -LiteralPath $folder -Force | ForEach-Object Name | Sort-Object) }
           function Assert-OnlyInstall([string]$case) {
             $names = Get-Names $programs
@@ -775,6 +782,22 @@ jobs:
                 # The same folder through one that doesn't exist: normalized although its last part is missing (D101).
                 Assert-Code 's6 inside the settings folder, spelled through ..' (Invoke-Setup "/S /D=$(Split-Path -Parent $dataDir)\setup-check-nothing\..\DialShift\inside") 13
                 if (Test-Path -LiteralPath (Join-Path $dataDir 'inside')) { throw '(s6) A refused run created a folder inside the settings folder.' }
+                # Aliases of the settings folder that only Windows' own resolution recognizes (GetFinalPathNameByHandleW,
+                # D101): a junction to it, a subst drive on its parent, and its 8.3 name when the drive has 8.3 names.
+                $settingsLink = Join-Path $root 'settings-link'
+                New-Item -ItemType Junction -Path $settingsLink -Target $dataDir | Out-Null
+                try { Assert-Code 's6 settings folder through a junction' (Invoke-Setup "/S /D=$settingsLink") 13 }
+                finally { [IO.Directory]::Delete($settingsLink) }
+                $aliasLetter = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+                if (-not $aliasLetter) { throw '(s6) No free drive letter for subst.' }
+                & subst "${aliasLetter}:" (Split-Path -Parent $dataDir)
+                if ($LASTEXITCODE -ne 0) { throw "(s6) subst ${aliasLetter}: failed." }
+                try { Assert-Code 's6 settings folder through a subst drive' (Invoke-Setup "/S /D=${aliasLetter}:\DialShift") 13 }
+                finally { & subst "${aliasLetter}:" /d | Out-Null }
+                $shortData = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($dataDir).ShortPath
+                if ($shortData -ne $dataDir) { Assert-Code 's6 settings folder by its 8.3 name' (Invoke-Setup "/S /D=$shortData") 13 }
+                else { Write-Host "(s6) $dataDir has no 8.3 name here: the 8.3 case is skipped." }
+                if ((Get-Names $dataDir).Count) { throw '(s6) A refused alias run wrote into the settings folder.' }
               } finally { Move-Item -LiteralPath $sentinelAside -Destination $sentinel }
               $foreign = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-foreign')
               Set-Content -LiteralPath (Join-Path $foreign 'someone-else.txt') -Value 'not DialShift'
@@ -835,6 +858,18 @@ jobs:
               Assert-Shortcut 's6 uninstaller on mangled folders' $startMenu
               # A \\.\ device path for the uninstaller reaches CheckFolderPath (NSIS accepts it as \\server\share).
               Assert-Code 's6 uninstaller on a \\.\ path' (Invoke-Exe $aside "/S _?=\\.\$root\DotDevice\DialShift") 13
+              # The uninstaller started without _?=, as Apps & features starts it: NSIS relaunches its copy from
+              # $TEMP\~nsu<n>.tmp with _?=<folder>, and hands a /D= on already cleaned ("<root>\x/DialShift" as
+              # "<root>\xDialShift"), so the copy refuses any folder that is not its own install (D101); the decoy there
+              # stays. Documented gap: a /D= that NSIS cleans into another DialShift install of the same build uninstalls
+              # that install.
+              $mangled = New-Item -ItemType Directory -Path (Join-Path $root 'xDialShift')
+              Set-Content -LiteralPath (Join-Path $mangled 'DialShift.exe'), (Join-Path $mangled 'DialShift.dll'), (Join-Path $mangled 'notes.txt') -Value 'decoy'
+              Assert-Code 's6 uninstaller relaunched with /D=' (Invoke-Exe $aside "/S /D=$root\x/DialShift") 0
+              Wait-Relaunched
+              if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 3) { throw '(s6) The relaunched uninstaller deleted from the /D= folder.' }
+              Remove-Item -LiteralPath $mangled -Recurse -Force
+              Assert-Shortcut 's6 uninstaller relaunched with /D=' $startMenu
               Remove-Item -LiteralPath $planted
               # A /D= folder NSIS cannot use, or a /D= switch it does not take (D101): refused, never replaced.
               $missing = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1

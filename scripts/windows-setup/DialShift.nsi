@@ -58,6 +58,7 @@ XPStyle on
 !define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define APPROVED_KEY "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
 !define LOCK_NAME "Local\DialShift.Install"
+!define OWN_MESSAGE "This uninstaller won't remove files from $INSTDIR: that isn't the DialShift install it belongs to. Run the Uninstall DialShift.exe in the folder you want to uninstall (/D= does not apply to the uninstaller)."
 !define RUNNING_MESSAGE "DialShift is running. Quit it from its tray menu (Quit DialShift), then choose Retry."
 
 !define EXIT_RUNNING 10         ; DialShift runs from the folder (R5)
@@ -106,6 +107,8 @@ Var UnFailed
 Var Kind            ; ClassifyFolder: empty, install, foreign or mixed
 Var Foreign         ; ClassifyFolder: the first top-level entry that is not DialShift's
 Var IsInstall       ; 1 when the install folder holds an install to swap out
+Var UnStartMenuHere ; the uninstaller: 1 when $SMPROGRAMS\DialShift.lnk starts this install
+Var UnDesktopHere   ; the uninstaller: 1 when $DESKTOP\DialShift.lnk starts this install
 
 ; ---------------------------------------------------------------------------------------------------------------
 ; Pages (brief 4 section 5.10)
@@ -183,6 +186,9 @@ Var IsInstall       ; 1 when the install folder holds an install to swap out
 ; - A \\?\ text must not end with a space before its trailing backslashes: \\?\ names "DialShift " literally, the
 ;   ordinary form "DialShift". (Trailing backslashes alone keep the same folder.)
 ; - The uninstaller always has " _?=" (NSIS starts it only with one); the setup without /D= has nothing to check here.
+;   An uninstaller started without _?= (Apps & features, a double-click) is a first process that runs no script: it
+;   relaunches its temporary copy with _?=<$INSTDIR>\, and NSIS gives that first process a /D= too, so the copy gets a
+;   /D= folder already cleaned by NSIS, and this check sees that text, not what was typed. un.CheckOwnFolder covers it.
 Function ${UN}CheckNamedFolder
     System::Call 'kernel32::GetCommandLineW() p .r5'
     System::Call 'kernel32::lstrlenW(p r5) i .r1'
@@ -229,12 +235,37 @@ Function ${UN}CheckNamedFolder
     ${EndIf}
 FunctionEnd
 
+; $R5 = the length of the root of the absolute path $R0: 2 for "C:...", else ("\\server\share...") the position of the
+; backslash after the share name, or the whole length. Changes $R3-$R6.
+Function ${UN}RootLength
+    StrCpy $R3 $R0 1 1
+    ${If} $R3 == ":"
+        StrCpy $R5 2
+        Return
+    ${EndIf}
+    StrLen $R5 $R0
+    StrCpy $R3 2
+    StrCpy $R6 0
+    ${DoWhile} $R3 < $R5
+        StrCpy $R4 $R0 1 $R3
+        ${If} $R4 == "\"
+            IntOp $R6 $R6 + 1
+            ${If} $R6 = 2
+                StrCpy $R5 $R3
+                Return
+            ${EndIf}
+        ${EndIf}
+        IntOp $R3 $R3 + 1
+    ${Loop}
+FunctionEnd
+
 ; $INSTDIR with the part of it that exists spelled with long names: GetLongPathNameW on its deepest existing folder,
-; the rest appended as given. So an 8.3 spelling of the settings folder ("C:\Users\CROS~MYY\...") meets the
-; settings-folder rule, and InstallLocation and the Run value are written in one spelling. A root is never looked up
-; ("C:" alone would be the current folder of drive C). Changes $R0-$R4.
+; the rest appended as given. So InstallLocation and the Run value are written in one spelling, and an 8.3 spelling of
+; the settings folder ("C:\Users\CROS~MYY\...") meets the settings-folder rule. A root ("C:\", "\\server\share") is
+; never looked up. Changes $R0-$R6.
 Function ${UN}LongForm
     StrCpy $R0 $INSTDIR
+    Call ${UN}RootLength
     StrCpy $R1 ""
     ${Do}
         System::Call 'kernel32::GetLongPathNameW(w R0, w .R2, i ${NSIS_MAX_STRLEN}) i .R3'
@@ -243,11 +274,11 @@ Function ${UN}LongForm
             StrCpy $INSTDIR "$R2$R1"
             Return
         ${EndIf}
-        ; Move the last part of $R0 to the front of $R1; stop at the root ("C:\", "\\server\share" never shorter).
+        ; Move the last part of $R0 to the front of $R1, until only the root would be left.
         StrLen $R3 $R0
         ${Do}
             IntOp $R3 $R3 - 1
-            ${If} $R3 < 3
+            ${If} $R3 <= $R5
                 Return
             ${EndIf}
             StrCpy $R4 $R0 1 $R3
@@ -362,7 +393,7 @@ FunctionEnd
 ;   not exist yet and so left "C:\x\..\new" as it was. A \\?\ path must already be in normal form: Windows reads
 ;   "\\?\C:\x\DialShift." or "\\?\C:\x\..\y" literally, but their ordinary form as another folder.
 ; - Absolute and not a root after it ("C:\x\.." is the root of C); then its existing part in long names (LongForm).
-; Changes $0-$4, $R0-$R4, $R8 and $R9 (the folder as given, for the messages).
+; Changes $0-$4, $R0-$R6, $R8 and $R9 (the folder as given, for the messages).
 Function ${UN}CheckFolderPath
     StrCpy $R9 $INSTDIR
     StrCpy $R8 0
@@ -737,6 +768,76 @@ Function CheckRequestedFolder
     ${Loop}
 FunctionEnd
 
+; $R1 = the absolute path $R0 as Windows resolves it: GetFinalPathNameByHandleW ("\\?\C:\..." or "\\?\UNC\...") on its
+; deepest existing folder, the root last ("C:\", "\\server\share\"), the rest appended as given; "" when nothing of it
+; can be opened. It resolves 8.3 names, subst drives, junctions, folder symbolic links and mount points, for the
+; settings-folder rule only (D101). Changes $R1-$R8.
+Function FinalForm
+    Call RootLength
+    StrCpy $R7 $R5
+    StrCpy $R2 $R0
+    StrCpy $R8 ""
+    StrCpy $R1 ""
+    ${Do}
+        ; FILE_READ_ATTRIBUTES, all sharing, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS (needed to open a folder).
+        System::Call 'kernel32::CreateFileW(w R2, i 0x80, i 7, p 0, i 3, i 0x02000000, p 0) p .R3'
+        ${If} $R3 <> -1
+            System::Call 'kernel32::GetFinalPathNameByHandleW(p R3, w .R4, i ${NSIS_MAX_STRLEN}, i 0) i .R6'
+            System::Call 'kernel32::CloseHandle(p R3)'
+            ${If} $R6 > 0
+            ${AndIf} $R6 < ${NSIS_MAX_STRLEN}
+                StrCpy $R3 $R4 1 -1
+                ${If} $R3 == "\"
+                    StrCpy $R4 $R4 -1
+                ${EndIf}
+                StrCpy $R1 "$R4$R8"
+            ${EndIf}
+            Return
+        ${EndIf}
+        ; The root was the last try.
+        StrCpy $R3 $R2 1 -1
+        ${If} $R3 == "\"
+            Return
+        ${EndIf}
+        ; Up one folder; at the root's backslash, the root itself with its backslash.
+        StrLen $R3 $R2
+        ${Do}
+            IntOp $R3 $R3 - 1
+            StrCpy $R4 $R2 1 $R3
+            ${If} $R4 == "\"
+            ${OrIf} $R3 <= $R7
+                ${Break}
+            ${EndIf}
+        ${Loop}
+        StrCpy $R4 $R2 "" $R3
+        StrCpy $R8 "$R4$R8"
+        ${If} $R3 <= $R7
+            IntOp $R3 $R7 + 1
+        ${EndIf}
+        StrCpy $R2 $R2 $R3
+    ${Loop}
+FunctionEnd
+
+; $R2 = 1 when the folder $R0 is, is inside or contains the folder $R1: compared as text, case-insensitively, each with
+; one trailing backslash (as D56). Changes $R2-$R6.
+Function OverlapsFolder
+    StrCpy $R3 "$R0\"
+    StrCpy $R4 "$R1\"
+    StrLen $R5 $R3
+    StrLen $R6 $R4
+    StrCpy $R2 0
+    StrCpy $R5 $R3 $R6
+    ${If} $R5 == $R4
+        StrCpy $R2 1
+        Return
+    ${EndIf}
+    StrLen $R5 $R3
+    StrCpy $R6 $R4 $R5
+    ${If} $R6 == $R3
+        StrCpy $R2 1
+    ${EndIf}
+FunctionEnd
+
 ; R3 (exit 13, D101): every payload file and folder must fit Windows' path limits (MAX_PATH: a file path of at most
 ; 259 characters, a folder path of at most 247) both in the install folder and in the DialShift.new-/old-<8 hex>
 ; folders beside it; the setup is not long-path aware, so a longer path would fail the extraction instead. Changes
@@ -951,14 +1052,24 @@ Function .onInit
     Call CheckRequestedFolder
     Call CheckFolderPath
     Call CheckPathLength
-    StrCpy $0 "$INSTDIR\"
-    StrCpy $1 "$LOCALAPPDATA\DialShift\"
-    StrLen $2 $0
-    StrLen $3 $1
-    StrCpy $4 $0 $3
-    StrCpy $5 $1 $2
-    ${If} $4 == $1
-    ${OrIf} $5 == $0
+    ; The settings rule as text (D56), then as Windows resolves both folders (D101): an alias through a subst drive, a
+    ; junction, a folder symbolic link, a mount point or an 8.3 name is the settings folder too.
+    StrCpy $R0 $INSTDIR
+    StrCpy $R1 "$LOCALAPPDATA\DialShift"
+    Call OverlapsFolder
+    ${If} $R2 = 0
+        StrCpy $R0 $INSTDIR
+        Call FinalForm
+        StrCpy $R9 $R1
+        StrCpy $R0 "$LOCALAPPDATA\DialShift"
+        Call FinalForm
+        ${If} $R9 != ""
+        ${AndIf} $R1 != ""
+            StrCpy $R0 $R9
+            Call OverlapsFolder
+        ${EndIf}
+    ${EndIf}
+    ${If} $R2 = 1
         !insertmacro REFUSE ${EXIT_FOLDER} "DialShift can't be installed in $INSTDIR: that folder holds your DialShift settings. Choose another folder."
     ${EndIf}
 
@@ -1028,6 +1139,49 @@ FunctionEnd
 ; ---------------------------------------------------------------------------------------------------------------
 ; Uninstaller (D96). NSIS runs it from a temporary copy, so $INSTDIR is the folder of "Uninstall DialShift.exe".
 
+; The folder must be the DialShift install this uninstaller belongs to (exit 13, D101). An uninstaller started without
+; _?= runs as a first process that runs no script and relaunches its temporary copy (in "$TEMP\~nsu<n>.tmp") with
+; _?=<$INSTDIR>\; NSIS gives that first process a /D= too (cut off its command line), and $INSTDIR is then the /D= text
+; already cleaned, so CheckNamedFolder cannot see what was typed ("/D=C:\t/Victim" arrives as "C:\tVictim"). So the
+; folder must hold Uninstall DialShift.exe (every install does; it is deleted last), and the temporary copy must be as
+; large as that file. Remaining gap: a /D= that NSIS cleans into another DialShift install of the same build uninstalls
+; that install. Changes $0-$3.
+Function un.CheckOwnFolder
+    ${IfNot} ${FileExists} "$INSTDIR\${UNINSTALLER}"
+        !insertmacro REFUSE ${EXIT_FOLDER} "${OWN_MESSAGE}"
+    ${EndIf}
+    ; The name of the folder this copy runs from.
+    StrLen $1 $EXEDIR
+    ${Do}
+        IntOp $1 $1 - 1
+        ${If} $1 < 0
+            ${Break}
+        ${EndIf}
+        StrCpy $0 $EXEDIR 1 $1
+        ${If} $0 == "\"
+            ${Break}
+        ${EndIf}
+    ${Loop}
+    IntOp $1 $1 + 1
+    StrCpy $0 $EXEDIR "" $1
+    StrCpy $2 $0 4
+    StrCpy $3 $0 "" -4
+    ${If} $2 == "~nsu"
+    ${AndIf} $3 == ".tmp"
+        ClearErrors
+        FileOpen $0 "$EXEPATH" r
+        FileSeek $0 0 END $1
+        FileClose $0
+        FileOpen $0 "$INSTDIR\${UNINSTALLER}" r
+        FileSeek $0 0 END $2
+        FileClose $0
+        ${IfNot} ${Errors}
+        ${AndIf} $1 != $2
+            !insertmacro REFUSE ${EXIT_FOLDER} "${OWN_MESSAGE}"
+        ${EndIf}
+    ${EndIf}
+FunctionEnd
+
 Function un.onInit
     SetShellVarContext current
     StrCpy $KeepSettings 1
@@ -1036,6 +1190,8 @@ Function un.onInit
     ; too, and \\?\ could leave a relative path): refused with 13 (D101).
     Call un.CheckNamedFolder
     Call un.CheckFolderPath
+    ; An install, and the one this uninstaller belongs to (a relaunch from $TEMP carries a /D= NSIS already cleaned).
+    Call un.CheckOwnFolder
     Call un.CheckNotRunning
     ${If} $0 <> 0
         SetErrorLevel $0
@@ -1080,6 +1236,13 @@ Section "Uninstall"
     ${EndIf}
     Call un.SetParent
     Call un.RemoveLeftovers
+    ; Whether the shortcuts start this install, decided while its DialShift.exe is still there (D101).
+    StrCpy $R0 "$SMPROGRAMS\DialShift.lnk"
+    Call un.ShortcutPointsHere
+    StrCpy $UnStartMenuHere $0
+    StrCpy $R0 "$DESKTOP\DialShift.lnk"
+    Call un.ShortcutPointsHere
+    StrCpy $UnDesktopHere $0
 
     ; Only the files this build installed, then its folders if empty: never a recursive delete of the install folder,
     ; so a file the user put there stays, with its folder.
@@ -1097,15 +1260,11 @@ Section "Uninstall"
     RMDir "$INSTDIR"
 
     ; The shortcuts, the Run value and the entry belong to this install only when they point at it (D101).
-    StrCpy $R0 "$SMPROGRAMS\DialShift.lnk"
-    Call un.ShortcutPointsHere
-    ${If} $0 = 1
-        Delete "$R0"
+    ${If} $UnStartMenuHere = 1
+        Delete "$SMPROGRAMS\DialShift.lnk"
     ${EndIf}
-    StrCpy $R0 "$DESKTOP\DialShift.lnk"
-    Call un.ShortcutPointsHere
-    ${If} $0 = 1
-        Delete "$R0"
+    ${If} $UnDesktopHere = 1
+        Delete "$DESKTOP\DialShift.lnk"
     ${EndIf}
 
     ; Launch at sign-in belongs to this install only when the Run value starts it (the app's own case-insensitive
