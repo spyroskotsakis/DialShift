@@ -126,19 +126,19 @@ internal static partial class CatalogHeadlessTests
     /// <summary>
     /// No App seam makes a search fail, so the check breaks the catalog index it hands the editor: after the first results
     /// landed, every entry's folded-name key is set to null through reflection on the index's private key array, so any
-    /// search with text throws from the query engine, as a defect there would. SKIP when the index no longer has that field.
+    /// search with text throws from the query engine, as a defect there would. When a Core refactor renames or removes that
+    /// field, the check FAILS naming it (never SKIPs), so the coverage cannot drop silently.
     /// </summary>
     private static async Task EnterWhenTheSearchFails()
     {
         const string Name = "CAT-12 D89 Enter while a search is pending that fails when run now: handled, nothing picked, the results closed, the failure reported";
+        const string KeysField = "keys";
         var loaded = Loaded(Small);
         var index = loaded.Catalog;
-        if (typeof(StationCatalogIndex).GetField("keys", BindingFlags.NonPublic | BindingFlags.Instance) is not { } field
-            || field.GetValue(index) is not StationCatalogIndex.SearchKeys[] keys)
-        {
-            Skip(Name, "StationCatalogIndex has no private SearchKeys[] 'keys' field to break, and the App has no failing-search seam");
-            return;
-        }
+        var keys = typeof(StationCatalogIndex).GetField(KeysField, BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(index) as StationCatalogIndex.SearchKeys[];
+        Check($"CAT-12 D89 fixture: StationCatalogIndex has the private {nameof(StationCatalogIndex.SearchKeys)}[] field '{KeysField}' that this check breaks " +
+              "to make a search fail (the App has no failing-search seam; if a Core refactor renamed or removed it, update this check)",
+            keys != null);
         var rig = new SteppedEditor(loaded, TimeSpan.FromMinutes(10));
         var (dialog, editor) = (rig.Dialog, rig.Editor);
         await rig.ShowAsync();
@@ -149,7 +149,7 @@ internal static partial class CatalogHeadlessTests
         Layout(dialog);
         Check("CAT-12 D89 fixture: Down opens the browse results on Kosmos 93.6", Overlay(dialog).IsVisible && editor.HighlightedResult?.Entry == Kosmos);
 
-        for (var i = 0; i < keys.Length; i++) keys[i] = keys[i] with { Name = null! };
+        for (var i = 0; i < keys!.Length; i++) keys[i] = keys[i] with { Name = null! };
         Check("CAT-12 D89 fixture: the broken index still browses (no text) but a search with text throws",
             StationCatalogQuery.Search(index, "", CatalogFilters.None).TotalCount == Small.Count
             && Throws<NullReferenceException>(() => StationCatalogQuery.Search(index, "melodia", CatalogFilters.None)));
