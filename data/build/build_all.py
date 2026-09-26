@@ -243,7 +243,7 @@ def main():
     section_row('How to add a station to the DialShift app')
     line('The app has this catalog built in: every station with a working stream, all countries and '
          f'collections ({app_stats["exported"]} stations in this build).')
-    line('1.  Open the app → Stations → Add a frequency.')
+    line('1.  Open the app → Stations → + Add station (it opens the Add a frequency dialog).')
     line('2.  Type in the search box: a station name, a city or an FM frequency (1015 or 101.5). '
          'Narrow the list with the Country, City, Type, Genre and Language filters if you like.')
     line('3.  Pick a result (click it, or Down and Enter). It fills Station name, Description / genre '
