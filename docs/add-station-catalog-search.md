@@ -4,10 +4,12 @@
 > tag at `3c8543c`, CHANGELOG `[0.4.0]`, public Release run `36221102328` and the private release by `release-local.sh`;
 > a full release before the by-hand checks, D92).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
 > (8,270 stations at `8e38215`) that both packages carry, with five filters, a detail pane with notes, and manual entry
-> kept. Acceptance: `docs/acceptance-matrix.md` §11, **15 GREEN and 3 NATIVE-PENDING** since public CI `36219966368`
-> at `cceff38` passed on `windows-latest` and `macos-latest` (after D91); CAT-03, CAT-12 and CAT-14 wait only for
-> by-hand checks: NC-18, NC-01's smoke from the extracted zip and its step (4b), NC-17 step (6b)
-> (`docs/open-items.md` §2.11–§2.13). Where the build differs from this
+> kept. Acceptance: `docs/acceptance-matrix.md` §11, **16 GREEN and 2 NATIVE-PENDING**: 15 GREEN since public CI
+> `36219966368` at `cceff38` passed on `windows-latest` and `macos-latest` (after D91), and CAT-03 since NC-18 and
+> NC-01's smoke from the extracted zip passed on 2026-09-26 (the `v0.5.0` release's zip, in a Windows 11 ARM64 VM, not
+> a physical PC). CAT-12 and CAT-14 wait only for by-hand checks that need a person with a screen reader: NC-01 step
+> (4b) (Narrator) and NC-17 step (6b) (VoiceOver) (`docs/open-items.md` §2.1, §2.7, §2.9; the data follow-ups are
+> §2.13). Where the build differs from this
 > brief, the decisions win: D69 (the catalog is about 8,300 stations, not ~1,400; budget ≤ 10,000), D70 (`Search` takes
 > a pre-folded `StationCatalogIndex`), D83 and D85 (the dialog's layout: the detail pane beside the form, the results
 > over the form column), D84 (languages as single names) and the rest of D59–D92 in `docs/decisions.md`. The text below
