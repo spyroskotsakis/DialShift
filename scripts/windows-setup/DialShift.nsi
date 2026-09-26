@@ -1139,17 +1139,51 @@ FunctionEnd
 ; ---------------------------------------------------------------------------------------------------------------
 ; Uninstaller (D96). NSIS runs it from a temporary copy, so $INSTDIR is the folder of "Uninstall DialShift.exe".
 
+; $R1 = "<size high>/<size low>" and $R8 = the last-write time (a 64-bit count of 100 ns) of the regular file $R0 (not a
+; folder, not a reparse point; GetFileAttributesExW), or $R1 = "" when it can't be read or isn't one. Changes $R1-$R8.
+Function un.FileStamp
+    StrCpy $R1 ""
+    StrCpy $R8 ""
+    System::Call '*(&i36) p .R2'
+    System::Call 'kernel32::GetFileAttributesExW(w R0, i 0, p R2) i .R3'
+    ${If} $R3 <> 0
+        ; WIN32_FILE_ATTRIBUTE_DATA: attributes, creation, last access, last write (low, high), size (high, low).
+        System::Call '*$R2(i .R3, i .R4, i .R4, i .R4, i .R4, i .R4, i .R5, i .R6, i .R7)'
+        IntOp $R3 $R3 & 0x410
+        ${If} $R3 = 0
+            StrCpy $R1 "$R6/$R7"
+            ; high * 2^32 + low, the low half read as unsigned.
+            ${If} $R4 < 0
+                System::Int64Op $R4 + 4294967296
+                Pop $R4
+            ${EndIf}
+            System::Int64Op $R5 * 4294967296
+            Pop $R8
+            System::Int64Op $R8 + $R4
+            Pop $R8
+        ${EndIf}
+    ${EndIf}
+    System::Free $R2
+FunctionEnd
+
 ; The folder must be the DialShift install this uninstaller belongs to (exit 13, D101). An uninstaller started without
-; _?= runs as a first process that runs no script and relaunches its temporary copy (in "$TEMP\~nsu<n>.tmp") with
-; _?=<$INSTDIR>\; NSIS gives that first process a /D= too (cut off its command line), and $INSTDIR is then the /D= text
-; already cleaned, so CheckNamedFolder cannot see what was typed ("/D=C:\t/Victim" arrives as "C:\tVictim"). So the
-; folder must hold Uninstall DialShift.exe (every install does; it is deleted last), and the temporary copy must be as
-; large as that file. Remaining gap: a /D= that NSIS cleans into another DialShift install of the same build uninstalls
-; that install. Changes $0-$3.
+; _?= runs as a first process that runs no script and relaunches its temporary copy (in "$TEMP\~nsu<n>.tmp", made with
+; CopyFile, which keeps the size and the last-write time) with _?=<$INSTDIR>\; NSIS gives that first process a /D= too
+; (cut off its command line), and $INSTDIR is then the /D= text already cleaned, so CheckNamedFolder cannot see what was
+; typed ("/D=C:\t/Victim" arrives as "C:\tVictim"). So:
+; - the folder must hold Uninstall DialShift.exe as a regular, readable file (every install does; it is deleted last);
+; - a temporary copy must have that file's size, and a last-write time within 2 s of it (FAT's resolution, so a copy in
+;   a $TEMP on any file system matches), so another install, of any build, written more than 2 s apart is refused.
+;   Residual: another install of the same build whose uninstaller was written within those 2 s.
+; Any read failure refuses. Changes $0-$4, $R0-$R8.
 Function un.CheckOwnFolder
-    ${IfNot} ${FileExists} "$INSTDIR\${UNINSTALLER}"
+    StrCpy $R0 "$INSTDIR\${UNINSTALLER}"
+    Call un.FileStamp
+    ${If} $R1 == ""
         !insertmacro REFUSE ${EXIT_FOLDER} "${OWN_MESSAGE}"
     ${EndIf}
+    StrCpy $3 $R1
+    StrCpy $4 $R8
     ; The name of the folder this copy runs from.
     StrLen $1 $EXEDIR
     ${Do}
@@ -1164,19 +1198,28 @@ Function un.CheckOwnFolder
     ${Loop}
     IntOp $1 $1 + 1
     StrCpy $0 $EXEDIR "" $1
-    StrCpy $2 $0 4
-    StrCpy $3 $0 "" -4
-    ${If} $2 == "~nsu"
-    ${AndIf} $3 == ".tmp"
-        ClearErrors
-        FileOpen $0 "$EXEPATH" r
-        FileSeek $0 0 END $1
-        FileClose $0
-        FileOpen $0 "$INSTDIR\${UNINSTALLER}" r
-        FileSeek $0 0 END $2
-        FileClose $0
-        ${IfNot} ${Errors}
-        ${AndIf} $1 != $2
+    StrCpy $1 $0 4
+    StrCpy $2 $0 "" -4
+    ${If} $1 == "~nsu"
+    ${AndIf} $2 == ".tmp"
+        StrCpy $R0 $EXEPATH
+        Call un.FileStamp
+        ${If} $R1 == ""
+        ${OrIf} $R1 S!= $3
+            !insertmacro REFUSE ${EXIT_FOLDER} "${OWN_MESSAGE}"
+        ${EndIf}
+        ; |copy - original| <= 2 s, in 64-bit arithmetic (IntCmp is 32-bit).
+        System::Int64Op $R8 - $4
+        Pop $0
+        System::Int64Op $0 < 0
+        Pop $1
+        ${If} $1 = 1
+            System::Int64Op 0 - $0
+            Pop $0
+        ${EndIf}
+        System::Int64Op $0 > 20000000
+        Pop $1
+        ${If} $1 = 1
             !insertmacro REFUSE ${EXIT_FOLDER} "${OWN_MESSAGE}"
         ${EndIf}
     ${EndIf}

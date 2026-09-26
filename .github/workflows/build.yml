@@ -424,25 +424,27 @@ jobs:
       # stored. (s2b) an old copy that cannot be deleted is a warning (exit 0). (s3) a locked file: the install cannot
       # be moved aside (14). (s3b) the new build cannot be moved in: the previous install is moved back (14). (s4)
       # install lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder refusals (13), each with the
-      # uninstaller moved aside so that only its own rule can refuse it: the settings folder (emptied, so only R3 can
-      # refuse it; also as \\?\), a folder inside it (also spelled through a missing folder and ..), the settings folder
-      # through a junction, a subst drive and its 8.3 name, a foreign folder, a folder with DialShift.exe among other
-      # files, drive roots (subst, the system drive), the uninstaller's _?= on the subst root, the volume GUID path of
-      # drive C for the setup and the uninstaller (a decoy install in the working folder kept), the uninstaller's _?=
-      # with "/" or "|" (decoys at the folders NSIS would read kept) and on a \\.\ path, the uninstaller started without
-      # _?= and given a /D= NSIS cleans (the relaunched copy refuses; a decoy there kept), \\?\ with a trailing dot, a
-      # trailing space or .., a \\.\ device path, folder paths too long for the payload (by one character, and far); /D=
-      # folders NSIS cannot use (a missing drive, a relative and a drive-relative path, a file in the path, a file,
-      # forward slashes, quotes, nothing), which it would replace with the install's own folder, /D= folders it keeps
-      # but reads as another (a slash inside, text after /D=), command lines longer than NSIS keeps (exactly 1,024
-      # characters, and one with a 1,030-character argument), and /D= switches it does not take (quoted, lowercase)
-      # (D101); then, with the uninstaller back, a second install location. (s7) Install.ps1 over the setup install
-      # (D95), by the uninstaller and by the entry's InstallLocation. (s8) an uninstaller of another copy leaves this
-      # install's shortcut, entry and Run value; silent uninstall through QuietUninstallString. (s9) setup over an
-      # Install.ps1 install, an in-place uninstall that keeps another copy's Run value, then a reinstall (/D= with a
-      # trailing backslash) into the folder the in-place uninstall left (only the uninstaller) and its uninstall; then a
-      # fresh install into a folder with spaces and a non-ASCII letter, on a command line of exactly 1,023 characters,
-      # and its uninstall; then one exactly at the path limit, and its uninstall.
+      # uninstaller moved aside so that the one-install rule cannot refuse it too, and each uninstaller case with a copy
+      # of the uninstaller in the folder it names so that the own-install check cannot either: the settings folder
+      # (emptied, so only R3 can refuse it; also as \\?\), a folder inside it (also spelled through a missing folder and
+      # ..), the settings folder through a junction, a subst drive and its 8.3 name, a foreign folder, a folder with
+      # DialShift.exe among other files, drive roots (subst, the system drive), the uninstaller's _?= on the subst root,
+      # the volume GUID path of drive C for the setup and the uninstaller (a decoy install in the working folder kept),
+      # the uninstaller's _?= with "/" or "|" (decoys at the folders NSIS would read kept) and on a \\.\ path, the
+      # uninstaller started without _?= and given a /D= NSIS cleans (the relaunched copy refuses a folder whose
+      # uninstaller differs in size or last-write time; a decoy there kept), \\?\ with a trailing dot, a trailing space
+      # or .., a \\.\ device path, folder paths too long for the payload (by one character, and far); /D= folders NSIS
+      # cannot use (a missing drive, a relative and a drive-relative path, a file in the path, a file, forward slashes,
+      # quotes, nothing), which it would replace with the install's own folder, /D= folders it keeps but reads as
+      # another (a slash inside, text after /D=), command lines longer than NSIS keeps (exactly 1,024 characters, and
+      # one with a 1,030-character argument), and /D= switches it does not take (quoted, lowercase) (D101); then, with
+      # the uninstaller back, a second install location. (s7) Install.ps1 over the setup install (D95), by the
+      # uninstaller and by the entry's InstallLocation. (s8) an uninstaller of another copy leaves this install's
+      # shortcut, entry and Run value; silent uninstall through QuietUninstallString. (s9) setup over an Install.ps1
+      # install, an in-place uninstall that keeps another copy's Run value, then a reinstall (/D= with a trailing
+      # backslash) into the folder the in-place uninstall left (only the uninstaller) and its uninstall; then a fresh
+      # install into a folder with spaces and a non-ASCII letter, on a command line of exactly 1,023 characters, and its
+      # uninstall; then one exactly at the path limit, and its uninstall.
       # The real %LOCALAPPDATA%\DialShift holds a sentinel settings.json whose SHA-256 is checked after every case, and
       # every case but (s5) checks that no DialShift process was started. The Start menu, desktop and HKCU of the runner
       # are real: the Run, StartupApproved and uninstall values, both shortcuts, the subst drive and every ACL change are
@@ -534,11 +536,12 @@ jobs:
           $longestFolder = (@($expectedFiles | ForEach-Object { Split-Path -Parent $_ } | Where-Object { $_ }) | Measure-Object -Property Length -Maximum).Maximum
           $maxParent = [Math]::Min(259 - 24 - $longestFile, 247 - 24 - $longestFolder)
           function Get-ParentOfLength([int]$length) { Join-Path $root ('p' * ($length - $root.Length - 1)) }
-          # Waits (up to 60 s) until no uninstaller copy runs from $TEMP\~nsu<n>.tmp: the first process returns at once.
-          function Wait-Relaunched {
+          # Waits until no uninstaller copy runs from $TEMP\~nsu<n>.tmp (the first process returns at once); fails after 60 s.
+          function Get-Relaunched { @(Get-Process | Where-Object { $_.Path -like '*\~nsu*.tmp\*' }) }
+          function Wait-Relaunched([string]$case) {
             $deadline = [DateTime]::UtcNow.AddSeconds(60)
-            do { Start-Sleep -Milliseconds 500 }
-            while ([DateTime]::UtcNow -lt $deadline -and @(Get-Process | Where-Object { $_.Path -like '*\~nsu*.tmp\*' }).Count)
+            do { Start-Sleep -Milliseconds 500 } while ((Get-Relaunched).Count -and [DateTime]::UtcNow -lt $deadline)
+            if ((Get-Relaunched).Count) { throw "($case) The relaunched uninstaller still runs after 60 s." }
           }
           function Get-Names([string]$folder) { @(Get-ChildItem -LiteralPath $folder -Force | ForEach-Object Name | Sort-Object) }
           function Assert-OnlyInstall([string]$case) {
@@ -824,15 +827,21 @@ jobs:
                 Assert-Code "s6 drive root $target" (Invoke-Setup "/S /D=$target") 13
               }
               if ((Get-Names $emptyRoot.FullName).Count) { throw '(s6) A refused run wrote into the subst drive.' }
+              # The uninstaller refusals below put a copy of the uninstaller, as Uninstall DialShift.exe, into the folder it
+              # would otherwise work in, so the own-install check (D101) cannot refuse it too: each case passes only through
+              # the rule it names. A copy keeps the original's last-write time (Copy-Item).
+              function Add-UninstallerCopy([string]$folder) { Copy-Item -LiteralPath $aside -Destination (Join-Path $folder 'Uninstall DialShift.exe') }
               # The uninstaller's _?= on a root (AllowRootDirInstall admits it there too): refused before it deletes
               # anything, so a DialShift-named file in the root and the real Start menu shortcut stay (D101).
               $planted = Join-Path "${letter}:\" 'DialShift.dll'
               Set-Content -LiteralPath $planted -Value 'not an install'
+              Add-UninstallerCopy "${letter}:\"
               foreach ($target in "${letter}:\", "${letter}:\sub\..") {
                 Assert-Code "s6 uninstaller on the root $target" (Invoke-Exe $aside "/S _?=$target") 13
               }
-              if (-not (Test-Path -LiteralPath $planted)) { throw '(s6) The uninstaller deleted a file in the drive root.' }
+              if ((Get-Names $emptyRoot.FullName).Count -ne 2) { throw '(s6) The uninstaller deleted a file in the drive root.' }
               Assert-Shortcut 's6 uninstaller on the root' $startMenu
+              Get-ChildItem -LiteralPath $emptyRoot.FullName -Force | Remove-Item -Force
               # A \\?\ path that is neither a drive nor UNC\ (the volume GUID path of drive C): without its prefix it
               # would be relative, so an uninstaller would delete from the working folder. A decoy install there must
               # stay; the setup refuses the same /D= (D101).
@@ -841,9 +850,10 @@ jobs:
               $decoyRoot = Join-Path ([Environment]::CurrentDirectory) $Matches[1]
               $decoy = New-Item -ItemType Directory -Path (Join-Path $decoyRoot 'setup-check-volume\DialShift')
               Set-Content -LiteralPath (Join-Path $decoy 'DialShift.exe'), (Join-Path $decoy 'DialShift.dll') -Value 'decoy'
+              Add-UninstallerCopy $decoy
               Assert-Code 's6 uninstaller on a volume GUID path' (Invoke-Exe $aside "/S _?=$volume\setup-check-volume\DialShift") 13
               Assert-Code 's6 volume GUID path' (Invoke-Setup "/S /D=$volume\setup-check-volume\DialShift") 13
-              if (@(Get-ChildItem -LiteralPath $decoy -Force).Count -ne 2) { throw '(s6) The uninstaller deleted from the working folder.' }
+              if (@(Get-ChildItem -LiteralPath $decoy -Force).Count -ne 3) { throw '(s6) The uninstaller deleted from the working folder.' }
               if (Test-Path -LiteralPath 'C:\setup-check-volume') { throw '(s6) A refused run created C:\setup-check-volume.' }
               Remove-Item -LiteralPath $decoyRoot -Recurse -Force
               # The uninstaller's _?= exactly as given (D101): NSIS drops "/" and "|" from it, so these would work in the
@@ -851,26 +861,38 @@ jobs:
               foreach ($pair in @(@("$root\x/DialShift", "$root\xDialShift"), @("$root\Dial|Shift", "$root\DialShift"))) {
                 $mangled = New-Item -ItemType Directory -Path $pair[1]
                 Set-Content -LiteralPath (Join-Path $mangled 'DialShift.exe'), (Join-Path $mangled 'DialShift.dll'), (Join-Path $mangled 'notes.txt') -Value 'decoy'
+                Add-UninstallerCopy $mangled
                 Assert-Code "s6 uninstaller _?=$($pair[0])" (Invoke-Exe $aside "/S _?=$($pair[0])") 13
-                if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 3) { throw "(s6) The uninstaller deleted from $($mangled.FullName)." }
+                if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw "(s6) The uninstaller deleted from $($mangled.FullName)." }
                 Remove-Item -LiteralPath $mangled -Recurse -Force
               }
               Assert-Shortcut 's6 uninstaller on mangled folders' $startMenu
-              # A \\.\ device path for the uninstaller reaches CheckFolderPath (NSIS accepts it as \\server\share).
+              # A \\.\ device path for the uninstaller reaches CheckFolderPath (NSIS accepts it as \\server\share); the
+              # folder it names holds a decoy install.
+              $dotDevice = New-Item -ItemType Directory -Path (Join-Path $root 'DotDevice\DialShift')
+              Set-Content -LiteralPath (Join-Path $dotDevice 'DialShift.exe'), (Join-Path $dotDevice 'DialShift.dll') -Value 'decoy'
+              Add-UninstallerCopy $dotDevice
               Assert-Code 's6 uninstaller on a \\.\ path' (Invoke-Exe $aside "/S _?=\\.\$root\DotDevice\DialShift") 13
+              if (@(Get-ChildItem -LiteralPath $dotDevice -Force).Count -ne 3) { throw '(s6) The uninstaller deleted through a \\.\ path.' }
+              Remove-Item -LiteralPath (Join-Path $root 'DotDevice') -Recurse -Force
               # The uninstaller started without _?=, as Apps & features starts it: NSIS relaunches its copy from
               # $TEMP\~nsu<n>.tmp with _?=<folder>, and hands a /D= on already cleaned ("<root>\x/DialShift" as
-              # "<root>\xDialShift"), so the copy refuses any folder that is not its own install (D101); the decoy there
-              # stays. Documented gap: a /D= that NSIS cleans into another DialShift install of the same build uninstalls
-              # that install.
+              # "<root>\xDialShift"). The copy refuses a folder whose Uninstall DialShift.exe differs from itself in size,
+              # or in last-write time by more than 2 s (D101): the decoy stays, with each kind of uninstaller.
               $mangled = New-Item -ItemType Directory -Path (Join-Path $root 'xDialShift')
               Set-Content -LiteralPath (Join-Path $mangled 'DialShift.exe'), (Join-Path $mangled 'DialShift.dll'), (Join-Path $mangled 'notes.txt') -Value 'decoy'
-              Assert-Code 's6 uninstaller relaunched with /D=' (Invoke-Exe $aside "/S /D=$root\x/DialShift") 0
-              Wait-Relaunched
-              if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 3) { throw '(s6) The relaunched uninstaller deleted from the /D= folder.' }
+              Set-Content -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe') -Value 'another size'
+              Assert-Code 's6 uninstaller relaunched with /D=, another size' (Invoke-Exe $aside "/S /D=$root\x/DialShift") 0
+              Wait-Relaunched 's6 relaunched, another size'
+              if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw '(s6) The relaunched uninstaller deleted from a folder with an uninstaller of another size.' }
+              Remove-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')
+              Add-UninstallerCopy $mangled
+              (Get-Item -LiteralPath (Join-Path $mangled 'Uninstall DialShift.exe')).LastWriteTimeUtc = [DateTime]::new(2000, 1, 1, 0, 0, 0, 'Utc')
+              Assert-Code 's6 uninstaller relaunched with /D=, another time' (Invoke-Exe $aside "/S /D=$root\x/DialShift") 0
+              Wait-Relaunched 's6 relaunched, another time'
+              if (@(Get-ChildItem -LiteralPath $mangled -Force).Count -ne 4) { throw '(s6) The relaunched uninstaller deleted from a folder with a same-size uninstaller written at another time.' }
               Remove-Item -LiteralPath $mangled -Recurse -Force
               Assert-Shortcut 's6 uninstaller relaunched with /D=' $startMenu
-              Remove-Item -LiteralPath $planted
               # A /D= folder NSIS cannot use, or a /D= switch it does not take (D101): refused, never replaced.
               $missing = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
               if (-not $missing) { throw '(s6) No free drive letter for the missing-drive case.' }
