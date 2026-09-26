@@ -19,6 +19,7 @@ namespace DialShift.Tests.TestServers;
 /// <item><c>/icy</c>: a Shoutcast v1 status line (<c>ICY 200 OK</c>), then the same endless body unchunked.</item>
 /// <item><c>/auth</c>: 401 with a Basic challenge, whatever the request carries.</item>
 /// <item><c>/redirect</c>: 302 to <see cref="RedirectTarget"/>.</item>
+/// <item><c>/chain/&lt;n&gt;</c>: 302 to <c>/chain/&lt;n-1&gt;</c> on this server; <c>/chain/0</c> answers 200 with an empty body.</item>
 /// <item><c>/hang</c>: reads the request and never answers.</item>
 /// <item>anything else: 404.</item>
 /// </list>
@@ -128,6 +129,12 @@ public sealed class LocalTlsServer : IAsyncDisposable
                 case "/hang":
                     var buffer = new byte[256];
                     while (await tls.ReadAsync(buffer, ct).ConfigureAwait(false) > 0) { }
+                    break;
+                case var chain when chain.StartsWith("/chain/", StringComparison.Ordinal) && int.TryParse(chain["/chain/".Length..], out var left) && left > 0:
+                    await WriteAsync(tls, $"HTTP/1.1 302 Found\r\nLocation: {Url($"/chain/{left - 1}")}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", ct).ConfigureAwait(false);
+                    break;
+                case "/chain/0":
+                    await WriteAsync(tls, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", ct).ConfigureAwait(false);
                     break;
                 default:
                     await WriteAsync(tls, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", ct).ConfigureAwait(false);

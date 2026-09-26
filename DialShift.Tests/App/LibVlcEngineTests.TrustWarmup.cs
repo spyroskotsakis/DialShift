@@ -14,9 +14,11 @@ public static partial class LibVlcEngineTests
 {
     /// <summary>
     /// LV-12 (D100): the TLS trust warm-up inside the real LibVLC engine, with a <see cref="FakeTrustWarmup"/>. An https
-    /// source is warmed before LibVLC opens it, and an http source never is; a warm-up that blocks its caller does not
-    /// block StartAsync's; a warm-up that throws, faults or never finishes does not stop the start; cancellation, a newer start and disposal during the warm-up keep the engine
-    /// contract. The https source points at a closed loopback port: LibVLC's MediaPlayer.Opening (raised as it starts the
+    /// source is warmed before LibVLC opens it, and an http source never is; a warm-up that blocks its caller never blocks
+    /// StartAsync's, and is still cut off at TrustWarmupLimit or by cancellation; a warm-up that throws, faults or never
+    /// finishes does not stop the start; cancellation, a newer start and disposal during the warm-up keep the engine
+    /// contract; a playlist's https entry is warmed before it is played, and not played at all if the session was stopped
+    /// meanwhile. The https source points at a closed loopback port: LibVLC's MediaPlayer.Opening (raised as it starts the
     /// media) proves the player was created, and the connection then fails at once. The real warm-up's own checks are the
     /// TrustWarmup suite.
     /// </summary>
@@ -77,18 +79,39 @@ public static partial class LibVlcEngineTests
             await engine.StopAsync(CancellationToken.None);
         }
 
-        // A warm-up that blocks its caller (as a slow system proxy lookup would) never blocks StartAsync's caller.
-        warmup.Behavior = static (_, _) => { Thread.Sleep(TimeSpan.FromSeconds(2)); return Task.CompletedTask; };
+        // A warm-up that blocks its caller before returning its task (as a slow system proxy lookup would), for longer
+        // than TrustWarmupLimit: StartAsync's caller is never blocked, and the limit still holds.
+        var limit = LibVlcPlaybackEngine.TrustWarmupLimit;
+        var blockFor = limit + TimeSpan.FromSeconds(3);
+        warmup.Behavior = (_, _) => { Thread.Sleep(blockFor); return Task.CompletedTask; };
+        var blockMark = rig.Log.Entries.Count;
         var blocking = ++session;
         var call = Stopwatch.StartNew();
         var blockingStart = engine.StartAsync(https, 0.5, CancellationToken.None);
         var returnedAfter = call.Elapsed;
-        var blockedOpened = await Wait.Until(() => Saw(blocking, nameof(PlaybackEngineState.Opening)), TimeSpan.FromSeconds(10));
-        Check($"HS-17 LV-12 a warm-up that blocks its caller for 2 s: StartAsync returns its task after {returnedAfter.TotalMilliseconds:0} ms, and LibVLC opens once the warm-up is done "
-            + $"(after {call.Elapsed.TotalSeconds:0.0} s; events: {Events()})",
-            returnedAfter < TimeSpan.FromMilliseconds(500) && blockedOpened && call.Elapsed >= TimeSpan.FromSeconds(2)
-            && await Wait.Finishes(blockingStart, TimeSpan.FromSeconds(5)));
+        var blockedOpened = await Wait.Until(() => Saw(blocking, nameof(PlaybackEngineState.Opening)), limit + TimeSpan.FromSeconds(10));
+        var openedAfter = call.Elapsed;
+        Check($"HS-17 LV-12 a warm-up that blocks its caller for {blockFor.TotalSeconds:0} s: StartAsync returns its task after {returnedAfter.TotalMilliseconds:0} ms, "
+            + $"and LibVLC opens at the {limit.TotalSeconds:0} s limit (after {openedAfter.TotalSeconds:0.0} s), with a {WindowsTrustWarmup.LogEvent} warning (events: {Events()})",
+            returnedAfter < TimeSpan.FromMilliseconds(500) && blockedOpened && openedAfter >= limit - TimeSpan.FromMilliseconds(100) && openedAfter < blockFor
+            && Warnings(blockMark) == 1 && await Wait.Finishes(blockingStart, TimeSpan.FromSeconds(5)));
         await engine.StopAsync(CancellationToken.None);
+
+        // Cancelled while the warm-up blocks: StartAsync throws at once, without a player.
+        var blockedCancelId = ++session;
+        using (var cts = new CancellationTokenSource())
+        {
+            var blockedCancel = engine.StartAsync(https, 0.5, cts.Token);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            var cancelWatch = Stopwatch.StartNew();
+            await cts.CancelAsync();
+            var threw = await Wait.Finishes(blockedCancel.ContinueWith(static _ => { }, TaskScheduler.Default), TimeSpan.FromSeconds(5)) && blockedCancel.IsCanceled;
+            var cancelledAfter = cancelWatch.Elapsed;
+            await Task.Delay(TimeSpan.FromSeconds(1.5));
+            Check($"HS-17 LV-12 cancelled while the warm-up blocks its caller: StartAsync throws OperationCanceledException after {cancelledAfter.TotalMilliseconds:0} ms, "
+                + $"and no player opens ({blockedCancel.Status}; events: {Events()})",
+                threw && cancelledAfter < TimeSpan.FromSeconds(1) && !Raised(blockedCancelId));
+        }
 
         // A warm-up that never finishes (and ignores its token) holds the start for TrustWarmupLimit at most.
         warmup.Behavior = static (_, _) => new TaskCompletionSource().Task;
@@ -98,7 +121,6 @@ public static partial class LibVlcEngineTests
         await engine.StartAsync(https, 0.5, CancellationToken.None);
         var elapsed = watch.Elapsed;
         var afterLimit = await Wait.Until(() => Saw(hung, nameof(PlaybackEngineState.Opening)), TimeSpan.FromSeconds(10));
-        var limit = LibVlcPlaybackEngine.TrustWarmupLimit;
         Check($"HS-17 LV-12 a warm-up that never finishes: the start goes on after {elapsed.TotalSeconds:0.0} s (limit {limit.TotalSeconds:0} s), LibVLC opens the source, "
             + $"and the timeout is logged as a warning (events: {Events()})",
             afterLimit && elapsed >= limit - TimeSpan.FromMilliseconds(100) && elapsed < limit + TimeSpan.FromSeconds(5)
@@ -140,6 +162,41 @@ public static partial class LibVlcEngineTests
             olderWarming && newerPlays && olderEnded && olderStart.IsCompletedSuccessfully && !Raised(older)
             && !events.Any(e => e.Session == newer && e.What.StartsWith("Failed", StringComparison.Ordinal)));
         await engine.StopAsync(CancellationToken.None);
+
+        // A playlist's https entry: the http playlist is not warmed, its entry is, and LibVLC plays the entry only after
+        // that. The entry points at a closed port, so once played it fails the session at once.
+        var entry = new Uri($"https://127.0.0.1:{LocalMediaServer.ClosedPort()}/entry.mp3");
+        rig.Server.HttpsPlaylistEntry = entry;
+        var playlist = new StreamSource(rig.Server.Url("/https-entry.m3u"), "https entry");
+        bool Ended(long id) => events.Any(e => e.Session == id && e.What.StartsWith("Failed", StringComparison.Ordinal));
+        var entryGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        warmup.Behavior = (_, _) => entryGate.Task;
+        calls = warmup.Calls.Count;
+        var listed = ++session;
+        await engine.StartAsync(playlist, 0.5, CancellationToken.None);
+        var entryAsked = await Wait.Until(() => warmup.Calls.Count == calls + 1, TimeSpan.FromSeconds(15));
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        var heldBack = !Ended(listed);
+        entryGate.SetResult();
+        var entryPlayed = await Wait.Until(() => Ended(listed), TimeSpan.FromSeconds(15));
+        Check($"HS-17 LV-12 an http playlist with an https entry: only the entry is warmed ({string.Join(", ", warmup.Calls.Skip(calls))}), "
+            + $"and LibVLC plays it only after that (no failure while the warm-up runs: {heldBack}; the closed port fails it afterwards; events: {Events()})",
+            entryAsked && warmup.Calls.Skip(calls).SequenceEqual([entry]) && heldBack && entryPlayed);
+        await engine.StopAsync(CancellationToken.None);
+
+        // Stopped while the entry is warmed: releasing the warm-up afterwards plays nothing.
+        var stoppedGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        warmup.Behavior = (_, _) => stoppedGate.Task;
+        calls = warmup.Calls.Count;
+        var stoppedList = ++session;
+        await engine.StartAsync(playlist, 0.5, CancellationToken.None);
+        var stoppedAsked = await Wait.Until(() => warmup.Calls.Count == calls + 1, TimeSpan.FromSeconds(15));
+        await engine.StopAsync(CancellationToken.None);
+        stoppedGate.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        // Had the entry been played, its closed port would fail the session within that time.
+        Check($"HS-17 LV-12 stopped while the playlist entry is warmed: the entry is never played, so the session neither plays nor fails (events: {Events()})",
+            stoppedAsked && !Ended(stoppedList) && !Saw(stoppedList, nameof(PlaybackEngineState.Playing)));
 
         // Disposed during the warm-up: disposal finishes, disposes the warm-up it owns, and the pending start creates nothing.
         var disposeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

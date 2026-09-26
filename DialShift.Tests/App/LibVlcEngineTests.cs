@@ -80,6 +80,8 @@ public static partial class LibVlcEngineTests
             engine is LibVlcPlaybackEngine and ITrackMetadataProvider);
         Check("HS-17 LV-01 ... and logs playback.audio_output with --aout=adummy",
             log.Entries.Any(e => e.EventName == "playback.audio_output" && e.Message.Contains("--aout=adummy", StringComparison.Ordinal)));
+        Check($"HS-17 LV-01 ... with the real TLS trust warm-up wired in (D100; got {((LibVlcPlaybackEngine)engine).TrustWarmup.GetType().Name})",
+            ((LibVlcPlaybackEngine)engine).TrustWarmup is WindowsTrustWarmup);
         Check("HS-17 LV-01 ... and a second Create throws (the coordinator's engine is the only one, D17)",
             Throws<InvalidOperationException>(() => factory.Create()));
         await RunEngineChecksAsync(engine, log);

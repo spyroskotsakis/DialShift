@@ -9,7 +9,7 @@ using static DialShift.Tests.TestHarness;
 namespace DialShift.Tests.App;
 
 /// <summary>
-/// TW-01..TW-10: the real <see cref="WindowsTrustWarmup"/> (D100) against <see cref="LocalTlsServer"/>, on every OS
+/// TW-01..TW-14: the real <see cref="WindowsTrustWarmup"/> (D100) against <see cref="LocalTlsServer"/>, on every OS
 /// (nothing in it is Windows-specific). The checks use the app's own handler from
 /// <see cref="WindowsTrustWarmup.CreateHandler"/>; where a handshake has to succeed, the test pins the server's
 /// self-signed certificate on that handler, and TW-06 keeps the handler's default validation to prove it is not bypassed.
@@ -28,8 +28,11 @@ public static class TrustWarmupTests
         HandlerChecks();
         await using var server = LocalTlsServer.Start();
         await using var other = LocalTlsServer.Start();
+        await using var third = LocalTlsServer.Start();
         await SuccessChecksAsync(server);
         await RedirectChecksAsync(server, other);
+        await RedirectCacheChecksAsync(server, other, third);
+        await RedirectLimitChecksAsync(server);
         await NonHttpAnswerChecksAsync();
         await StrictValidationChecksAsync(server);
         await TimeoutChecksAsync(server);
@@ -124,18 +127,74 @@ public static class TrustWarmupTests
         Check("TW-05 ... and the redirect's target body is disposed unread too", await Wait.Until(() => other.OpenStreams == 0, TimeSpan.FromSeconds(1)));
     }
 
-    /// <summary>A reply that is not HTTP (Shoutcast's "ICY 200 OK") came after the handshake: warm, cached, not logged.</summary>
+    /// <summary>A reply that is not HTTP (Shoutcast's "ICY 200 OK") came after the handshake: not a failure, but its hop is unknown, so not cached.</summary>
     private static async Task NonHttpAnswerChecksAsync()
     {
         await using var icy = LocalTlsServer.Start();
         var log = new RecordingAppLog();
         using var warmup = new WindowsTrustWarmup(Pinned(), log);
         await warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None);
-        var accepted = icy.Accepted;
         await warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None);
+        var handshakes = await Wait.Until(() => icy.Handshakes == 2, TimeSpan.FromSeconds(5));
+        Check($"TW-11 an 'ICY 200 OK' reply is not a failure (nothing is logged) and, its hop unknown, is not cached: the second warm-up completes a handshake again ({icy.Handshakes})",
+            log.Entries.Count == 0 && handshakes);
+    }
+
+    /// <summary>The cache records the origin that answered: A→B records B, not A, so A→C later is warmed again.</summary>
+    private static async Task RedirectCacheChecksAsync(LocalTlsServer server, LocalTlsServer other, LocalTlsServer third)
+    {
+        using var warmup = new WindowsTrustWarmup(Pinned(), NullAppLog.Instance);
+        server.RedirectTarget = other.Url("/stream");
+        await warmup.WarmAsync(server.Url("/redirect"), CancellationToken.None);
+        var (serverRequests, otherAccepted, thirdRequests) = (server.Requests.Count, other.Accepted, third.Requests.Count);
+        var cachedCall = warmup.WarmAsync(other.Url("/another/path"), CancellationToken.None);
+        var otherCached = cachedCall.IsCompletedSuccessfully;
+        await cachedCall;
+        server.RedirectTarget = third.Url("/stream");
+        await warmup.WarmAsync(server.Url("/redirect"), CancellationToken.None);
         await Task.Delay(200);
-        Check($"TW-11 an 'ICY 200 OK' reply counts as warm: nothing is logged, and the origin is cached ({icy.Accepted} connections)",
-            log.Entries.Count == 0 && icy.Accepted == accepted && icy.Handshakes == 1);
+        Check($"TW-12 A redirected to B: B, the origin that answered, is cached (a URL on it completes synchronously: {otherCached}, no new connection)",
+            otherCached && other.Accepted == otherAccepted);
+        Check("TW-12 ... A is not: when A now redirects to C, the next warm-up requests A again and follows it to C",
+            server.Requests.Skip(serverRequests).Select(r => r.Path).SequenceEqual(["/redirect"])
+            && third.Requests.Skip(thirdRequests).Select(r => r.Path).SequenceEqual(["/stream"]));
+        Check("TW-12 ... and C's body is disposed unread", await Wait.Until(() => third.OpenStreams == 0, TimeSpan.FromSeconds(1)));
+    }
+
+    /// <summary>What the handler does not follow: https → http, and a redirect past MaxRedirects.</summary>
+    private static async Task RedirectLimitChecksAsync(LocalTlsServer server)
+    {
+        await using var plain = LocalMediaServer.Start();
+        var log = new RecordingAppLog();
+        using (var downgrade = new WindowsTrustWarmup(Pinned(), log))
+        {
+            server.RedirectTarget = plain.Url("/live.wav");
+            var requests = server.Requests.Count;
+            await downgrade.WarmAsync(server.Url("/redirect"), CancellationToken.None);
+            await downgrade.WarmAsync(server.Url("/redirect"), CancellationToken.None);
+            await Task.Delay(200);
+            Check($"TW-13 an https → http redirect is not followed: the http server sees no request ({plain.Requests.Count}), nothing is logged, "
+                + "and the redirecting origin is not cached (the second warm-up requests it again)",
+                plain.Requests.Count == 0 && log.Entries.Count == 0 && server.Requests.Skip(requests).Count(r => r.Path == "/redirect") == 2);
+        }
+
+        var max = WindowsTrustWarmup.MaxRedirects;
+        using (var chain = new WindowsTrustWarmup(Pinned(), log))
+        {
+            var requests = server.Requests.Count;
+            await chain.WarmAsync(server.Url($"/chain/{max + 1}"), CancellationToken.None);
+            var seen = server.Requests.Skip(requests).Select(r => r.Path).ToList();
+            Check($"TW-14 a chain of {max + 1} redirects is followed {max} times and no further: [{string.Join(", ", seen)}]",
+                seen.SequenceEqual(Enumerable.Range(1, max + 1).Reverse().Select(n => $"/chain/{n}")) && log.Entries.Count == 0);
+        }
+        using (var chain = new WindowsTrustWarmup(Pinned(), log))
+        {
+            var requests = server.Requests.Count;
+            await chain.WarmAsync(server.Url($"/chain/{max}"), CancellationToken.None);
+            var seen = server.Requests.Skip(requests).Select(r => r.Path).ToList();
+            Check($"TW-14 ... a chain of {max} redirects is followed to its end: [{string.Join(", ", seen)}]",
+                seen.SequenceEqual(Enumerable.Range(0, max + 1).Reverse().Select(n => $"/chain/{n}")));
+        }
     }
 
     /// <summary>Default validation, the certificate untrusted: one redacted warning per attempt, nothing cached.</summary>

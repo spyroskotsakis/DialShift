@@ -10,8 +10,8 @@ namespace DialShift.App.Services;
 /// <remarks>
 /// <para><b>Why.</b> Windows ships with part of its trusted roots and adds a missing one from Windows Update ("Automatic Root
 /// Certificates Update") only while a CryptoAPI chain build asks for it, as SChannel and .NET do. LibVLC's GnuTLS reads the
-/// roots already in the store and never triggers that download, so on a fresh Windows 11 every station whose chain ends at
-/// a root not yet present (SomaFM's: USERTrust RSA Certification Authority) failed with "TLS session handshake error". A .NET
+/// roots already in the store and never triggers that download, so on a Windows 11 without it every station whose chain
+/// ends at a root not yet present (SomaFM's: USERTrust RSA Certification Authority) failed with "TLS session handshake error". A .NET
 /// handshake with the same server makes Windows add the root, and LibVLC's next handshake finds it.</para>
 /// <para><b>The request.</b> A GET for the stream URL without its user-info (station credentials never go into the
 /// warm-up; the query stays, as the player sends it to the same server), with <see cref="AppUserAgent"/>, through
@@ -21,14 +21,17 @@ namespace DialShift.App.Services;
 /// by then. The response is disposed at once and its body is never read (the handler drains nothing, so the connection
 /// closes). A reply that is not HTTP (<see cref="HttpRequestError.InvalidResponse"/>, such as a Shoutcast <c>ICY 200
 /// OK</c> status line) or that ends early (<see cref="HttpRequestError.ResponseEnded"/>) also came after the handshake,
-/// so it counts as warm.</para>
+/// so it is not a failure and is not logged.</para>
 /// <para><b>Bounds and failures.</b> The whole request, redirects included, is cancelled after <see cref="Timeout"/> or
 /// when the caller's token is cancelled. Any other failure (DNS, refused, TLS, the timeout) is logged once as a redacted
 /// <c>playback.tls_warmup</c> warning (<c>scheme://host[:port]/…</c> and the exception chain) and swallowed: the player
 /// connects anyway and reports its own failure as before.</para>
-/// <para><b>Cache.</b> An origin (<c>scheme://host[:port]</c>) whose request got an answer is not requested again by this
-/// instance, which the engine keeps for the process lifetime. A failed or timed-out warm-up is not cached. http:// URLs
-/// are never requested.</para>
+/// <para><b>Cache.</b> The engine keeps one instance for the process lifetime. When a warm-up gets an HTTP response, the
+/// origin (<c>scheme://host[:port]</c>) that sent it, the last hop, is recorded if it is https, and a later warm-up of a
+/// URL on a recorded origin returns at once. A requested origin that redirected elsewhere is therefore not recorded: its
+/// next redirect may go to another host (a load balancer), whose chain must be warmed again. A final response that is
+/// itself a redirect (one past <see cref="MaxRedirects"/>, or to http, which is not followed), a failed or timed-out
+/// warm-up, and a reply that is not HTTP (its last hop is unknown) record nothing. http:// URLs are never requested.</para>
 /// <para>Owns <c>handler</c>; <see cref="Dispose"/> cancels requests in flight (they return without a log line). Thread-safe.
 /// Nothing in it is Windows-specific, so its tests run on every OS; only the Windows engine uses it.</para>
 /// </remarks>
@@ -79,8 +82,7 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         ArgumentNullException.ThrowIfNull(url);
         ct.ThrowIfCancellationRequested();
         if (!url.IsAbsoluteUri || url.Scheme != Uri.UriSchemeHttps || Volatile.Read(ref disposed) != 0) return;
-        var origin = url.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
-        if (warmed.ContainsKey(origin)) return;
+        if (warmed.ContainsKey(Origin(url))) return;
 
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct);
         bound.CancelAfter(Timeout);
@@ -88,7 +90,10 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, WithoutUserInfo(url));
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, bound.Token).ConfigureAwait(false);
-            warmed.TryAdd(origin, 0);
+            // The handler updates the request's URI on each redirect it follows: this is the origin that answered.
+            // A redirect it did not follow (past MaxRedirects, or to http) means the chain goes on: nothing is recorded.
+            if (!IsRedirect(response) && (response.RequestMessage ?? request).RequestUri is { IsAbsoluteUri: true } last && last.Scheme == Uri.UriSchemeHttps)
+                warmed.TryAdd(Origin(last), 0);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -100,7 +105,7 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         }
         catch (HttpRequestException ex) when (ex.HttpRequestError is HttpRequestError.InvalidResponse or HttpRequestError.ResponseEnded)
         {
-            warmed.TryAdd(origin, 0); // the server answered after the handshake, just not in HTTP
+            // A server answered after its handshake, just not in HTTP. Which hop it was is unknown, so nothing is recorded.
         }
         catch (Exception ex)
         {
@@ -115,6 +120,12 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         client.Dispose(); // cancels the requests in flight
     }
+
+    private static bool IsRedirect(HttpResponseMessage response) =>
+        (int)response.StatusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location is not null;
+
+    /// <summary><c>scheme://host[:port]</c> (the port only when it is not the scheme's default), without user-info.</summary>
+    private static string Origin(Uri url) => url.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
 
     /// <summary><paramref name="url"/> without user name and password (and fragment, which is never sent anyway).</summary>
     private static Uri WithoutUserInfo(Uri url) =>
