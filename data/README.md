@@ -41,7 +41,7 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 
 ## Adding a station to the DialShift app
 
-**In the app (the normal way).** *Stations → Add station* opens the *Add a frequency* dialog with
+**In the app (the normal way).** *Stations → + Add station* opens the *Add a frequency* dialog with
 a search box over the built-in catalog (`output/app-catalog.json`, below): type a station name, a
 city or a frequency (`1015` or `101.5` for FM 101.5), narrow with the Country, City, Type, Genre
 and Language filters, and pick a result (click it, or Down and Enter). It fills the three fields (and keeps the station's notes); edit them if you

@@ -923,8 +923,8 @@ function Show-Procedure([string]$Id) {
         'NC-01' {
             Write-Host @"
 Procedure (a Windows 11 x64 desktop with speakers; the CI DialShift-win-x64 zip extracted with Explorer): first run
-DialShift.exe --smoke-test --recovery-test --output <dir> once; it must exit 0 with 34/34 in results.json. Then launch
-normally and check by hand:
+DialShift.exe --smoke-test --recovery-test --output <dir> once; it must exit 0 with 36/36 in results.json (34/34 on
+v0.3.0, before the station catalog). Then launch normally and check by hand:
 (1) Tray: left-click opens the window; right-click shows Open, Play/Pause, Next station, Stations, Follow schedule (its
     check matches the Schedule page), Volume +10/-10 and Quit DialShift, and each item works; hovering shows the tooltip
     "DialShift $Dot <station>" or "DialShift $Dot Paused".
@@ -1082,7 +1082,7 @@ function Test-NC01 {
     Write-Title 'The smoke test'
     $code = Invoke-Smoke (Join-Path $script:CurDir 'smoke')
     Add-AutoStep 'Smoke: --smoke-test --recovery-test exits 0' ($code -eq 0) "exit code $code"
-    Test-SmokeResults (Join-Path $script:CurDir 'smoke\results.json') 'Smoke: results.json reports every check passed (34/34 expected)'
+    Test-SmokeResults (Join-Path $script:CurDir 'smoke\results.json') 'Smoke: results.json reports every check passed (36/36 expected; 34/34 on v0.3.0)'
     Add-Artifact 'NC-01/smoke/'
     if (-not (Backup-RealData 'NC-01')) {
         Add-Step 'manual' 'SKIP' 'Steps 1-7 by hand' 'the real data folder was not made available'
