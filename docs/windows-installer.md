@@ -4,8 +4,9 @@
 > on `windows-latest`, `macos-latest` and the cross-build job (the Mac-built and Windows-built setups byte-identical) at
 > `b655d67` (run `36230181228`), `cf21fc1` (`36231552864`), `b7017d7` (`36233711767`), `9322106` (`36235173662`) and
 > `b76356e` (`36238278091`), the last two after macOS re-runs, and at `6cbc311` (`36240957220`), the last of
-> D101's eight rounds. Prepared for release as `0.5.0` (not tagged or published). NC-19 (a real PC) is
-> open. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
+> D101's eight rounds. Prepared for release as `0.5.0` (not tagged or published). NC-19 passed in part on 2026-09-26
+> in a Windows 11 ARM64 VM, not on a physical PC (§13); the Welcome/Finish image it found wanting is DialShift's own
+> since D104. Where the build departs from this spec, the D93–D99 "Update" notes and D101 in
 > `docs/decisions.md` say so, and §5 below follows the build.
 > This is brief 4, after `single-codebase-refactor.md` (brief 1), `schedule-timezone-research.md` (brief 2) and
 > `add-station-catalog-search.md` (brief 3). Its decisions are **D93–D99** in `docs/decisions.md` (§14's defaults,
@@ -269,7 +270,9 @@ creates a desktop shortcut; a silent uninstall always keeps settings.
 ### 5.10 Wizard UX (QG-03)
 
 Modern UI 2, English, `ManifestDPIAware true` (crisp at 150 % and 200 %), `BrandingText "DialShift <version>"`
-(not "Nullsoft Install System"), the app icon, no license page. Pages: **Welcome** (what is installed where; "No
+(not "Nullsoft Install System"), the app icon, no license page. The Welcome and Finish image is DialShift's own (D104):
+the app icon's green clock mark on its dark background, drawn by `scripts/windows-setup/wizard-image.py` for 100, 125,
+150, 175, 200, 250 and 300 %, and the drawing nearest the image control's width is shown, fitted exactly. Pages: **Welcome** (what is installed where; "No
 administrator rights are needed."; the upgrade sentence of §5.3) → **Components** (DialShift, required; Desktop
 shortcut) → **Installing** → **Finish** (Run DialShift, checked). Uninstaller: **Confirm** → the §5.8 question →
 **Uninstalling** → **Finish**. Every message names the fix; no dead-end dialog (Retry where a retry can succeed). Tab
@@ -589,6 +592,14 @@ apps**: DialShift with version, publisher `DialShift`, icon and size; no Modify.
 **Yes** keeps `%LOCALAPPDATA%\DialShift`; reinstall, uninstall again with **No**: the folder is gone; the Start menu
 entry, the desktop shortcut and the Run value are gone. **Pass:** each observation holds; record the Windows build,
 the setup's SHA-256 and the release or CI run it came from.
+
+**Result so far (2026-09-26): PASS (partial), in a Windows 11 ARM64 Parallels VM, not a physical PC** (Windows
+10.0.26100, the x64 setup under emulation, 200 %, Smart App Control off; the setup built locally from `c52a679`,
+SHA-256 `704b06d8…d22567338`, with a Mark of the Web added): a fresh install (no `0.4.0` `Install.ps1` install;
+existing settings with 3 stations) covered steps 2, 3 (not the keyboard), 4 for the uninstaller (the setup's own
+running check not exercised), 5 (not launch at sign-in, not a sign-out), 6 by the registry values (not the Settings
+page), 7 as a silent reinstall, and 8 both ways. It found the stock Welcome/Finish image blurry at 200 % and not
+DialShift's, replaced by D104. The full observations are in matrix §9 NC-19.
 
 ## 14. Open questions (pre-seeded defaults, adopted as D93–D99)
 

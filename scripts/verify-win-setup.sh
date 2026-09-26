@@ -20,7 +20,8 @@
 # the package minus Install.ps1 plus licenses/NSIS-COPYING.txt: the same paths, sizes and CRC-32; DialShift.exe,
 # app-catalog.json, libvlc/win-x64/libvlc.dll, THIRD-PARTY-NOTICES.md and every licence text present, Install.ps1
 # absent. The only other entries allowed are exactly NSIS's own $PLUGINSDIR/System.dll, $PLUGINSDIR/nsDialogs.dll and
-# $PLUGINSDIR/modern-wizard.bmp, and an uninstaller entry, if a 7-Zip version shows one. Without 7-Zip the contents are reported
+# $PLUGINSDIR/modern-wizard.bmp, the Welcome/Finish image at the other display scales ($PLUGINSDIR/dialshift-wizard-<scale>.bmp,
+# D104), and an uninstaller entry, if a 7-Zip version shows one. Without 7-Zip the contents are reported
 # as not checked and the script still passes, unless --require-contents (CI) is given.
 # Not checkable without running it: the install logic, which build.yml's setup cases run on windows-latest, and the
 # wizard, SmartScreen and Apps & features, which NC-19 checks by hand.
@@ -286,8 +287,10 @@ else:
     if len(prefixes) != 1:
         fail("7-Zip lists no single payload folder holding DialShift.exe (found %s)." % sorted(prefixes))
     prefix = prefixes.pop() + "/"
-    # NSIS's own files: the System plugin, nsDialogs (the Modern UI's pages) and the Welcome/Finish bitmap.
+    # NSIS's own files: the System plugin, nsDialogs (the Modern UI's pages) and the Welcome/Finish image, at 100 % as
+    # modern-wizard.bmp and at the other display scales (D104).
     nsis_files = {"$PLUGINSDIR/System.dll", "$PLUGINSDIR/nsDialogs.dll", "$PLUGINSDIR/modern-wizard.bmp"}
+    nsis_files |= {"$PLUGINSDIR/dialshift-wizard-%d.bmp" % scale for scale in (125, 150, 175, 200, 250, 300)}
     listed = {}
     for path, length in entries.items():
         if path == prefix + "Uninstall DialShift.exe":

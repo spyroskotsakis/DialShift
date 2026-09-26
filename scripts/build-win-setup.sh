@@ -25,8 +25,9 @@
 # setup writes "Uninstall DialShift.exe" at install time. The script generates defines.nsh (version, size and the
 # payload's top-level names, which the setup uses to tell a DialShift install from a folder with other files, and the
 # longest relative paths, which it uses to refuse a folder too long for them),
-# install-files.nsh (the payload in a fixed, host-independent order) and uninstall-files.nsh (the uninstaller's file
-# list, DialShift.exe last, and folder list) into a temporary folder, never into the repository, runs makensis -WX -V2 on
+# install-files.nsh (the payload in a fixed, host-independent order), uninstall-files.nsh (the uninstaller's file
+# list, DialShift.exe last, and folder list) and, with scripts/windows-setup/wizard-image.py, the Welcome/Finish image
+# at each display scale (D104) into a temporary folder, never into the repository, runs makensis -WX -V2 on
 # scripts/windows-setup/DialShift.nsi, then scripts/verify-win-setup.sh (with the package, so the contents are
 # compared when 7-Zip is found) and prints the size and SHA-256. Deterministic: the same payload, version and NSIS give
 # the same bytes (SetDateSave off).
@@ -158,6 +159,13 @@ N_DEFINES="$(native "$WORK/generated/defines.nsh")"
 N_INSTALL_FILES="$(native "$WORK/generated/install-files.nsh")"
 N_UNINSTALL_FILES="$(native "$WORK/generated/uninstall-files.nsh")"
 N_ICON="$(native "$ROOT/DialShift.App/Assets/dialshift.ico")"
+N_WIZARD_100="$(native "$WORK/generated/dialshift-wizard-100.bmp")"
+N_WIZARD_125="$(native "$WORK/generated/dialshift-wizard-125.bmp")"
+N_WIZARD_150="$(native "$WORK/generated/dialshift-wizard-150.bmp")"
+N_WIZARD_175="$(native "$WORK/generated/dialshift-wizard-175.bmp")"
+N_WIZARD_200="$(native "$WORK/generated/dialshift-wizard-200.bmp")"
+N_WIZARD_250="$(native "$WORK/generated/dialshift-wizard-250.bmp")"
+N_WIZARD_300="$(native "$WORK/generated/dialshift-wizard-300.bmp")"
 N_OUTPUT="$(native "$OUTPUT")"
 N_SCRIPT="$(native "$ROOT/scripts/windows-setup/DialShift.nsi")"
 
@@ -275,10 +283,15 @@ print("Payload: %d files in %d folders, %d bytes (EstimatedSize %d KiB; longest 
       % (len(files), len(folders), total, estimated_kb, longest_file, longest_folder, ", ".join(found)))
 PY
 
+# The Welcome/Finish image at each display scale (D104), drawn from the app icon's geometry: the same bytes on every host.
+"$PYTHON" "$(native "$ROOT/scripts/windows-setup/wizard-image.py")" "$N_GENERATED" || fail "could not draw the wizard images."
+
 # The arguments are already in the host's form: MSYS must not rewrite them for the Windows compiler (Git Bash).
 MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$MAKENSIS" -WX -V2 \
     "-DDEFINES_NSH=$N_DEFINES" "-DINSTALL_FILES_NSH=$N_INSTALL_FILES" "-DUNINSTALL_FILES_NSH=$N_UNINSTALL_FILES" \
     "-DPAYLOAD=$N_PACKAGE" "-DNSIS_COPYING=$N_COPYING" "-DICON=$N_ICON" "-DOUTPUT=$N_OUTPUT" \
+    "-DWIZARD_BMP_100=$N_WIZARD_100" "-DWIZARD_BMP_125=$N_WIZARD_125" "-DWIZARD_BMP_150=$N_WIZARD_150" "-DWIZARD_BMP_175=$N_WIZARD_175" \
+    "-DWIZARD_BMP_200=$N_WIZARD_200" "-DWIZARD_BMP_250=$N_WIZARD_250" "-DWIZARD_BMP_300=$N_WIZARD_300" \
     "$N_SCRIPT" \
     || fail "makensis failed (see above; -WX makes every warning an error)."
 [ -f "$OUTPUT" ] || fail "makensis wrote no $OUTPUT."

@@ -4,6 +4,7 @@
 ; own form (Windows paths for makensis.exe): the files DEFINES_NSH, INSTALL_FILES_NSH, UNINSTALL_FILES_NSH, the
 ; package folder PAYLOAD, the licence NSIS_COPYING, the icon ICON and the setup OUTPUT. This script joins no path to
 ; them (makensis.exe splits an !include or File path at its last backslash, so "<folder>/<file>" is not found).
+;   WIZARD_BMP_<scale>   the Welcome/Finish image at 100, 125, 150, 175, 200, 250 and 300 % (wizard-image.py, D104)
 ;   DEFINES_NSH          VERSION, VERSION_NUMERIC, ESTIMATED_SIZE_KB, PAYLOAD_LONGEST_FILE and
 ;                        PAYLOAD_LONGEST_FOLDER (the longest relative paths, for CheckPathLength) and the macro
 ;                        PAYLOAD_TOP_LEVEL_NAME (the payload's top-level names that are not .dll or .json files)
@@ -115,10 +116,15 @@ Var UnDesktopHere   ; the uninstaller: 1 when $DESKTOP\DialShift.lnk starts this
 
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
+; DialShift's own Welcome/Finish image (D104), not the Modern UI's stock art: the 100 % drawing here, replaced on show by
+; the drawing for the display's scale (WizardImage).
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${WIZARD_BMP_100}"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${WIZARD_BMP_100}"
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING
 
 !define MUI_WELCOMEPAGE_TEXT "$WelcomeText"
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW WelcomeImage
 !insertmacro MUI_PAGE_WELCOME
 !define MUI_COMPONENTSPAGE_TEXT_TOP "DialShift is always added to your Start menu. Choose whether to add a desktop shortcut too."
 !insertmacro MUI_PAGE_COMPONENTS
@@ -126,12 +132,14 @@ Var UnDesktopHere   ; the uninstaller: 1 when $DESKTOP\DialShift.lnk starts this
 !define MUI_FINISHPAGE_TEXT "$FinishText"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\DialShift.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Run DialShift"
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW FinishImage
 !insertmacro MUI_PAGE_FINISH
 
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.AskKeepSettings
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !define MUI_FINISHPAGE_TEXT "$UnFinishText"
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.FinishImage
 !insertmacro MUI_UNPAGE_FINISH
 
 !insertmacro MUI_LANGUAGE "English"
@@ -594,6 +602,63 @@ FunctionEnd
 
 !insertmacro HELPERS ""
 !insertmacro HELPERS "un."
+
+; ---------------------------------------------------------------------------------------------------------------
+; The Welcome/Finish image at the display's scale (D104). The Modern UI shows the 100 % drawing stretched to its image
+; control (109 x 193 dialog units: 164 x 314 pixels at 100 %, 328 x 628 at 200 %); this puts the drawing whose width is
+; nearest the control's in its place, fitted exactly (LoadAndSetImage deletes the bitmap it replaces). In: $R0 the image
+; control. Out: $R1 the new bitmap, which the page frees when it ends, or "" when the 100 % one stays. Changes $R2-$R4.
+!macro WIZARD_IMAGE UN
+Function ${UN}WizardImage
+    System::Call '*(&i16) p .R2'
+    System::Call 'user32::GetClientRect(p R0, p R2)'
+    System::Call '*$R2(&i8, i .R3)'
+    System::Free $R2
+    StrCpy $R1 ""
+    ; Widths 164, 205, 246, 287, 328, 410 and 492; the thresholds are the midpoints between them.
+    ${If} $R3 >= 451
+        File "/oname=$PLUGINSDIR\dialshift-wizard-300.bmp" "${WIZARD_BMP_300}"
+        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-300.bmp"
+    ${ElseIf} $R3 >= 369
+        File "/oname=$PLUGINSDIR\dialshift-wizard-250.bmp" "${WIZARD_BMP_250}"
+        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-250.bmp"
+    ${ElseIf} $R3 >= 308
+        File "/oname=$PLUGINSDIR\dialshift-wizard-200.bmp" "${WIZARD_BMP_200}"
+        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-200.bmp"
+    ${ElseIf} $R3 >= 267
+        File "/oname=$PLUGINSDIR\dialshift-wizard-175.bmp" "${WIZARD_BMP_175}"
+        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-175.bmp"
+    ${ElseIf} $R3 >= 226
+        File "/oname=$PLUGINSDIR\dialshift-wizard-150.bmp" "${WIZARD_BMP_150}"
+        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-150.bmp"
+    ${ElseIf} $R3 >= 185
+        File "/oname=$PLUGINSDIR\dialshift-wizard-125.bmp" "${WIZARD_BMP_125}"
+        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-125.bmp"
+    ${Else}
+        Return
+    ${EndIf}
+    ${NSD_SetStretchedImage} $R0 "$R4" $R1
+FunctionEnd
+
+Function ${UN}FinishImage
+    StrCpy $R0 $mui.FinishPage.Image
+    Call ${UN}WizardImage
+    ${If} $R1 != ""
+        StrCpy $mui.FinishPage.Image.Bitmap $R1
+    ${EndIf}
+FunctionEnd
+!macroend
+
+!insertmacro WIZARD_IMAGE ""
+!insertmacro WIZARD_IMAGE "un."
+
+Function WelcomeImage
+    StrCpy $R0 $mui.WelcomePage.Image
+    Call WizardImage
+    ${If} $R1 != ""
+        StrCpy $mui.WelcomePage.Image.Bitmap $R1
+    ${EndIf}
+FunctionEnd
 
 ; ---------------------------------------------------------------------------------------------------------------
 ; Installer
