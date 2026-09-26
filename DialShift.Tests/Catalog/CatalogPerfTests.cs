@@ -31,7 +31,8 @@ namespace DialShift.Tests.Catalog;
 /// <para><b>Method (D69, D102).</b> "Load" is one <see cref="CatalogProvider.GetCatalogAsync"/> on a fresh provider (read,
 /// parse, validate, index: contracts §4.2 steps 1–9), timed by <see cref="Stopwatch"/> around the call and also as the
 /// <c>catalog.loaded</c> line reports it. The first load of the real file in this process is printed as the cold load
-/// (reported, not gated). Then the measured code is brought to the tiered JIT's steady state (D102):
+/// (reported, not gated), then, for continuity with earlier evidence, the number gated before D102: the median of 7
+/// loads of each file after one warm-up (reported, not gated). Then the measured code is brought to the tiered JIT's steady state (D102):
 /// <see cref="WarmUpRounds"/> rounds, each of <see cref="WarmUpLoads"/> loads of each file, one search per query on
 /// each catalog, <see cref="WarmUpLoads"/> passes of the calibration workload and one timed calibration, then a
 /// <see cref="WarmUpPause"/> pause for the JIT's background compilation. Only then is anything gated: the median of 7 loads of each file, and per query
@@ -45,7 +46,8 @@ namespace DialShift.Tests.Catalog;
 /// the fastest calibration in this process ran on a quiet machine, and its gates fail at once. An attempt over budget
 /// on a busy machine is measured again after 10 s, then 30 s, up to 3 attempts (D102), each gate passing on its best;
 /// when every attempt was busy the gate fails as "runner contended, inconclusive, re-run". Each check line lists every
-/// attempt's value, and each attempt prints its calibration, wall time and CPU time. The timing budgets are defined for
+/// attempt's value, and each attempt prints its calibration, wall time and CPU time; a failing check also gives, per
+/// attempt, its margin over the budget, wall and CPU time and calibration. The timing budgets are defined for
 /// a Release build on Apple Silicon (D69), and Windows hardware is reported, not gated (contracts §8 CAT-16), so the
 /// timing gates run only in an optimized build on macOS arm64 and report SKIP with the reason elsewhere; the numbers
 /// are printed everywhere, and the entry count is gated everywhere. Index build, filter lists, allocation per search and
@@ -93,6 +95,10 @@ internal static class CatalogPerfTests
         Check($"CAT-16 entry count {real.Entries.Count} ≤ {CatalogProvider.MaxEntries} (D69)", real.Entries.Count <= CatalogProvider.MaxEntries);
         Console.WriteLine($"CAT-16 cold first load (first in this process; reported, not gated) {cold.WallMs:F1} ms wall, catalog.loaded {cold.ReportedMs} ms " +
                           $"({(cold.WallMs < LoadBudgetMs ? "within" : "over")} the {LoadBudgetMs:0} ms budget)");
+        // Before D102 the gated number was the median of 7 loads after one warm-up (the cold load; for the synthetic file,
+        // its first load), measured here: printed for continuity with earlier evidence, not gated.
+        const string legacy = "one warm-up, as gated before D102; reported, not gated";
+        PrintLoads($"real {real.Entries.Count}, {legacy}", await LoadRunsAsync(realPath));
         using var temp = new TempDirectory("catalog-perf");
         var syntheticPath = temp.Combine(CatalogProvider.FileName);
         WriteSynthetic(realPath, syntheticPath);
@@ -100,6 +106,7 @@ internal static class CatalogPerfTests
         var synthetic = syntheticFirst.Result.Catalog;
         Check($"CAT-16 the synthetic catalog built from the real one loads {SyntheticCount} stations",
             syntheticFirst.Result.State == CatalogLoadState.Loaded && synthetic.Entries.Count == SyntheticCount);
+        PrintLoads($"synthetic {SyntheticCount}, {legacy}", await LoadRunsAsync(syntheticPath));
         var subject = new Subject(realPath, syntheticPath, real, synthetic, Queries(real.Entries));
         var calibration = new Calibration(File.ReadAllBytes(realPath));
 
@@ -132,12 +139,13 @@ internal static class CatalogPerfTests
     /// <summary>What is measured: the two catalog files, their indexes and the query set.</summary>
     private sealed record Subject(string RealPath, string SyntheticPath, StationCatalogIndex Real, StationCatalogIndex Synthetic, List<Query> Queries);
 
-    /// <summary>One attempt at the gated numbers, with the calibration just before and just after it, and whether the
-    /// machine was busy then (the slower calibration over <see cref="BusyFactor"/> times <see cref="FastestCalibrationMs"/>,
-    /// the fastest calibration in this process when the attempt ended).</summary>
+    /// <summary>One attempt at the gated numbers: its wall time and the CPU time of every thread meanwhile, the
+    /// calibration just before and just after it, and whether the machine was busy then (the slower calibration over
+    /// <see cref="BusyFactor"/> times <see cref="FastestCalibrationMs"/>, the fastest calibration in this process when the
+    /// attempt ended).</summary>
     private sealed record Attempt(int Number, List<LoadSample> RealLoads, List<LoadSample> SyntheticLoads,
-        List<SearchTiming> RealSearch, List<SearchTiming> SyntheticSearch, double CalibrationBeforeMs, double CalibrationAfterMs,
-        double FastestCalibrationMs)
+        List<SearchTiming> RealSearch, List<SearchTiming> SyntheticSearch, double WallMs, double CpuMs,
+        double CalibrationBeforeMs, double CalibrationAfterMs, double FastestCalibrationMs)
     {
         public double RealLoadMs => Median(RealLoads.Select(l => l.WallMs));
         public double CalibrationMs => Math.Max(CalibrationBeforeMs, CalibrationAfterMs);
@@ -232,7 +240,7 @@ internal static class CatalogPerfTests
         var wallMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
         var cpuMs = (Environment.CpuUsage.TotalTime - cpu).TotalMilliseconds;
         var after = calibration.Measure();
-        var attempt = new Attempt(number, realLoads, syntheticLoads, realSearch, syntheticSearch, before, after, calibration.FastestMs);
+        var attempt = new Attempt(number, realLoads, syntheticLoads, realSearch, syntheticSearch, wallMs, cpuMs, before, after, calibration.FastestMs);
         Console.WriteLine($"CAT-16 attempt {number}: {wallMs:F0} ms wall, {cpuMs:F0} ms CPU (all threads); calibration {before:F2} ms before, " +
                           $"{after:F2} ms after, fastest in this process {attempt.FastestCalibrationMs:F2} ms: " +
                           $"{(attempt.Busy ? "busy" : "quiet")} (busy above {BusyFactor:0.0}×)");
@@ -470,7 +478,11 @@ internal static class CatalogPerfTests
             var best = attempts.MinBy(gate.Value)!;
             var met = gate.Value(best) < gate.BudgetMs;
             var values = string.Join(", ", attempts.Select(a => gate.Value(a).ToString(gate.Format, CultureInfo.InvariantCulture) + (a.Busy ? " ms busy" : " ms")));
-            Check($"{gate.Title(best)} (attempts: {values}; D102{(met ? "" : "; " + verdict)})", met);
+            // A failing gate also names, per attempt, how far over budget it was and the attempt's wall and CPU time.
+            var detail = met ? "" : "; " + verdict + "; " + string.Join("; ", attempts.Select(a =>
+                $"attempt {a.Number}: +{(gate.Value(a) - gate.BudgetMs).ToString(gate.Format, CultureInfo.InvariantCulture)} ms over budget, " +
+                $"{a.WallMs:F0} ms wall, {a.CpuMs:F0} ms CPU, calibration {a.CalibrationMs:F2} ms {(a.Busy ? "busy" : "quiet")}"));
+            Check($"{gate.Title(best)} (attempts: {values}; D102{detail})", met);
         }
     }
 
