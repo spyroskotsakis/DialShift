@@ -8,6 +8,16 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+### Added
+
+- **A Windows setup, `DialShift-Setup-win-x64.exe`,** published beside the zip, which stays as it is. Double-click it to install DialShift for your user in `%LOCALAPPDATA%\Programs\DialShift`, without administrator rights, with a Start menu shortcut, an optional desktop shortcut and an entry in **Settings → Apps**, from where it uninstalls. Uninstalling asks whether to keep your stations, schedule and settings. Running a newer setup upgrades in place, over a setup install or an `Install.ps1` install, and keeps your settings and launch at sign-in; if DialShift is running, the setup asks you to quit it first and waits for **Retry**. `/S` installs and uninstalls silently. The setup is built with NSIS 3.12 and is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**. Its licence is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and `licenses/NSIS-COPYING.txt`.
+- **Testing status of the setup:** CI builds it on `windows-latest` and again on macOS, checks that both builds are identical and that it holds exactly the zip's files, and runs its install, upgrade, refusals and uninstall silently on `windows-latest`. It has not yet been run by hand on a real Windows PC (native check NC-19): the wizard, SmartScreen and Smart App Control, and the Apps & features entry are unverified there.
+
+### Changed
+
+- **`Install.ps1` does not replace an install made with the setup.** It stops with a message that says to run the new setup, or to uninstall DialShift in Settings → Apps first, because its copy would drop the setup's uninstaller.
+- **Releases have a fourth file,** `DialShift-Setup-win-x64.exe`, and `SHA256SUMS.txt` covers the three downloads.
+
 ## [0.4.0] - 2026-09-26
 
 Adds a search of a built-in station catalog to the Add station dialog. Everything else works as in [0.3.0](CHANGELOG.md#030---2026-09-25).
