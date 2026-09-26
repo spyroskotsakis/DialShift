@@ -1,7 +1,8 @@
 # Add-Station Catalog Search — Searchable Station Catalog in the Add-Station Dialog
 
-> **Status: implemented (2026-09-26, branch `feature/add-station-catalog-search`, prepared for release as `v0.4.0`:
-> CHANGELOG `[0.4.0]`, not tagged yet; a full release before the by-hand checks, D92).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
+> **Status: implemented and released (2026-09-26, branch `feature/add-station-catalog-search`, released as `v0.4.0`:
+> tag at `3c8543c`, CHANGELOG `[0.4.0]`, public Release run `36221102328` and the private release by `release-local.sh`;
+> a full release before the by-hand checks, D92).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
 > (8,270 stations at `8e38215`) that both packages carry, with five filters, a detail pane with notes, and manual entry
 > kept. Acceptance: `docs/acceptance-matrix.md` §11, **15 GREEN and 3 NATIVE-PENDING** since public CI `36219966368`
 > at `cceff38` passed on `windows-latest` and `macos-latest` (after D91); CAT-03, CAT-12 and CAT-14 wait only for
