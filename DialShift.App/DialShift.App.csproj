@@ -9,7 +9,7 @@
     <AssemblyName>DialShift</AssemblyName>
     <RootNamespace>DialShift.App</RootNamespace>
     <RollForward>Major</RollForward>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <ApplicationIcon>Assets\dialshift.ico</ApplicationIcon>
     <!-- [LibraryImport] stubs and [UnmanagedCallersOnly] function pointers in Interop/ (macOS AVPlayer adapter, NSWorkspace wake observer). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
