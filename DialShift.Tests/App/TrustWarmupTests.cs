@@ -20,10 +20,14 @@ namespace DialShift.Tests.App;
 /// TW-07 checks the app's bound, <see cref="WindowsTrustWarmup.Timeout"/> (5 s), in real time. Every other check is about
 /// something else, and a hosted runner can stall for seconds (Windows CI run 36244042354: TW-11, which takes about 10 ms,
 /// took 7.3 s, and a warm-up ran into the 5 s bound after the server had counted its handshake, so a "no answer" warning
-/// was logged). Those checks therefore run the warm-up through its test seam with <see cref="Patient"/> as the bound, and
-/// <see cref="Pinned"/> and <see cref="Unpinned"/> give the handler the same connect timeout, so only a longer stall can
-/// turn their warm-up into a timeout. A check that expects nothing logged prints what was logged, and TW-11 prints each
-/// warm-up's duration and the server's counts, so a recurrence names its cause.
+/// was logged). Every other check against a live server therefore runs the warm-up through its test seam with
+/// <see cref="Patient"/> as the bound, and <see cref="Pinned"/> and <see cref="Unpinned"/> give the handler the same connect
+/// timeout, so only a longer stall can turn their warm-up into a timeout (TW-02's user-info check uses the public
+/// constructor over an in-memory handler, which has no bound to reach). The checks that time a prompt reaction (a body
+/// closed, a cancellation or a disposal taking effect, TW-07's give-up) allow <see cref="Prompt"/>, or TW-07 its bound plus
+/// <see cref="Patient"/>: still far from the outcome they rule out (an endless body never closes; a warm-up left alone on
+/// <c>/hang</c> runs to its 15 s bound), and each prints the time it measured. A check that expects nothing logged prints
+/// what was logged, and TW-11 prints each warm-up's duration and the server's counts, so a recurrence names its cause.
 /// </remarks>
 public static class TrustWarmupTests
 {
@@ -31,8 +35,11 @@ public static class TrustWarmupTests
     private const string Token = "warm-token-77e0";
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
 
-    /// <summary>The warm-up's bound (and the handler's connect timeout) in every check but TW-07's; below <see cref="Bound"/>.</summary>
+    /// <summary>The warm-up's bound (and the handler's connect timeout) in every live-server check but TW-07's; below <see cref="Bound"/>.</summary>
     private static readonly TimeSpan Patient = TimeSpan.FromSeconds(15);
+
+    /// <summary>How soon a prompt reaction (a body closed, a cancellation or disposal taking effect) must show; below <see cref="Patient"/>.</summary>
+    private static readonly TimeSpan Prompt = TimeSpan.FromSeconds(5);
 
     public static async Task RunAsync()
     {
@@ -84,8 +91,8 @@ public static class TrustWarmupTests
             warmed && took < Patient && server.Requests.Count == requests + 1 && request is { Method: "GET", Path: "/stream" });
         Check($"TW-02 ... without the URL's user-info (no Authorization header: {request?.AuthorizationSummary}) and with User-Agent DialShift/{version} (got '{request?.Header("User-Agent")}')",
             request is not null && request.Header("Authorization") is null && request.Header("User-Agent") == $"DialShift/{version}");
-        var closed = await Wait.Until(() => server.OpenStreams == 0, TimeSpan.FromSeconds(1));
-        Check($"TW-03 the response is disposed unread: the server's endless chunked body ends within 1 s of the warm-up returning (open streams {server.OpenStreams})", closed);
+        var (closed, closedAfter) = await ClosesAsync(() => server.OpenStreams);
+        Check($"TW-03 the response is disposed unread: the server's endless chunked body ends {closedAfter.TotalMilliseconds:0} ms after the warm-up returned (within {Prompt.TotalSeconds:0} s; open streams {server.OpenStreams})", closed);
         Check($"TW-03 ... and a successful warm-up logs nothing ({Logged(log)})", log.Entries.Count == 0);
 
         var accepted = server.Accepted;
@@ -137,7 +144,8 @@ public static class TrustWarmupTests
         Check($"TW-05 a redirect to another https origin is followed: the first server saw /redirect, the second a completed handshake and /stream",
             warmed && server.Requests.Skip(fromRequests).Select(r => r.Path).SequenceEqual(["/redirect"])
             && other.Handshakes == toHandshakes + 1 && other.Requests.Skip(toRequests).Select(r => r.Path).SequenceEqual(["/stream"]));
-        Check("TW-05 ... and the redirect's target body is disposed unread too", await Wait.Until(() => other.OpenStreams == 0, TimeSpan.FromSeconds(1)));
+        var (closed, closedAfter) = await ClosesAsync(() => other.OpenStreams);
+        Check($"TW-05 ... and the redirect's target body is disposed unread too (it ends {closedAfter.TotalMilliseconds:0} ms after the warm-up returned, within {Prompt.TotalSeconds:0} s)", closed);
     }
 
     /// <summary>A reply that is not HTTP (Shoutcast's "ICY 200 OK") came after the handshake: not a failure, but its hop is unknown, so not cached.</summary>
@@ -173,7 +181,8 @@ public static class TrustWarmupTests
         Check("TW-12 ... A is not: when A now redirects to C, the next warm-up requests A again and follows it to C",
             server.Requests.Skip(serverRequests).Select(r => r.Path).SequenceEqual(["/redirect"])
             && third.Requests.Skip(thirdRequests).Select(r => r.Path).SequenceEqual(["/stream"]));
-        Check("TW-12 ... and C's body is disposed unread", await Wait.Until(() => third.OpenStreams == 0, TimeSpan.FromSeconds(1)));
+        var (closed, closedAfter) = await ClosesAsync(() => third.OpenStreams);
+        Check($"TW-12 ... and C's body is disposed unread (it ends {closedAfter.TotalMilliseconds:0} ms after the warm-up returned, within {Prompt.TotalSeconds:0} s)", closed);
     }
 
     /// <summary>What the handler does not follow: https → http, and a redirect past MaxRedirects.</summary>
@@ -251,8 +260,9 @@ public static class TrustWarmupTests
         var watch = Stopwatch.StartNew();
         var finished = await Wait.Finishes(warmup.WarmAsync(server.Url("/hang"), CancellationToken.None), Bound);
         var took = watch.Elapsed;
-        Check($"TW-07 a server that never answers: the warm-up gives up after {took.TotalSeconds:0.0} s (Timeout {WindowsTrustWarmup.Timeout.TotalSeconds:0} s) without throwing",
-            finished && took >= WindowsTrustWarmup.Timeout - TimeSpan.FromMilliseconds(100) && took < WindowsTrustWarmup.Timeout + TimeSpan.FromSeconds(3));
+        Check($"TW-07 a server that never answers: the warm-up gives up after {took.TotalSeconds:0.0} s (Timeout {WindowsTrustWarmup.Timeout.TotalSeconds:0} s; at least that, "
+              + $"less than {(WindowsTrustWarmup.Timeout + Patient).TotalSeconds:0} s) without throwing",
+            finished && took >= WindowsTrustWarmup.Timeout - TimeSpan.FromMilliseconds(100) && took < WindowsTrustWarmup.Timeout + Patient);
         Check($"TW-07 ... and logs one warning that it got no answer ({string.Join(" | ", log.Entries.Select(e => e.Message))})",
             log.Entries.Count == 1 && log.Entries[0] is { Level: AppLogLevel.Warn } entry && entry.Message.Contains("no answer within 5 s", StringComparison.Ordinal));
         var requests = server.Requests.Count;
@@ -289,8 +299,9 @@ public static class TrustWarmupTests
         var watch = Stopwatch.StartNew();
         await cts.CancelAsync();
         var threw = await ThrowsAsync<OperationCanceledException>(() => warming.WaitAsync(Bound));
-        Check($"TW-09 cancelled while waiting for the answer: OperationCanceledException after {watch.Elapsed.TotalMilliseconds:0} ms, and nothing is logged ({Logged(log)})",
-            waiting && threw && watch.Elapsed < TimeSpan.FromSeconds(2) && log.Entries.Count == 0);
+        Check($"TW-09 cancelled while waiting for the answer: OperationCanceledException after {watch.Elapsed.TotalMilliseconds:0} ms (within {Prompt.TotalSeconds:0} s, "
+              + $"not at the {Patient.TotalSeconds:0} s bound), and nothing is logged ({Logged(log)})",
+            waiting && threw && watch.Elapsed < Prompt && log.Entries.Count == 0);
     }
 
     /// <summary>Dispose (the engine's disposal) cancels a warm-up in flight silently; later warm-ups do nothing.</summary>
@@ -304,8 +315,9 @@ public static class TrustWarmupTests
         var watch = Stopwatch.StartNew();
         warmup.Dispose();
         var ended = await NoThrowAsync(() => warming.WaitAsync(Bound));
-        Check($"TW-10 Dispose ends a warm-up in flight at once ({watch.Elapsed.TotalMilliseconds:0} ms) without an exception or a log line ({Logged(log)})",
-            waiting && ended && watch.Elapsed < TimeSpan.FromSeconds(2) && log.Entries.Count == 0);
+        Check($"TW-10 Dispose ends a warm-up in flight at once ({watch.Elapsed.TotalMilliseconds:0} ms, within {Prompt.TotalSeconds:0} s, not at the {Patient.TotalSeconds:0} s bound) "
+              + $"without an exception or a log line ({Logged(log)})",
+            waiting && ended && watch.Elapsed < Prompt && log.Entries.Count == 0);
         var accepted = server.Accepted;
         await warmup.WarmAsync(server.Url("/stream"), CancellationToken.None);
         warmup.Dispose();
@@ -332,6 +344,14 @@ public static class TrustWarmupTests
         handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, _) =>
             certificate is not null && string.Equals(certificate.GetCertHashString(), LocalTlsServer.Thumbprint, StringComparison.OrdinalIgnoreCase);
         return handler;
+    }
+
+    /// <summary>Whether the server's open streams (<paramref name="open"/>) drop to 0 within <see cref="Prompt"/>, and how long that took.</summary>
+    private static async Task<(bool Closed, TimeSpan After)> ClosesAsync(Func<int> open)
+    {
+        var watch = Stopwatch.StartNew();
+        var closed = await Wait.Until(() => open() == 0, Prompt);
+        return (closed, watch.Elapsed);
     }
 
     /// <summary>How long <paramref name="warm"/> took.</summary>
