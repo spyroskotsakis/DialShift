@@ -473,6 +473,30 @@ internal static partial class CatalogHeadlessTests
             await PumpAsync();
         });
         await CloseWhilePendingAsync("item 9(b) a press outside (on the detail pane)", () => ClickAsync(Detail(dialog)));
+
+        // D89 follow-up: a reopen (a click in the search box, Down) after Escape lets the pending search land open again, so
+        // Enter before it lands picks the typed text's first row (D85 P2) instead of saving.
+        async Task ReopenThenEnterAsync(string how, Func<Task> reopen)
+        {
+            await ClearFormAsync();
+            await SearchAsync(dialog, editor, "radio");
+            await TypeAsync(search, "kosmos");
+            await PressAsync(dialog, Key.Escape);
+            await reopen();
+            Layout(dialog);
+            var reopened = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible && editor.HighlightedResult is { } stale && stale.Entry != Kosmos;
+            await PressAsync(dialog, Key.Enter);
+            Layout(dialog);
+            Report($"Enter at once after Escape and {how}");
+            Check($"CAT-12 D89 fixture: after Escape, {how} reopens the stale \"radio\" rows while the search for \"kosmos\" is pending", reopened);
+            Check($"CAT-12 D89 D85 P2 Enter at once after Escape and {how} picks the typed text's first row (Kosmos 93.6) instead of saving: " +
+                  "the results closed, no name error, nothing saved",
+                name.Text == "Kosmos 93.6" && editor.SelectedEntry == Kosmos && !Overlay(dialog).IsVisible && editor.PendingSearch.IsCompleted
+                && VisibleError(dialog) == null && dialog.IsVisible && rig.Settings.Stations.Count == stations);
+            await PastTheDelayAsync();
+        }
+        await ReopenThenEnterAsync("a click in the search box", () => ClickAsync(search));
+        await ReopenThenEnterAsync("Down", () => PressAsync(dialog, Key.Down));
         dialog.Close();
         await PumpAsync();
     }
