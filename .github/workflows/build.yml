@@ -421,21 +421,24 @@ jobs:
       # (s1) fresh install; a DialShift.old-* is kept while there is no install. (s2) upgrade setup over setup, through
       # the \\?\ form of the folder: stale files of the old build (a plugin, a runtime DLL) gone, leftovers removed, a
       # junction inside the old install removed as a link only, Run value and desktop shortcut moved, the ordinary path
-      # stored. (s2b) an old copy that cannot be deleted is a warning (exit 0). (s3) a locked file: the install cannot be
-      # moved aside (14). (s3b) the new build cannot be moved in: the previous install is moved back (14). (s4) install
-      # lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder refusals (13), each with the
+      # stored. (s2b) an old copy that cannot be deleted is a warning (exit 0). (s3) a locked file: the install cannot
+      # be moved aside (14). (s3b) the new build cannot be moved in: the previous install is moved back (14). (s4)
+      # install lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder refusals (13), each with the
       # uninstaller moved aside so that only its own rule can refuse it: the settings folder (emptied, so only R3 can
-      # refuse it; also as \\?\), a folder inside it, a foreign folder, a folder with DialShift.exe among other files,
-      # drive roots (subst, the system drive), the uninstaller's _?= on the subst root; /D= folders NSIS cannot use (a
-      # missing drive, a relative and a drive-relative path, a file in the path, a file, forward slashes, quotes,
-      # nothing), which it would replace with the install's own folder, /D= folders it keeps but reads as another (a
-      # slash inside, text after /D=), command lines longer than NSIS keeps (exactly 1,024 characters, and one with a
-      # 1,030-character argument), and /D= switches it does not take (quoted, lowercase) (D101); then, with the uninstaller back, a second install
-      # location. (s7) Install.ps1 over the setup install (D95), by the uninstaller and by the entry's InstallLocation.
-      # (s8) silent uninstall through QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall
-      # that keeps another copy's Run value, then a reinstall (/D= with a trailing backslash) into the folder the
-      # in-place uninstall left (only the uninstaller) and its uninstall; then a fresh install into a folder with spaces
-      # and a non-ASCII letter, on a command line of exactly 1,023 characters, and its uninstall.
+      # refuse it; also as \\?\), a folder inside it (also spelled through a missing folder and ..), a foreign folder, a
+      # folder with DialShift.exe among other files, drive roots (subst, the system drive), the uninstaller's _?= on the
+      # subst root, the volume GUID path of drive C for the setup and the uninstaller (a decoy install in the working
+      # folder kept), \\?\ with a trailing dot or .., a \\.\ device path, a folder path too long for the payload; /D=
+      # folders NSIS cannot use (a missing drive, a relative and a drive-relative path, a file in the path, a file,
+      # forward slashes, quotes, nothing), which it would replace with the install's own folder, /D= folders it keeps
+      # but reads as another (a slash inside, text after /D=), command lines longer than NSIS keeps (exactly 1,024
+      # characters, and one with a 1,030-character argument), and /D= switches it does not take (quoted, lowercase)
+      # (D101); then, with the uninstaller back, a second install location. (s7) Install.ps1 over the setup install
+      # (D95), by the uninstaller and by the entry's InstallLocation. (s8) silent uninstall through
+      # QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another copy's
+      # Run value, then a reinstall (/D= with a trailing backslash) into the folder the in-place uninstall left (only
+      # the uninstaller) and its uninstall; then a fresh install into a folder with spaces and a non-ASCII letter, on a
+      # command line of exactly 1,023 characters, and its uninstall.
       # The real %LOCALAPPDATA%\DialShift holds a sentinel settings.json whose SHA-256 is checked after every case, and
       # every case but (s5) checks that no DialShift process was started. The Start menu, desktop and HKCU of the runner
       # are real: the Run, StartupApproved and uninstall values, both shortcuts, the subst drive and every ACL change are
@@ -760,6 +763,8 @@ jobs:
                 Assert-Code 's6 settings folder as \\?\' (Invoke-Setup "/S /D=\\?\$dataDir") 13
                 if ((Get-Names $dataDir).Count) { throw '(s6) The refused run wrote into the settings folder.' }
                 Assert-Code 's6 inside the settings folder' (Invoke-Setup "/S /D=$(Join-Path $dataDir 'inside')") 13
+                # The same folder through one that doesn't exist: normalized although its last part is missing (D101).
+                Assert-Code 's6 inside the settings folder, spelled through ..' (Invoke-Setup "/S /D=$(Split-Path -Parent $dataDir)\setup-check-nothing\..\DialShift\inside") 13
                 if (Test-Path -LiteralPath (Join-Path $dataDir 'inside')) { throw '(s6) A refused run created a folder inside the settings folder.' }
               } finally { Move-Item -LiteralPath $sentinelAside -Destination $sentinel }
               $foreign = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-foreign')
@@ -796,6 +801,19 @@ jobs:
               }
               if (-not (Test-Path -LiteralPath $planted)) { throw '(s6) The uninstaller deleted a file in the drive root.' }
               Assert-Shortcut 's6 uninstaller on the root' $startMenu
+              # A \\?\ path that is neither a drive nor UNC\ (the volume GUID path of drive C): without its prefix it
+              # would be relative, so an uninstaller would delete from the working folder. A decoy install there must
+              # stay; the setup refuses the same /D= (D101).
+              $volume = (Get-CimInstance -ClassName Win32_Volume -Filter "DriveLetter='C:'").DeviceID.TrimEnd('\')
+              if ($volume -notmatch '^\\\\\?\\(Volume\{[^}]+\})$') { throw "(s6) Drive C's volume path is '$volume'." }
+              $decoyRoot = Join-Path ([Environment]::CurrentDirectory) $Matches[1]
+              $decoy = New-Item -ItemType Directory -Path (Join-Path $decoyRoot 'setup-check-volume\DialShift')
+              Set-Content -LiteralPath (Join-Path $decoy 'DialShift.exe'), (Join-Path $decoy 'DialShift.dll') -Value 'decoy'
+              Assert-Code 's6 uninstaller on a volume GUID path' (Invoke-Exe $aside "/S _?=$volume\setup-check-volume\DialShift") 13
+              Assert-Code 's6 volume GUID path' (Invoke-Setup "/S /D=$volume\setup-check-volume\DialShift") 13
+              if (@(Get-ChildItem -LiteralPath $decoy -Force).Count -ne 2) { throw '(s6) The uninstaller deleted from the working folder.' }
+              if (Test-Path -LiteralPath 'C:\setup-check-volume') { throw '(s6) A refused run created C:\setup-check-volume.' }
+              Remove-Item -LiteralPath $decoyRoot -Recurse -Force
               Remove-Item -LiteralPath $planted
               # A /D= folder NSIS cannot use, or a /D= switch it does not take (D101): refused, never replaced.
               $missing = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
@@ -822,6 +840,12 @@ jobs:
                 # Longer than NSIS keeps (1,023 characters): its /D= would be cut short or never seen.
                 'a long command line' = "/S /X=$('x' * 1030) /D=$root\Programs7\DialShift"
                 'a 1,024-character command line' = Get-Padded '/S /X=' " /D=$root\Programs8\DialShift" 1024
+                # \\?\ forms Windows reads as another folder once ordinary, and a device path.
+                '\\?\ with a trailing dot' = "/S /D=\\?\$root\Programs9\DialShift."
+                '\\?\ with ..' = "/S /D=\\?\$root\Programs10\x\..\DialShift"
+                'a \\.\ device path' = "/S /D=\\.\$root\Programs11\DialShift"
+                # Too long for the payload's longest file under Windows' 259-character path limit (CheckPathLength).
+                'a folder path too long' = "/S /D=$root\$('p' * 150)\DialShift"
               }
               foreach ($case in $unusable.Keys) { Assert-Code "s6 $case" (Invoke-Setup $unusable[$case]) 13 }
               if ((Get-FileHash -LiteralPath $notFolder -Algorithm SHA256).Hash -ne $notFolderHash) { throw '(s6) The file given as the folder changed.' }

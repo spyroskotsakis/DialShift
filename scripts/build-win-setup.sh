@@ -23,7 +23,8 @@
 #
 # The payload is the package minus Install.ps1 plus licenses/NSIS-COPYING.txt (the NSIS licence, brief 4 §10); the
 # setup writes "Uninstall DialShift.exe" at install time. The script generates defines.nsh (version, size and the
-# payload's top-level names, which the setup uses to tell a DialShift install from a folder with other files),
+# payload's top-level names, which the setup uses to tell a DialShift install from a folder with other files, and the
+# longest relative paths, which it uses to refuse a folder too long for them),
 # install-files.nsh (the payload in a fixed, host-independent order) and uninstall-files.nsh (the uninstaller's file
 # list, DialShift.exe last, and folder list) into a temporary folder, never into the repository, runs makensis -WX -V2 on
 # scripts/windows-setup/DialShift.nsi, then scripts/verify-win-setup.sh (with the package, so the contents are
@@ -235,10 +236,16 @@ macro = ["!macro PAYLOAD_TOP_LEVEL_NAME NAME RESULT"]
 for name in named:
     macro += ["    ${If} ${NAME} == \"%s\"" % name, "        StrCpy ${RESULT} 1", "    ${EndIf}"]
 macro.append("!macroend")
+# The longest relative file and folder paths (characters, backslash form, the uninstaller included), so the setup can
+# refuse an install folder whose files would pass Windows' path limit (DialShift.nsi, CheckPathLength).
+longest_file = max(len(nsis(path)) for path in list(files) + ["Uninstall DialShift.exe"])
+longest_folder = max(len(nsis(folder)) for folder in folders)
 write("defines.nsh", [
     "!define VERSION \"%s\"" % version,
     "!define VERSION_NUMERIC \"%s\"" % numeric,
     "!define ESTIMATED_SIZE_KB %d" % estimated_kb,
+    "!define PAYLOAD_LONGEST_FILE %d" % longest_file,
+    "!define PAYLOAD_LONGEST_FOLDER %d" % longest_folder,
 ] + macro)
 
 # Folder by folder in code-point order, files by name: the order is the setup's, not the file system's (D98).
@@ -264,8 +271,8 @@ for folder in sorted(folders, key=lambda f: (-f.count("/"), f)):
     uninstall.append("RMDir \"$INSTDIR\\%s\"" % nsis(folder))
 write("uninstall-files.nsh", uninstall)
 
-print("Payload: %d files in %d folders, %d bytes (EstimatedSize %d KiB); DialShift.dll version %s"
-      % (len(files), len(folders), total, estimated_kb, ", ".join(found)))
+print("Payload: %d files in %d folders, %d bytes (EstimatedSize %d KiB; longest relative paths %d and %d); DialShift.dll version %s"
+      % (len(files), len(folders), total, estimated_kb, longest_file, longest_folder, ", ".join(found)))
 PY
 
 # The arguments are already in the host's form: MSYS must not rewrite them for the Windows compiler (Git Bash).

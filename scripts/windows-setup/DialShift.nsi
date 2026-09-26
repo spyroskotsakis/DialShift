@@ -4,8 +4,9 @@
 ; own form (Windows paths for makensis.exe): the files DEFINES_NSH, INSTALL_FILES_NSH, UNINSTALL_FILES_NSH, the
 ; package folder PAYLOAD, the licence NSIS_COPYING, the icon ICON and the setup OUTPUT. This script joins no path to
 ; them (makensis.exe splits an !include or File path at its last backslash, so "<folder>/<file>" is not found).
-;   DEFINES_NSH          VERSION, VERSION_NUMERIC, ESTIMATED_SIZE_KB and the macro PAYLOAD_TOP_LEVEL_NAME (the
-;                        payload's top-level names that are not .dll or .json files)
+;   DEFINES_NSH          VERSION, VERSION_NUMERIC, ESTIMATED_SIZE_KB, PAYLOAD_LONGEST_FILE and
+;                        PAYLOAD_LONGEST_FOLDER (the longest relative paths, for CheckPathLength) and the macro
+;                        PAYLOAD_TOP_LEVEL_NAME (the payload's top-level names that are not .dll or .json files)
 ;   INSTALL_FILES_NSH    SetOutPath/File lines for the payload (the package minus Install.ps1, plus
 ;                        licenses\NSIS-COPYING.txt), in a fixed order so the output does not depend on the host (D98);
 ;                        its File lines name ${PAYLOAD}\<relative path> with backslashes and ${NSIS_COPYING}
@@ -75,7 +76,7 @@ OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\DialShift"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 ; Without it, NSIS silently replaces a drive or share root given with /D= before .onInit runs; with it, the root
-; reaches .onInit, where RefuseRoot refuses it (R3, D101). It also admits a root as the uninstaller's _?=, which
+; reaches .onInit, where CheckFolderPath refuses it (R3, D101). It also admits a root as the uninstaller's _?=, which
 ; un.onInit refuses the same way.
 AllowRootDirInstall true
 BrandingText "DialShift ${VERSION}"
@@ -149,10 +150,12 @@ Var IsInstall       ; 1 when the install folder holds an install to swap out
     !define /redef LOCK_MESSAGE "Another DialShift install is running. Wait for it to finish, then uninstall DialShift again."
     !define /redef CHECK_FIX "then uninstall DialShift again"
     !define /redef ROOT_MESSAGE "This uninstaller won't remove files from $INSTDIR\, the top of a drive or network share: DialShift Setup never installs there. Delete the uninstaller yourself."
+    !define /redef PATH_MESSAGE "This uninstaller won't remove files from $R9: that isn't an ordinary full path to a folder. Give the install folder as one, such as _?=C:\Apps\DialShift."
 !else
     !define /redef LOCK_MESSAGE "Another DialShift install is running. Wait for it to finish, then run DialShift Setup again."
     !define /redef CHECK_FIX "then run DialShift Setup again"
     !define /redef ROOT_MESSAGE "DialShift can't be installed in $INSTDIR\, the top of a drive or network share. Choose a folder in it, such as $INSTDIR\DialShift."
+    !define /redef PATH_MESSAGE "DialShift can't be installed in $R9: that isn't an ordinary full path to a folder. Give one such as C:\Apps\DialShift or \\server\share\DialShift."
 !endif
 
 ; $2 = 1 when $INSTDIR is a root: a drive ("C:", which is how NSIS reads "C:\") or a network server or share
@@ -184,16 +187,61 @@ Function ${UN}IsRootFolder
     ${EndIf}
 FunctionEnd
 
-; R3 (exit 13): $INSTDIR must not be a root (D101), before it is normalized ("C:" alone would resolve to the current
-; folder of drive C) and after GetFullPathName ("C:\." and "C:\x\.." are the root of C), which leaves $INSTDIR
-; normalized. A leading \\?\ is dropped first ("\\?\C:\x" is "C:\x", "\\?\UNC\server\share\x" is
-; "\\server\share\x"): GetFullPathName leaves such a path as it is, and the one-install rule, the settings-folder rule,
-; InstallLocation, the Run value and the shortcuts all compare or store the ordinary form. The setup's /D= and, since
-; AllowRootDirInstall also admits one there, the uninstaller's _?= (an uninstaller placed in a root would otherwise
-; delete DialShift-named files from it). Changes $0-$4.
-Function ${UN}RefuseRoot
+; $2 = 1 when $INSTDIR is absolute: a drive letter A-Z and a colon, then nothing or a backslash; or two backslashes and
+; a server name (not "\\?", "\\." or a third backslash). Changes $0-$4.
+Function ${UN}IsAbsoluteFolder
+    StrCpy $2 0
+    StrCpy $0 $INSTDIR 1 1
+    StrCpy $1 $INSTDIR 1 2
+    ${If} $0 == ":"
+        ${If} $1 == ""
+        ${OrIf} $1 == "\"
+            StrCpy $1 $INSTDIR 1
+            StrCpy $3 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            StrCpy $4 0
+            ${Do}
+                StrCpy $0 $3 1 $4
+                ${If} $0 == ""
+                    ${Break}
+                ${EndIf}
+                ${If} $0 == $1
+                    StrCpy $2 1
+                    ${Break}
+                ${EndIf}
+                IntOp $4 $4 + 1
+            ${Loop}
+        ${EndIf}
+    ${Else}
+        StrCpy $0 $INSTDIR 2
+        ${If} $0 == "\\"
+        ${AndIf} $1 != ""
+        ${AndIf} $1 != "\"
+        ${AndIf} $1 != "?"
+        ${AndIf} $1 != "."
+            StrCpy $2 1
+        ${EndIf}
+    ${EndIf}
+FunctionEnd
+
+; R3 (exit 13, D101): $INSTDIR becomes an ordinary, normalized, absolute path that is not a root, or the run stops. For
+; the setup's /D= and, since AllowRootDirInstall also admits a root there, the uninstaller's _?= (an uninstaller given
+; a root or a relative path would delete DialShift-named files from it, or from the working folder). In order:
+; - A leading \\?\ is dropped ("\\?\C:\x" is "C:\x", "\\?\UNC\server\share\x" is "\\server\share\x"), so the
+;   settings-folder rule, the one-install rule, InstallLocation, the Run value and the shortcuts see the ordinary
+;   form. What remains must be absolute: any other \\?\ path ("\\?\Volume{...}\x", "\\?\GLOBALROOT\...") would be
+;   left relative, and is refused.
+; - Not a root before it is normalized ("C:" alone would resolve to the current folder of drive C).
+; - Normalized with kernel32's GetFullPathNameW, not NSIS's GetFullPathName, which returns "" when the last part does
+;   not exist yet and so left "C:\x\..\new" as it was. A \\?\ path must already be in normal form: Windows reads
+;   "\\?\C:\x\DialShift." or "\\?\C:\x\..\y" literally, but their ordinary form as another folder.
+; - Absolute and not a root after it ("C:\x\.." is the root of C).
+; Changes $0-$4, $R8 and $R9 (the folder as given, for the messages).
+Function ${UN}CheckFolderPath
+    StrCpy $R9 $INSTDIR
+    StrCpy $R8 0
     StrCpy $0 $INSTDIR 4
     ${If} $0 == "\\?\"
+        StrCpy $R8 1
         StrCpy $0 $INSTDIR 4 4
         ${If} $0 == "UNC\"
             StrCpy $0 $INSTDIR "" 7
@@ -202,14 +250,29 @@ Function ${UN}RefuseRoot
             StrCpy $INSTDIR $INSTDIR "" 4
         ${EndIf}
     ${EndIf}
-    Call ${UN}IsRootFolder
+    Call ${UN}IsAbsoluteFolder
     ${If} $2 = 0
-        GetFullPathName $0 $INSTDIR
-        ${If} $0 != ""
-            StrCpy $INSTDIR $0
-        ${EndIf}
-        Call ${UN}IsRootFolder
+        !insertmacro REFUSE ${EXIT_FOLDER} "${PATH_MESSAGE}"
     ${EndIf}
+    Call ${UN}IsRootFolder
+    ${If} $2 = 1
+        !insertmacro REFUSE ${EXIT_FOLDER} "${ROOT_MESSAGE}"
+    ${EndIf}
+    System::Call 'kernel32::GetFullPathNameW(w "$INSTDIR", i ${NSIS_MAX_STRLEN}, w .r0, p 0) i .r1'
+    ${If} $1 = 0
+    ${OrIf} $1 >= ${NSIS_MAX_STRLEN}
+        !insertmacro REFUSE ${EXIT_FOLDER} "${PATH_MESSAGE}"
+    ${EndIf}
+    ${If} $R8 = 1
+    ${AndIf} $0 != $INSTDIR
+        !insertmacro REFUSE ${EXIT_FOLDER} "${PATH_MESSAGE}"
+    ${EndIf}
+    StrCpy $INSTDIR $0
+    Call ${UN}IsAbsoluteFolder
+    ${If} $2 = 0
+        !insertmacro REFUSE ${EXIT_FOLDER} "${PATH_MESSAGE}"
+    ${EndIf}
+    Call ${UN}IsRootFolder
     ${If} $2 = 1
         !insertmacro REFUSE ${EXIT_FOLDER} "${ROOT_MESSAGE}"
     ${EndIf}
@@ -582,6 +645,27 @@ Function CheckRequestedFolder
     ${Loop}
 FunctionEnd
 
+; R3 (exit 13, D101): every payload file and folder must fit Windows' path limits (MAX_PATH: a file path of at most
+; 259 characters, a folder path of at most 247) both in the install folder and in the DialShift.new-/old-<8 hex>
+; folders beside it; the setup is not long-path aware, so a longer path would fail the extraction instead. Changes
+; $0-$3.
+Function CheckPathLength
+    Call SetParent
+    StrLen $0 $Parent
+    IntOp $0 $0 + 23        ; \DialShift.new-<8 hex>
+    StrLen $1 $INSTDIR
+    ${If} $1 > $0
+        StrCpy $0 $1
+    ${EndIf}
+    IntOp $1 $0 + 1
+    IntOp $2 $1 + ${PAYLOAD_LONGEST_FILE}
+    IntOp $3 $1 + ${PAYLOAD_LONGEST_FOLDER}
+    ${If} $2 > 259
+    ${OrIf} $3 > 247
+        !insertmacro REFUSE ${EXIT_FOLDER} "DialShift can't be installed in $INSTDIR: its path is too long for DialShift's files (Windows allows 259 characters in a path). Choose a folder with a shorter path, such as C:\Apps\DialShift."
+    ${EndIf}
+FunctionEnd
+
 ; $0 = 1 when $DESKTOP\DialShift.lnk starts $INSTDIR\DialShift.exe (IShellLinkW::GetPath through IPersistFile::Load).
 Function DesktopShortcutPointsHere
     StrCpy $0 0
@@ -790,11 +874,12 @@ Function .onInit
     ; R2, held from here until the setup exits.
     Call AcquireInstallLock
 
-    ; R3: a /D= folder exactly as given (D101); not a drive or share root (RefuseRoot also normalizes the path, a
-    ; leading \\?\ dropped); not, not inside and not holding the settings folder (textual, case-insensitive, one
-    ; trailing backslash, as D56).
+    ; R3: a /D= folder exactly as given (D101); an ordinary absolute path, normalized, not a drive or share root
+    ; (CheckFolderPath); short enough for the payload (CheckPathLength); not, not inside and not holding the settings
+    ; folder (textual, case-insensitive, one trailing backslash, as D56).
     Call CheckRequestedFolder
-    Call RefuseRoot
+    Call CheckFolderPath
+    Call CheckPathLength
     StrCpy $0 "$INSTDIR\"
     StrCpy $1 "$LOCALAPPDATA\DialShift\"
     StrLen $2 $0
@@ -876,8 +961,9 @@ Function un.onInit
     SetShellVarContext current
     StrCpy $KeepSettings 1
     Call un.AcquireInstallLock
-    ; _?= may name a root (AllowRootDirInstall applies to it too): refused with 13 (D101).
-    Call un.RefuseRoot
+    ; _?= may name a root (AllowRootDirInstall applies to it too) or, through \\?\, a relative path: refused with 13
+    ; (D101).
+    Call un.CheckFolderPath
     Call un.CheckNotRunning
     ${If} $0 <> 0
         SetErrorLevel $0
