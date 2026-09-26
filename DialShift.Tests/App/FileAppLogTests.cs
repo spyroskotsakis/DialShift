@@ -252,12 +252,13 @@ public static class FileAppLogTests
     {
         var log = new FileAppLog(Path.Combine(directory, "dialshift.log"));
         var holdFor = 3 * FileAppLog.LockWaitBudget;
-        var (waited, holderLines) = WriteWhileLockHeld(log, holdFor, appendEvery: TimeSpan.FromMilliseconds(20));
+        var holder = WriteWhileLockHeld(log, holdFor, appendEvery: TimeSpan.FromMilliseconds(20));
         var events = File.ReadAllLines(log.LogFile).Select(l => JsonDocument.Parse(l).RootElement.GetProperty("event").GetString()).ToList();
-        Console.WriteLine($"  busy holder: held {holdFor.TotalMilliseconds:F0} ms and appended {holderLines} lines; the waiter returned after {waited.TotalMilliseconds:F0} ms; events in file order: {string.Join(" ", events.Select(e => e == HolderEvent ? "H" : "W"))}");
-        Check("LOG-D2 a writer keeps waiting while the lock's holder is still writing (its line comes after all of the holder's, none overwritten)",
-            events.Count == holderLines + 1 && events.Take(holderLines).All(e => e == HolderEvent) && events[^1] == "x.waiter");
-        Check("LOG-D2 ... and it did not wait longer than LockWaitLimit", waited < FileAppLog.LockWaitLimit);
+        Console.WriteLine($"  busy holder: held {holdFor.TotalMilliseconds:F0} ms and appended {holder.Lines} lines; the waiter returned after {holder.Waited.TotalMilliseconds:F0} ms; events in file order: {string.Join(" ", events.Select(e => e == HolderEvent ? "H" : "W"))}");
+        var inOrder = events.Count == holder.Lines + 1 && events.Take(holder.Lines).All(e => e == HolderEvent) && events[^1] == "x.waiter";
+        if (!inOrder || holder.Waited >= FileAppLog.LockWaitLimit) Diagnose(HolderGap(holder));
+        Check("LOG-D2 a writer keeps waiting while the lock's holder is still writing (its line comes after all of the holder's, none overwritten)", inOrder);
+        Check("LOG-D2 ... and it did not wait longer than LockWaitLimit", holder.Waited < FileAppLog.LockWaitLimit);
     }
 
     /// <summary>A holder that does not write (suspended in a debugger) is waited out after <see cref="FileAppLog.LockWaitBudget"/>.</summary>
@@ -265,7 +266,7 @@ public static class FileAppLogTests
     {
         var log = new FileAppLog(Path.Combine(directory, "dialshift.log"));
         var holdFor = 4 * FileAppLog.LockWaitBudget;
-        var (waited, _) = WriteWhileLockHeld(log, holdFor, appendEvery: null);
+        var waited = WriteWhileLockHeld(log, holdFor, appendEvery: null).Waited;
         Console.WriteLine($"  stuck holder: held {holdFor.TotalMilliseconds:F0} ms without writing; the waiter returned after {waited.TotalMilliseconds:F0} ms");
         Check("LOG-D2 a writer gives up on a holder that makes no progress after LockWaitBudget (250 ms), before the holder lets go",
             waited >= FileAppLog.LockWaitBudget && waited < holdFor);
@@ -277,44 +278,75 @@ public static class FileAppLogTests
     {
         var log = new FileAppLog(Path.Combine(directory, "dialshift.log"));
         var holdFor = FileAppLog.LockWaitLimit + 3 * FileAppLog.LockWaitBudget;
-        var (waited, _) = WriteWhileLockHeld(log, holdFor, appendEvery: TimeSpan.FromMilliseconds(20));
-        Console.WriteLine($"  endless holder: held {holdFor.TotalMilliseconds:F0} ms while writing; the waiter returned after {waited.TotalMilliseconds:F0} ms");
+        var holder = WriteWhileLockHeld(log, holdFor, appendEvery: TimeSpan.FromMilliseconds(20));
+        Console.WriteLine($"  endless holder: held {holdFor.TotalMilliseconds:F0} ms while writing; the waiter returned after {holder.Waited.TotalMilliseconds:F0} ms");
         // Its line may race the holder's unlocked appends here, so only the timing is checked.
-        Check("LOG-D2 a writer waits at most LockWaitLimit (2 s) in total, even while the holder keeps writing",
-            waited >= FileAppLog.LockWaitLimit && waited < holdFor);
+        var bounded = holder.Waited >= FileAppLog.LockWaitLimit && holder.Waited < holdFor;
+        if (!bounded) Diagnose(HolderGap(holder));
+        Check("LOG-D2 a writer waits at most LockWaitLimit (2 s) in total, even while the holder keeps writing", bounded);
     }
 
+    /// <summary>What <see cref="WriteWhileLockHeld"/> observed: the waiter's write time, the holder's appends and its longest pause between two of them.</summary>
+    private sealed record HolderRun(TimeSpan Waited, int Lines, TimeSpan LongestGap);
+
     /// <summary>
-    /// Holds <paramref name="log"/>'s cross-process lock on a worker for <paramref name="holdFor"/>, appending a
-    /// <see cref="HolderEvent"/> line every <paramref name="appendEvery"/> (never when null), and meanwhile logs one
-    /// <c>x.waiter</c> line. Returns how long that write took and how many lines the holder appended.
+    /// Why a busy-holder check can fail without a regression: a scheduler or GC stall that paused the holder for
+    /// <see cref="FileAppLog.LockWaitBudget"/> or more makes it look stuck, and then giving up is correct.
     /// </summary>
-    private static (TimeSpan Waited, int HolderLines) WriteWhileLockHeld(FileAppLog log, TimeSpan holdFor, TimeSpan? appendEvery)
+    private static string HolderGap(HolderRun holder) =>
+        $"the holder's longest gap between appends was {holder.LongestGap.TotalMilliseconds:F0} ms " +
+        (holder.LongestGap >= FileAppLog.LockWaitBudget
+            ? $"(at least LockWaitBudget, {FileAppLog.LockWaitBudget.TotalMilliseconds:F0} ms: the holder itself stalled, so the waiter rightly took it for stuck)"
+            : $"(under LockWaitBudget, {FileAppLog.LockWaitBudget.TotalMilliseconds:F0} ms: the holder kept writing, so this is a regression)");
+
+    /// <summary>
+    /// Holds <paramref name="log"/>'s cross-process lock on a dedicated thread (not the thread pool, so its appends do
+    /// not queue behind other work) for <paramref name="holdFor"/>, appending a <see cref="HolderEvent"/> line every
+    /// <paramref name="appendEvery"/> (never when null), and meanwhile logs one <c>x.waiter</c> line.
+    /// </summary>
+    private static HolderRun WriteWhileLockHeld(FileAppLog log, TimeSpan holdFor, TimeSpan? appendEvery)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(log.LogFile)!);
         using var held = new ManualResetEventSlim();
-        var holder = Task.Run(() =>
+        var lines = 0;
+        var longestGap = TimeSpan.Zero;
+        Exception? failure = null;
+        var holder = new Thread(() =>
         {
-            using var lockFile = new FileStream(log.LockFile, FileMode.OpenOrCreate, FileAccess.Read, FileShare.None);
-            held.Set();
-            var clock = Stopwatch.StartNew();
-            var lines = 0;
-            while (clock.Elapsed < holdFor)
+            try
             {
-                if (appendEvery is { } every)
+                using var lockFile = new FileStream(log.LockFile, FileMode.OpenOrCreate, FileAccess.Read, FileShare.None);
+                held.Set();
+                var clock = Stopwatch.StartNew();
+                var lastAppend = clock.Elapsed;
+                while (clock.Elapsed < holdFor)
                 {
-                    File.AppendAllText(log.LogFile, $"{{\"event\":\"{HolderEvent}\",\"msg\":\"{lines++}\"}}\n");
-                    Thread.Sleep(every);
+                    if (appendEvery is { } every)
+                    {
+                        File.AppendAllText(log.LogFile, $"{{\"event\":\"{HolderEvent}\",\"msg\":\"{lines++}\"}}\n");
+                        var now = clock.Elapsed;
+                        if (lines > 1 && now - lastAppend > longestGap) longestGap = now - lastAppend;
+                        lastAppend = now;
+                        Thread.Sleep(every);
+                    }
+                    else Thread.Sleep(10);
                 }
-                else Thread.Sleep(10);
             }
-            return lines;
-        });
-        if (!held.Wait(TimeSpan.FromSeconds(10))) throw new CheckFailedException("precondition: the test couldn't take the log's lock file");
+            catch (Exception ex)
+            {
+                failure = ex;
+                held.Set();
+            }
+        }) { IsBackground = true, Name = "log-lock-holder" };
+        holder.Start();
+        if (!held.Wait(TimeSpan.FromSeconds(10)) || failure is not null)
+            throw new CheckFailedException($"precondition: the test couldn't take the log's lock file ({failure?.Message ?? "timed out"})");
         var wait = Stopwatch.StartNew();
         log.Info("x.waiter", "logged while another writer held the lock");
         var waited = wait.Elapsed;
-        return (waited, holder.GetAwaiter().GetResult());
+        holder.Join();
+        if (failure is not null) throw new CheckFailedException($"precondition: the lock holder failed: {failure.Message}");
+        return new HolderRun(waited, lines, longestGap);
     }
 
     // ---- LOG-D1 / §8.2.7 cross-process -----------------------------------------------------------------------

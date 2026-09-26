@@ -28,7 +28,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D22 | 2026-09-25 | `LSMinimumSystemVersion` is 14.0; the AVPlayer corpus is verified only on macOS 26.5 | brief 1 §4.3, §7.2, §8 |
 | D23 | 2026-09-25 | The engine comes from a single-use `PlaybackEngineFactory`; `IPlaybackEngine` is never registered | brief 1 §4.2, §5.4–§5.6 |
 | D24 | 2026-09-25 | Single instance keeps a listening server instance armed, handles at most 2 connections at once, uses `FirstPipeInstance` only on a real bind, and tightens socket permissions on every (re-)bind (SI-D1) | brief 1 §7.5 |
-| D25 | 2026-09-25 | `FileAppLog` serializes processes with a lock file in the per-user temp dir, waits at most 250 ms, and never throws (LOG-D1) | brief 1 §7.9, §11 DoD |
+| D25 | 2026-09-25 | `FileAppLog` serializes processes with a lock file in the per-user temp dir, waits at most 250 ms, and never throws (LOG-D1); amended by D103 (the 250 ms counts from the holder's last progress; 2 s in total) | brief 1 §7.9, §11 DoD |
 | D26 | 2026-09-25 | No track metadata on macOS; LibVLC titles on Windows only for `http://` streams | brief 1 §4.3 step 7, §7.8 |
 | D27 | 2026-09-25 | Objective-C interop lives only in `DialShift.App/Interop/` | brief 1 §6, §7.8 |
 | D28 | 2026-09-25 | SIGTERM/SIGINT use the normal quit path; an OS-initiated shutdown is never vetoed, and settings are saved synchronously | brief 1 §4.1, BHV-11 |
@@ -1304,7 +1304,8 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   - *A named `Mutex`.* D25 rejected it as thread-affine, with semantics that differ between platforms.
   - *An `O_APPEND` / `FILE_APPEND_DATA` writer for the give-up path.* It would need P/Invoke on Unix and still leaves the give-up path unordered. It would also hide a waiter that gives up on a healthy holder, which is the actual defect.
 - **Limits.**
-  - **A hold that stalls for 250 ms.** For example, an antivirus scan inside one open, rename or close. A waiter reads that as stuck, and the D25 overwrite can happen. Nothing was measured that long: the slowest write in the suite's children is printed on every run (about 25–70 ms on this Mac). On the hosted runner it has not been observed yet: the Windows figures come from the next CI run.
+  - **A log call can now wait up to 2 s instead of 250 ms**, on the UI thread too. That happens only against another process that keeps logging for that long without a pause, which the app's writers never do: a second launch logs a few lines and exits, and the primary logs events, not a stream of lines.
+  - **A hold that stalls for 250 ms.** For example, an antivirus scan inside one open, rename or close. A waiter reads that as stuck, and the D25 overwrite can happen. The slowest write in the suite's children is printed on every run: about 25–70 ms on this Mac. On the hosted Windows runner (public CI [`36243041055`](https://github.com/spyroskotsakis/DialShift/actions/runs/36243041055), at `530a3c1`) the slowest child writes on `windows-latest`: two processes 100.3 / 83.3 ms, rotation 168.9 / 141.1 ms, 8 writers round 1 up to 260.8 ms (in two children, 1 of 2,000 writes took 250 ms or more; every line was still kept). Those are waits for busy holders, not single stalled holds, and none gave up.
   - **Starvation beyond 2 s.** With the 15 ms poll on this Mac and 8 writers, the longest wait was 326 ms over 10 runs of the suite (203 waits over 100 ms, none gave up). A Windows runner is slower. If the limit is reached, the check reports the gap and each child's slowest write.
 - **Consequence.**
   - `DialShift.App/Services/FileAppLog.cs`: `LockWaitLimit`, the progress-based wait in `TryAcquireCrossProcessLock`, and the class remarks.
@@ -1318,5 +1319,5 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
     - the first invalid line, with its text;
     - each child's slowest write, and how many took 250 ms or more.
   - Matrix §7.10 LOG-D2 and §8.2.7.
-- **Windows-only, not run here.** The 15.6 ms `Thread.Sleep(1)`, sharing-violation locking, NTFS metadata, and Defender's effect on hold times. The simulation above only reproduces the poll interval. The Windows evidence is the next `windows-latest` CI runs of LOG-D1 and LOG-D2.
+- **Windows-only, not run here.** The 15.6 ms `Thread.Sleep(1)`, sharing-violation locking, NTFS metadata, and Defender's effect on hold times. The simulation above only reproduces the poll interval. **Windows evidence:** public CI [`36243041055`](https://github.com/spyroskotsakis/DialShift/actions/runs/36243041055) at `530a3c1` is green on `windows-latest` and `macos-latest`; on Windows LOG-D1 (two processes, rotation) and every LOG-D2 check passed (QA accept).
 - **Brief ref:** brief 1 §7.9, §11 DoD; matrix §8.2.7; D25.
