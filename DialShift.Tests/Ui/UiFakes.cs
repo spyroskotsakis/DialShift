@@ -296,6 +296,15 @@ public sealed class QueuedUiDispatcher : IUiDispatcher
         return ran;
     }
 
+    /// <summary>Runs the oldest queued post only (not the posts it queues); false when nothing was queued. A check steps the
+    /// UI thread with it to stop between two posts, e.g. after the catalog load applied and before its first search did.</summary>
+    public bool RunOne()
+    {
+        if (!queue.TryDequeue(out var action)) return false;
+        action();
+        return true;
+    }
+
     /// <summary>Drains until <paramref name="condition"/> holds; false after <paramref name="timeout"/> (default 10 s, real time: it only bounds the wait).</summary>
     public async Task<bool> RunUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {

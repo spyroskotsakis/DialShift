@@ -34,6 +34,7 @@ internal static class CatalogViewModelTests
         await PickAndDetail();
         await NotesOnSave();
         await EditModeUnchanged();
+        await DetailPlaceholders();
         await RealCatalog();
     }
 
@@ -618,6 +619,43 @@ internal static class CatalogViewModelTests
     }
 
     // ─── the real catalog (app-catalog.json next to the test binary; its counts are read, never spelled out) ───
+
+    // ─── CAT-13 D89 (5): the detail pane's placeholder ───
+
+    private static async Task DetailPlaceholders()
+    {
+        Check("CAT-13 D89 the empty-catalog detail placeholder is exact: \"Details and notes show here.\" (the browse hint's last sentence, without the hint)",
+            UiText.CatalogDetailPlaceholderEmpty == "Details and notes show here."
+            && UiText.CatalogDetailPlaceholder.EndsWith(" " + UiText.CatalogDetailPlaceholderEmpty, StringComparison.Ordinal));
+
+        var hold = new TaskCompletionSource();
+        var loading = new EditorRig(Loaded(Small), hold: hold);
+        loading.Ui.Drain();
+        Check("CAT-13 D89 while the catalog loads, DetailPlaceholder is CatalogDetailPlaceholderEmpty (nothing to browse yet)",
+            loading.Vm.IsCatalogLoading && loading.Vm.DetailPlaceholder == UiText.CatalogDetailPlaceholderEmpty);
+        hold.SetResult();
+        await loading.Settled();
+        Check("CAT-13 D89 once a catalog with stations has loaded, DetailPlaceholder is the browse hint CatalogDetailPlaceholder, and the change is announced",
+            loading.Vm.IsCatalogAvailable && loading.Vm.DetailPlaceholder == UiText.CatalogDetailPlaceholder
+            && loading.ChangesOf(nameof(StationEditorViewModel.DetailPlaceholder)) >= 1);
+        loading.Vm.SearchText = "zzz no such station";
+        await loading.Settled();
+        Check("CAT-13 D89 a search that matches nothing keeps the browse hint (the catalog still has stations)",
+            loading.Vm.HasNoMatches && loading.Vm.DetailPlaceholder == UiText.CatalogDetailPlaceholder);
+
+        var empty = new EditorRig(Loaded([]));
+        await empty.Settled();
+        Check("CAT-13 D89 a loaded empty catalog: DetailPlaceholder is CatalogDetailPlaceholderEmpty",
+            empty.Vm.IsCatalogAvailable && empty.Vm.DetailPlaceholder == UiText.CatalogDetailPlaceholderEmpty);
+
+        var gone = new EditorRig(CatalogLoadResult.Unavailable("the file is missing."));
+        await gone.Settled();
+        var faulted = new EditorRig(Loaded(Small), fault: new InvalidOperationException("the provider broke its contract"));
+        await faulted.Settled();
+        Check("CAT-13 D89 with no catalog (unavailable, or a provider that faults): DetailPlaceholder is CatalogDetailPlaceholderEmpty",
+            !gone.Vm.IsCatalogAvailable && gone.Vm.DetailPlaceholder == UiText.CatalogDetailPlaceholderEmpty
+            && !faulted.Vm.IsCatalogAvailable && faulted.Vm.DetailPlaceholder == UiText.CatalogDetailPlaceholderEmpty);
+    }
 
     private static async Task RealCatalog()
     {
