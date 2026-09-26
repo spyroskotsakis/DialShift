@@ -108,8 +108,12 @@ LABEL="$(awk '$1 == "MACOS_LABEL:" { print $2; exit }' .github/workflows/build.y
 SETUP=false
 if [ -f scripts/build-win-setup.sh ]; then
     SETUP=true
+    NSIS_PIN="$(bash scripts/build-win-setup.sh --print-nsis-pin | awk -F= '$1 == "nsis_version" { print $2 }')"
     command -v makensis >/dev/null 2>&1 \
-        || fail "makensis is needed to build the Windows setup of $TAG: brew install makensis (NSIS $(bash scripts/build-win-setup.sh --print-nsis-pin | awk -F= '$1 == "nsis_version" { print $2 }'))."
+        || fail "makensis is needed to build the Windows setup of $TAG: brew install makensis (NSIS $NSIS_PIN)."
+    # Checked here, before the long builds, as build-win-setup.sh would check it at the end.
+    [ "$(makensis -VERSION 2>&1)" = "v$NSIS_PIN" ] \
+        || fail "makensis -VERSION printed '$(makensis -VERSION 2>&1)', but $TAG's scripts/build-win-setup.sh pins NSIS $NSIS_PIN; Homebrew cannot install an older version, so bump the pin and CI's zip together, with a decision (D98, D99)."
 fi
 echo "Release $TAG ($COMMIT): version $VERSION, pre-release: $PRERELEASE, target: $REPO"
 
