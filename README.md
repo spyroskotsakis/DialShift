@@ -180,7 +180,7 @@ dotnet build DialShift.slnx -warnaserror
 dotnet run --project DialShift.Tests/DialShift.Tests.csproj
 ```
 
-The tests are deterministic console checks (no test framework); a non-zero exit code means a failure. The UI checks drive the real views headless, so no display is needed. A handful of checks that need the other OS, or its time-zone data, are reported as `SKIP`.
+The tests are deterministic console checks (no test framework); a non-zero exit code means a failure. On a Mac, run an unattended suite under `caffeinate -i` (for example `caffeinate -i dotnet run --project DialShift.Tests/DialShift.Tests.csproj`), so the Mac does not go to sleep during the run. The UI checks drive the real views headless, so no display is needed. A handful of checks that need the other OS, or its time-zone data, are reported as `SKIP`.
 
 On Windows, `DialShift.Tests` also runs the real LibVLC engine behind the playback coordinator (`LibVlcEngine` suite, about 40 s). It uses the `adummy` output and an in-process HTTP/ICY server that serves a synthesized WAV tone, HTTP errors, a redirect, Basic auth, a captive-portal-style page, a server that never answers, a stream that ends, and `.pls`/`.m3u` playlists. The build copies the native runtime next to the test binary. On macOS its LibVLC checks report `SKIP (Windows only)`; the suite's audio-output and composition checks run on both.
 
