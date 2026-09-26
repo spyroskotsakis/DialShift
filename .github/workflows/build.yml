@@ -369,21 +369,73 @@ jobs:
           bash scripts/verify-win-setup.sh artifacts/DialShift-Setup-win-x64.exe ${VERSION:+--version "$VERSION"} --package "$package" --require-contents
           bash scripts/test-package-verifiers.sh --win-setup artifacts/DialShift-Setup-win-x64.exe --win-exe "$package/DialShift.exe" ${VERSION:+--version "$VERSION"}
 
+      # SafeRemoveTree.nsh is the setup's and the uninstaller's only recursive delete (the swap's old copy, leftovers,
+      # and the uninstaller's "No, delete my settings", which a silent run cannot reach). test-safe-remove-tree.nsi runs
+      # it on real links: a tree with a junction, a folder symbolic link, a file symbolic link, a read-only and a hidden
+      # file must be removed with every link target intact, and a junction given as the tree itself loses only the link.
+      - name: SafeRemoveTree (links are never followed)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'test-safe-remove-tree.exe'
+          $script = (Resolve-Path -LiteralPath 'scripts/windows-setup/test-safe-remove-tree.nsi').Path
+          & makensis -WX -V2 "-DOUTPUT=$exe" $script
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed on $script." }
+          $base = Join-Path $env:RUNNER_TEMP 'remove-tree'
+          $targets = New-Item -ItemType Directory -Path (Join-Path $base 'targets')
+          foreach ($name in 'junction', 'dirlink', 'top', 'top\sub') { New-Item -ItemType Directory -Path (Join-Path $targets $name) | Out-Null }
+          foreach ($file in 'junction\keep.txt', 'dirlink\keep.txt', 'file.txt', 'top\keep.txt', 'top\sub\keep.txt') {
+            Set-Content -LiteralPath (Join-Path $targets $file) -Value 'keep'
+          }
+          $expected = Get-ChildItem -LiteralPath $targets -Recurse -Force | ForEach-Object FullName | Sort-Object
+          function Invoke-Remove([string]$tree) {
+            $process = Start-Process -FilePath $exe -ArgumentList "/S /D=$tree" -PassThru -Wait
+            return $process.ExitCode
+          }
+          $tree = New-Item -ItemType Directory -Path (Join-Path $base 'tree')
+          New-Item -ItemType Directory -Path (Join-Path $tree 'sub\deep') | Out-Null
+          Set-Content -LiteralPath (Join-Path $tree 'a.txt'), (Join-Path $tree 'sub\deep\b.txt') -Value 'delete me'
+          Set-Content -LiteralPath (Join-Path $tree 'ro.txt') -Value 'read-only'
+          (Get-Item -LiteralPath (Join-Path $tree 'ro.txt')).Attributes = 'ReadOnly'
+          Set-Content -LiteralPath (Join-Path $tree 'hidden.txt') -Value 'hidden'
+          (Get-Item -LiteralPath (Join-Path $tree 'hidden.txt')).Attributes = 'Hidden'
+          New-Item -ItemType Junction -Path (Join-Path $tree 'sub\junction') -Target (Join-Path $targets 'junction') | Out-Null
+          New-Item -ItemType SymbolicLink -Path (Join-Path $tree 'dirlink') -Target (Join-Path $targets 'dirlink') | Out-Null
+          New-Item -ItemType SymbolicLink -Path (Join-Path $tree 'filelink.txt') -Target (Join-Path $targets 'file.txt') | Out-Null
+          $code = Invoke-Remove $tree.FullName
+          if ($code -ne 0 -or (Test-Path -LiteralPath $tree.FullName)) { throw "The tree was not removed (exit $code)." }
+          $top = Join-Path $base 'top-link'
+          New-Item -ItemType Junction -Path $top -Target (Join-Path $targets 'top') | Out-Null
+          $code = Invoke-Remove $top
+          if ($code -ne 0 -or (Test-Path -LiteralPath $top)) { throw "The junction given as the tree was not removed (exit $code)." }
+          $diff = Compare-Object $expected @(Get-ChildItem -LiteralPath $targets -Recurse -Force | ForEach-Object FullName | Sort-Object)
+          if ($diff) { throw "SafeRemoveTree deleted through a link: $(($diff | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" }) -join '; ')" }
+          Remove-Item -LiteralPath $base -Recurse -Force
+          Write-Host 'SafeRemoveTree: the tree and a junction given as the tree were removed; every link target is intact.'
+
       # The setup, run silently as automation runs it (brief 4 §8.1 step 4; D94-D97), into $RUNNER_TEMP\setup-check through
       # /D= (the setup reads %LOCALAPPDATA% through the shell's known folder, so an environment variable cannot redirect
-      # it), with Install.ps1 run with LOCALAPPDATA=$RUNNER_TEMP\setup-check so both tools meet in one folder:
-      # (s1) fresh install; (s2) upgrade setup over setup with planted leftovers, a junction, a Run value and a desktop
-      # shortcut; (s3) a locked file (exit 5); (s4) the install lock held (exit 3); (s5) DialShift running (setup and
-      # uninstaller exit 2); (s6) folder refusals (exit 4); (s7) Install.ps1 over the setup install (exit 1, D95);
-      # (s8) silent uninstall through QuietUninstallString; (s9) setup over an Install.ps1 install, then an in-place
-      # uninstall that keeps a Run value of another copy.
+      # it), with Install.ps1 run with LOCALAPPDATA=$RUNNER_TEMP\setup-check so both tools meet in one folder. Exit codes:
+      # 0 done, 10 DialShift running, 11 install lock held, 13 folder refused, 14 install or uninstall failed.
+      # (s1) fresh install; a DialShift.old-* is kept while there is no install. (s2) upgrade setup over setup: stale files
+      # of the old build (a plugin, a runtime DLL) gone, leftovers removed, a junction inside the old install removed as a
+      # link only, Run value and desktop shortcut moved. (s2b) an old copy that cannot be deleted is a warning (exit 0).
+      # (s3) a locked file: the install cannot be moved aside (14). (s3b) the new build cannot be moved in: the previous
+      # install is moved back (14). (s4) install lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder
+      # refusals (13): the settings folder (emptied, so only R3 can refuse it), a folder inside it, a foreign folder, a
+      # folder with DialShift.exe among other files, a drive root (subst), a second install location. (s7) Install.ps1
+      # over the setup install (D95), by the uninstaller and by the entry's InstallLocation. (s8) silent uninstall through
+      # QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another copy's Run
+      # value, then a reinstall into the folder the in-place uninstall left (only the uninstaller) and its uninstall.
       # The real %LOCALAPPDATA%\DialShift holds a sentinel settings.json whose SHA-256 is checked after every case, and
       # every case but (s5) checks that no DialShift process was started. The Start menu, desktop and HKCU of the runner
-      # are real: the Run, StartupApproved and uninstall values and both shortcuts are restored or removed in finally.
+      # are real: the Run, StartupApproved and uninstall values, both shortcuts, the subst drive and every ACL change are
+      # undone in finally.
       - name: Setup (silent install, upgrade, Install.ps1 coexistence, refusals, uninstall)
         if: runner.os == 'Windows'
         shell: pwsh
-        timeout-minutes: 10
+        timeout-minutes: 15
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -405,8 +457,12 @@ jobs:
           $dataDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'DialShift'
           $sentinel = Join-Path $dataDir 'settings.json'
           $dataBackup = Join-Path $env:RUNNER_TEMP 'setup-check-data-backup'
+          $sentinelAside = Join-Path $env:RUNNER_TEMP 'setup-check-sentinel.json'
           $junction = Join-Path $programs 'DialShift.new-0badf00d'
           $shell = New-Object -ComObject WScript.Shell
+          $everyone = '*S-1-1-0'
+          $denied = @()
+          $substDrive = $null
 
           # The runner must not already have what the cases create: they would overwrite it.
           foreach ($path in $uninstallKey, $startMenu, $desktop, $root) {
@@ -415,10 +471,13 @@ jobs:
           $savedRun = (Get-ItemProperty -Path $runKey -Name DialShift -ErrorAction SilentlyContinue).DialShift
           $savedApproved = (Get-ItemProperty -Path $approvedKey -Name DialShift -ErrorAction SilentlyContinue).DialShift
 
-          function Invoke-Exe([string]$file, [string]$arguments, [int]$seconds = 300) {
+          function Start-Exe([string]$file, [string]$arguments) {
             $info = [Diagnostics.ProcessStartInfo]::new($file, $arguments)
             $info.UseShellExecute = $false
-            $process = [Diagnostics.Process]::Start($info)
+            return [Diagnostics.Process]::Start($info)
+          }
+          function Invoke-Exe([string]$file, [string]$arguments, [int]$seconds = 300) {
+            $process = Start-Exe $file $arguments
             if (-not $process.WaitForExit($seconds * 1000)) { $process.Kill(); throw "'$file' $arguments did not exit within $seconds s." }
             return $process.ExitCode
           }
@@ -437,7 +496,7 @@ jobs:
           }
           # Paths with sizes and write times: an unchanged listing means nothing was swapped, rewritten or added.
           function Get-Listing([string]$folder) {
-            Get-ChildItem -LiteralPath $folder -Recurse -Force -File |
+            Get-ChildItem -LiteralPath $folder -Recurse -Force |
               ForEach-Object { '{0} {1} {2}' -f $_.FullName.Substring($folder.Length), $_.Length, $_.LastWriteTimeUtc.Ticks } | Sort-Object
           }
           function Get-Tree([string]$folder) {
@@ -447,8 +506,9 @@ jobs:
           $expectedTree = @(@(Get-Tree $package | Where-Object { $_ -notlike 'Install.ps1 *' }) +
             ('licenses\NSIS-COPYING.txt {0}' -f (Get-FileHash -LiteralPath $copying -Algorithm SHA256).Hash) | Sort-Object)
           $expectedFiles = @($expectedTree | ForEach-Object { $_.Substring(0, $_.LastIndexOf(' ')) })
+          function Get-Names([string]$folder) { @(Get-ChildItem -LiteralPath $folder -Force | ForEach-Object Name | Sort-Object) }
           function Assert-OnlyInstall([string]$case) {
-            $names = @(Get-ChildItem -LiteralPath $programs -Force | ForEach-Object Name)
+            $names = Get-Names $programs
             if ("$names" -ne 'DialShift') { throw "($case) $programs holds '$($names -join "', '")', expected only DialShift." }
           }
           function Assert-Unchanged([string]$case, $before) {
@@ -504,12 +564,20 @@ jobs:
             if ($started.Count) { $started | Stop-Process -Force; throw "($case) A DialShift process was started: $($started.Path -join ', ')." }
           }
           function Assert-Settings([string]$case) {
-            $names = @(Get-ChildItem -LiteralPath $dataDir -Force -ErrorAction SilentlyContinue | ForEach-Object Name)
+            $names = Get-Names $dataDir
             if ("$names" -ne 'settings.json' -or (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -ne $sentinelHash) {
               throw "($case) The settings folder $dataDir changed: it holds '$($names -join "', '")'."
             }
           }
           function Assert-Clean([string]$case) { Assert-NoDialShift $case; Assert-Settings $case }
+          function Get-Leftovers([string]$pattern) { @(Get-ChildItem -LiteralPath $programs -Directory -Force | Where-Object { $_.Name -cmatch $pattern }) }
+          # An explicit deny for Everyone; recorded so finally removes it even when a case fails.
+          function Deny([string]$path, [string]$right) {
+            & icacls $path /deny "${everyone}:($right)" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "icacls could not deny $right on $path." }
+            $script:denied += $path
+          }
+          function Undo-Deny([string]$path) { & icacls $path /remove:d $everyone | Out-Null }
 
           $dataMoved = $false
           try {
@@ -521,7 +589,14 @@ jobs:
             Remove-ItemProperty -Path $approvedKey -Name DialShift -ErrorAction SilentlyContinue
             New-Item -ItemType Directory -Path $root | Out-Null
 
+            # (s1) A DialShift.new-* leftover goes; a DialShift.old-* is kept while there is no install (the only copy).
+            New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.new-0123abcd') | Out-Null
+            $oldOnly = New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.old-0123abcd')
+            Set-Content -LiteralPath (Join-Path $oldOnly 'keep.txt') -Value 'the only copy'
             Assert-Code 's1' (Invoke-Setup "/S /D=$install") 0
+            if (Test-Path -LiteralPath (Join-Path $programs 'DialShift.new-0123abcd')) { throw '(s1) The leftover DialShift.new-0123abcd was not removed.' }
+            if (-not (Test-Path -LiteralPath (Join-Path $oldOnly 'keep.txt'))) { throw '(s1) DialShift.old-0123abcd was removed while there was no install.' }
+            Remove-Item -LiteralPath $oldOnly -Recurse -Force
             Assert-OnlyInstall 's1'
             Assert-Installed 's1'
             Assert-Shortcut 's1' $startMenu
@@ -529,22 +604,33 @@ jobs:
             Assert-Entry 's1'
             if ($null -ne (Get-Run)) { throw '(s1) A Run value was created.' }
             Assert-Clean 's1'
-            Write-Host '(s1) Fresh silent install: passed.'
+            Write-Host '(s1) Fresh silent install: passed; DialShift.new-* removed, DialShift.old-* kept without an install.'
 
-            Set-Content -LiteralPath (Join-Path $install 'only-in-old-build.txt') -Value 'old'
+            # (s2) Files only the old build has: a stale LibVLC plugin and a runtime DLL a newer build dropped.
+            $stalePlugin = Join-Path $install 'libvlc\win-x64\plugins\access\libstale_plugin.dll'
+            $staleDll = Join-Path $install 'Old.Runtime.dll'
+            Set-Content -LiteralPath $stalePlugin, $staleDll -Value 'old'
             New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.new-0123abcd'), (Join-Path $programs 'DialShift.old-0123abcd') | Out-Null
             $backup = New-Item -ItemType Directory -Path (Join-Path $programs 'DialShift.old-backup')
             Set-Content -LiteralPath (Join-Path $backup 'keep.txt') -Value 'keep'
             $junctionTarget = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-junction-target')
             Set-Content -LiteralPath (Join-Path $junctionTarget 'keep.txt') -Value 'keep'
             New-Item -ItemType Junction -Path $junction -Target $junctionTarget | Out-Null
+            # A junction inside the install (a folder moved to another drive): the old copy loses only the link.
+            $linkTarget = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-link-target')
+            Set-Content -LiteralPath (Join-Path $linkTarget 'keep.txt') -Value 'keep'
+            $innerLink = Join-Path $install 'licenses\linked'
+            New-Item -ItemType Junction -Path $innerLink -Target $linkTarget | Out-Null
             Set-ItemProperty -Path $runKey -Name DialShift -Value '"C:\Old\DialShift\DialShift.exe" --tray'
             $link = $shell.CreateShortcut($desktop)
             $link.TargetPath = 'C:\Old\DialShift\DialShift.exe'
             $link.Save()
             Set-ItemProperty -Path $uninstallKey -Name DisplayVersion -Value '0.0.1'
             Assert-Code 's2' (Invoke-Setup "/S /D=$install") 0
-            if (Test-Path -LiteralPath (Join-Path $install 'only-in-old-build.txt')) { throw '(s2) A file of the old build is still there.' }
+            foreach ($stale in $stalePlugin, $staleDll, $innerLink) {
+              if (Test-Path -LiteralPath $stale) { throw "(s2) $stale of the old build is still there." }
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $linkTarget 'keep.txt'))) { throw '(s2) The upgrade deleted through the junction inside the old install.' }
             foreach ($name in 'DialShift.new-0123abcd', 'DialShift.old-0123abcd') {
               if (Test-Path -LiteralPath (Join-Path $programs $name)) { throw "(s2) The leftover $name was not removed." }
             }
@@ -560,25 +646,67 @@ jobs:
             Remove-Item -LiteralPath $desktop -Force
             Assert-Entry 's2'
             Assert-Clean 's2'
-            Write-Host '(s2) Upgrade setup over setup: passed.'
+            Write-Host '(s2) Upgrade setup over setup: passed; stale files gone, a junction in the old copy removed as a link only.'
+
+            # (s2b) One file of the install that cannot be deleted (Everyone denied DELETE on it and DELETE_CHILD on its
+            # folder) does not stop the rename, only the old copy's deletion: a warning, exit 0, the old copy kept.
+            $stuckFolder = Join-Path $install 'licenses'
+            $stuck = Join-Path $stuckFolder 'NSIS-COPYING.txt'
+            Deny $stuck 'DE'
+            Deny $stuckFolder 'DC'
+            Assert-Code 's2b' (Invoke-Setup "/S /D=$install") 0
+            $olds = Get-Leftovers '^DialShift\.old-[0-9a-f]{8}$'
+            if ($olds.Count -ne 1) { throw "(s2b) Expected the one old copy that could not be deleted, found $($olds.Count)." }
+            $left = @(Get-ChildItem -LiteralPath $olds[0].FullName -Recurse -Force -File | ForEach-Object { $_.FullName.Substring($olds[0].FullName.Length + 1) })
+            if ("$left" -ne 'licenses\NSIS-COPYING.txt') { throw "(s2b) The old copy holds '$($left -join "', '")', expected only the undeletable file." }
+            foreach ($path in (Join-Path $olds[0].FullName 'licenses\NSIS-COPYING.txt'), (Join-Path $olds[0].FullName 'licenses')) { Undo-Deny $path }
+            $script:denied = @()
+            Remove-Item -LiteralPath $olds[0].FullName -Recurse -Force
+            Assert-OnlyInstall 's2b'
+            Assert-Installed 's2b'
+            Assert-Clean 's2b'
+            Write-Host '(s2b) An old copy that cannot be deleted: exit 0, the new build installed, the old copy kept with only that file.'
 
             $before = Get-Listing $install
             $handle = [IO.File]::Open((Join-Path $install 'DialShift.dll'), 'Open', 'Read', 'Read')
             try { $code = Invoke-Setup "/S /D=$install" } finally { $handle.Dispose() }
-            Assert-Code 's3' $code 5
+            Assert-Code 's3' $code 14
             Assert-Unchanged 's3' $before
             Assert-Clean 's3'
-            Write-Host '(s3) Upgrade with a locked file: exit 5, install unchanged, no leftovers.'
+            Write-Host '(s3) Upgrade with a locked file: exit 14, install unchanged, no leftovers.'
+
+            # (s3b) A file of the staging folder is held without delete sharing from the moment it is extracted, so the new
+            # build cannot be moved in after the install was moved aside: the setup moves the previous install back.
+            $process = Start-Exe $setup "/S /D=$install"
+            $held = $null
+            while (-not $process.HasExited -and -not $held) {
+              $staging = Get-Leftovers '^DialShift\.new-[0-9a-f]{8}$' | Select-Object -First 1
+              if ($staging) {
+                try { $held = [IO.File]::Open((Join-Path $staging.FullName 'Avalonia.Base.dll'), 'Open', 'Read', 'ReadWrite') } catch { }
+              }
+              if (-not $held) { Start-Sleep -Milliseconds 20 }
+            }
+            try {
+              if (-not $process.WaitForExit(300000)) { $process.Kill(); throw '(s3b) The setup did not exit within 300 s.' }
+            } finally { if ($held) { $held.Dispose() } }
+            if (-not $held) { throw '(s3b) The setup finished before a staging file could be held; the case did not reach the restore.' }
+            Assert-Code 's3b' $process.ExitCode 14
+            if ((Get-Leftovers '^DialShift\.old-').Count) { throw '(s3b) The previous install was not moved back.' }
+            # The held file kept part of the staging folder; the next run removes it as a leftover.
+            Get-Leftovers '^DialShift\.new-[0-9a-f]{8}$' | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+            Assert-Unchanged 's3b' $before
+            Assert-Clean 's3b'
+            Write-Host '(s3b) The new build could not be moved in: exit 14, the previous install moved back unchanged.'
 
             $lock = [Threading.Mutex]::new($false, 'Local\DialShift.Install')
             if (-not $lock.WaitOne(0)) { throw '(s4) The install lock is already held.' }
             $watch = [Diagnostics.Stopwatch]::StartNew()
             try { $code = Invoke-Setup "/S /D=$install" } finally { $lock.ReleaseMutex(); $lock.Dispose() }
-            Assert-Code 's4' $code 3
+            Assert-Code 's4' $code 11
             if ($watch.Elapsed.TotalSeconds -lt 4.5) { throw "(s4) The setup gave up after $($watch.Elapsed.TotalSeconds) s, before its 5 s wait." }
             Assert-Unchanged 's4' $before
             Assert-Clean 's4'
-            Write-Host "(s4) Install lock held: exit 3 after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s, install unchanged."
+            Write-Host "(s4) Install lock held: exit 11 after $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s, install unchanged."
 
             $appData = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-appdata')
             $info = [Diagnostics.ProcessStartInfo]::new($installedExe, '--tray')
@@ -589,40 +717,76 @@ jobs:
             try {
               Start-Sleep -Seconds 5
               if ($app.HasExited) { throw "(s5) DialShift exited with code $($app.ExitCode) before the check." }
-              Assert-Code 's5 setup' (Invoke-Setup "/S /D=$install") 2
-              Assert-Code 's5 uninstaller' (Invoke-Exe $uninstaller "/S _?=$install") 2
+              Assert-Code 's5 setup' (Invoke-Setup "/S /D=$install") 10
+              Assert-Code 's5 uninstaller' (Invoke-Exe $uninstaller "/S _?=$install") 10
               Assert-Unchanged 's5' $before
               Assert-Entry 's5'
               Assert-Settings 's5'
             } finally {
               if (-not $app.HasExited) { $app.Kill(); [void]$app.WaitForExit(30000) }
             }
-            Write-Host '(s5) DialShift running: the setup and the uninstaller exit 2, nothing changed.'
+            Write-Host '(s5) DialShift running: the setup and the uninstaller exit 10, nothing changed.'
 
+            # (s6) Folder refusals, exit 13, nothing created or changed.
+            Move-Item -LiteralPath $sentinel -Destination $sentinelAside
+            try {
+              # The settings folder itself, emptied: only R3 can refuse it (R4 accepts an empty folder).
+              Assert-Code 's6 settings folder' (Invoke-Setup "/S /D=$dataDir") 13
+              if ((Get-Names $dataDir).Count) { throw '(s6) The refused run wrote into the settings folder.' }
+              Assert-Code 's6 inside the settings folder' (Invoke-Setup "/S /D=$(Join-Path $dataDir 'inside')") 13
+              if (Test-Path -LiteralPath (Join-Path $dataDir 'inside')) { throw '(s6) A refused run created a folder inside the settings folder.' }
+            } finally { Move-Item -LiteralPath $sentinelAside -Destination $sentinel }
             $foreign = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-foreign')
             Set-Content -LiteralPath (Join-Path $foreign 'someone-else.txt') -Value 'not DialShift'
+            # An extracted zip among other downloads: DialShift.exe, DialShift.dll and libvlc\ do not make it an install.
+            $downloads = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-downloads')
+            Copy-Item -LiteralPath (Join-Path $package 'DialShift.exe'), (Join-Path $package 'DialShift.dll') -Destination $downloads
+            New-Item -ItemType Directory -Path (Join-Path $downloads 'libvlc') | Out-Null
+            Set-Content -LiteralPath (Join-Path $downloads 'tax-return.pdf') -Value 'not DialShift'
             $foreignBefore = Get-Listing $foreign.FullName
-            foreach ($target in $dataDir, (Join-Path $dataDir 'inside'), $foreign.FullName, "$env:SystemDrive\") {
-              Assert-Code "s6 $target" (Invoke-Setup "/S /D=$target") 4
-            }
-            if (Test-Path -LiteralPath (Join-Path $dataDir 'inside')) { throw '(s6) A refused run created a folder inside the settings folder.' }
+            $downloadsBefore = Get-Listing $downloads.FullName
+            Assert-Code 's6 foreign folder' (Invoke-Setup "/S /D=$($foreign.FullName)") 13
+            Assert-Code 's6 DialShift.exe among other files' (Invoke-Setup "/S /D=$($downloads.FullName)") 13
             if (Compare-Object $foreignBefore (Get-Listing $foreign.FullName)) { throw '(s6) The foreign folder changed.' }
+            if (Compare-Object $downloadsBefore (Get-Listing $downloads.FullName)) { throw '(s6) The folder with DialShift.exe among other files changed.' }
+            # A drive root: an empty folder as a subst drive, so only the drive rule can refuse it.
+            $emptyRoot = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-drive')
+            $letter = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+            if (-not $letter) { throw '(s6) No free drive letter for subst.' }
+            & subst "${letter}:" $emptyRoot.FullName
+            if ($LASTEXITCODE -ne 0) { throw "(s6) subst ${letter}: failed." }
+            $substDrive = "${letter}:"
+            foreach ($target in "${letter}:\", "${letter}:\\", "$env:SystemDrive\") {
+              Assert-Code "s6 drive root $target" (Invoke-Setup "/S /D=$target") 13
+            }
+            if ((Get-Names $emptyRoot.FullName).Count) { throw '(s6) A refused run wrote into the subst drive.' }
+            # A second install location while the setup install here still has its uninstaller: its entry is kept.
+            $second = Join-Path $root 'Programs2\DialShift'
+            Assert-Code 's6 second location' (Invoke-Setup "/S /D=$second") 13
+            if (Test-Path -LiteralPath (Join-Path $root 'Programs2')) { throw '(s6) The refused second location was created.' }
             foreach ($parent in (Split-Path -Parent $dataDir), $env:RUNNER_TEMP) {
               $staged = @(Get-ChildItem -LiteralPath $parent -Directory -Force | Where-Object { $_.Name -cmatch '^DialShift\.(new|old)-' })
               if ($staged.Count) { throw "(s6) A refused run left $($staged.FullName -join ', ')." }
             }
             Assert-Unchanged 's6' $before
+            Assert-Entry 's6'
             Assert-Clean 's6'
-            Write-Host '(s6) Folder refusals (the settings folder, a folder inside it, a foreign folder, a drive root): exit 4, nothing created or changed.'
+            Write-Host '(s6) Folder refusals (the emptied settings folder, a folder inside it, a foreign folder, DialShift.exe among other files, drive roots, a second location): exit 13, nothing created or changed.'
 
+            $message = "DialShift in $install was installed with DialShift Setup. To upgrade it, run the new DialShift-Setup-win-x64.exe, or uninstall DialShift in Settings > Apps first." -replace '\s', ''
             $result = Invoke-Install
             Assert-Code 's7' $result.Code 1
-            $needle = "DialShift in $install was installed with DialShift Setup. To upgrade it, run the new DialShift-Setup-win-x64.exe, or uninstall DialShift in Settings > Apps first." -replace '\s', ''
-            $text = $result.Text -replace '\s', ''
-            if (-not $text.Contains($needle)) { throw '(s7) Install.ps1 did not refuse with the D95 message.' }
+            if (-not ($result.Text -replace '\s', '').Contains($message)) { throw '(s7) Install.ps1 did not refuse with the D95 message.' }
+            Assert-Unchanged 's7' $before
+            # The same refusal from the entry's InstallLocation alone, with the uninstaller file moved away.
+            $aside = Join-Path $env:RUNNER_TEMP 'setup-check-uninstaller.exe'
+            Move-Item -LiteralPath $uninstaller -Destination $aside
+            try { $result = Invoke-Install } finally { Move-Item -LiteralPath $aside -Destination $uninstaller }
+            Assert-Code 's7 InstallLocation' $result.Code 1
+            if (-not ($result.Text -replace '\s', '').Contains($message)) { throw '(s7) Install.ps1 did not refuse by the InstallLocation with the D95 message.' }
             Assert-Unchanged 's7' $before
             Assert-Clean 's7'
-            Write-Host '(s7) Install.ps1 over the setup install: refused (exit 1), install unchanged.'
+            Write-Host '(s7) Install.ps1 over the setup install: refused (exit 1) by the uninstaller and by the InstallLocation, install unchanged.'
 
             $added = Join-Path $install 'my-notes.txt'
             Set-Content -LiteralPath $added -Value 'mine'
@@ -668,11 +832,21 @@ jobs:
             # In place (_?=), the uninstaller stays for the caller to delete, and so does its folder.
             $left = @(Get-ChildItem -LiteralPath $install -Recurse -Force | ForEach-Object Name)
             if ("$left" -ne 'Uninstall DialShift.exe') { throw "(s9) The install folder holds '$($left -join "', '")', expected only the uninstaller." }
+            # A folder with only the uninstaller (an in-place or interrupted uninstall) is still an install to repair.
+            Assert-Code 's9 reinstall' (Invoke-Setup "/S /D=$install") 0
+            Assert-OnlyInstall 's9 reinstall'
+            Assert-Installed 's9 reinstall'
+            Assert-Entry 's9 reinstall'
+            Assert-Code 's9 second uninstall' (Invoke-Exe $uninstaller "/S _?=$install") 0
             Remove-Item -LiteralPath $install -Recurse -Force
             Assert-Clean 's9'
-            Write-Host '(s9) Setup over an Install.ps1 install, then an in-place uninstall: passed; the Run value of another copy was kept.'
+            Write-Host '(s9) Setup over an Install.ps1 install, then an in-place uninstall: passed; the Run value of another copy was kept; a folder with only the uninstaller was reinstalled.'
           } finally {
             Get-Process DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$root\*" } | Stop-Process -Force
+            foreach ($path in $denied) { if (Test-Path -LiteralPath $path) { Undo-Deny $path } }
+            Get-ChildItem -LiteralPath $programs -Directory -Force -ErrorAction SilentlyContinue |
+              ForEach-Object { & icacls $_.FullName /remove:d $everyone /t /c | Out-Null }
+            if ($substDrive) { & subst $substDrive /d | Out-Null }
             if ($null -eq $savedRun) { Remove-ItemProperty -Path $runKey -Name DialShift -ErrorAction SilentlyContinue }
             else { Set-ItemProperty -Path $runKey -Name DialShift -Value $savedRun }
             if ($null -eq $savedApproved) { Remove-ItemProperty -Path $approvedKey -Name DialShift -ErrorAction SilentlyContinue }
@@ -680,6 +854,7 @@ jobs:
             Remove-Item -LiteralPath $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $startMenu, $desktop -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $junction) { [IO.Directory]::Delete($junction) }
+            if (Test-Path -LiteralPath $sentinelAside) { Move-Item -LiteralPath $sentinelAside -Destination $sentinel -Force }
             Remove-Item -LiteralPath $dataDir -Recurse -Force -ErrorAction SilentlyContinue
             if ($dataMoved) { Move-Item -LiteralPath $dataBackup -Destination $dataDir }
           }
