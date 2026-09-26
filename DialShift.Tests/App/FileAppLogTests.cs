@@ -33,8 +33,12 @@ public static class FileAppLogTests
         RotationUnderLoad(temp.Combine("rotate-load"));
         ConcurrentWrites(temp.Combine("concurrent"));
         TwoInstancesShareFile(temp.Combine("two-instances"));
+        WaitsForBusyHolder(temp.Combine("busy-holder"));
+        GivesUpOnStuckHolder(temp.Combine("stuck-holder"));
+        GivesUpAfterWaitLimit(temp.Combine("endless-holder"));
         await TwoProcessesShareFileAsync(temp.Combine("two-processes"));
         await TwoProcessesRotateAsync(temp.Combine("two-processes-rotate"));
+        await ManyProcessesRotateAsync(temp.Combine("many-processes-rotate"));
         NeverThrows(temp);
         Startup(temp.Combine("startup"));
     }
@@ -233,6 +237,118 @@ public static class FileAppLogTests
         Check("LOG-D1 two logger instances in one process on one file: no line lost or torn", lines.Length == 2 * perInstance && valid == 2 * perInstance);
     }
 
+    // ---- LOG-D2 waiting for another process's lock ----------------------------------------------------------
+
+    private const string HolderEvent = "x.holder";
+
+    /// <summary>
+    /// LOG-D2 regression, deterministic half: the test takes the cross-process lock the way another process's writer
+    /// does (the lock file opened with <c>FileShare.None</c>, which also conflicts within one process), holds it for
+    /// longer than <see cref="FileAppLog.LockWaitBudget"/> while appending a line every 20 ms, and logs one line
+    /// meanwhile. Before the fix that write gave up after 250 ms and appended in the middle of the holder's lines,
+    /// without the lock (every run); now it waits for the busy holder and appends after its last line.
+    /// </summary>
+    private static void WaitsForBusyHolder(string directory)
+    {
+        var log = new FileAppLog(Path.Combine(directory, "dialshift.log"));
+        var holdFor = 3 * FileAppLog.LockWaitBudget;
+        var holder = WriteWhileLockHeld(log, holdFor, appendEvery: TimeSpan.FromMilliseconds(20));
+        var events = File.ReadAllLines(log.LogFile).Select(l => JsonDocument.Parse(l).RootElement.GetProperty("event").GetString()).ToList();
+        Console.WriteLine($"  busy holder: held {holdFor.TotalMilliseconds:F0} ms and appended {holder.Lines} lines; the waiter returned after {holder.Waited.TotalMilliseconds:F0} ms; events in file order: {string.Join(" ", events.Select(e => e == HolderEvent ? "H" : "W"))}");
+        var inOrder = events.Count == holder.Lines + 1 && events.Take(holder.Lines).All(e => e == HolderEvent) && events[^1] == "x.waiter";
+        if (!inOrder || holder.Waited >= FileAppLog.LockWaitLimit) Diagnose(HolderGap(holder));
+        Check("LOG-D2 a writer keeps waiting while the lock's holder is still writing (its line comes after all of the holder's, none overwritten)", inOrder);
+        Check("LOG-D2 ... and it did not wait longer than LockWaitLimit", holder.Waited < FileAppLog.LockWaitLimit);
+    }
+
+    /// <summary>A holder that does not write (suspended in a debugger) is waited out after <see cref="FileAppLog.LockWaitBudget"/>.</summary>
+    private static void GivesUpOnStuckHolder(string directory)
+    {
+        var log = new FileAppLog(Path.Combine(directory, "dialshift.log"));
+        var holdFor = 4 * FileAppLog.LockWaitBudget;
+        var waited = WriteWhileLockHeld(log, holdFor, appendEvery: null).Waited;
+        Console.WriteLine($"  stuck holder: held {holdFor.TotalMilliseconds:F0} ms without writing; the waiter returned after {waited.TotalMilliseconds:F0} ms");
+        Check("LOG-D2 a writer gives up on a holder that makes no progress after LockWaitBudget (250 ms), before the holder lets go",
+            waited >= FileAppLog.LockWaitBudget && waited < holdFor);
+        Check("LOG-D2 ... and still writes its line", File.ReadAllLines(log.LogFile) is [var only] && only.Contains("\"x.waiter\"", StringComparison.Ordinal));
+    }
+
+    /// <summary>Even a holder that keeps writing is waited out after <see cref="FileAppLog.LockWaitLimit"/> (2 s) in total.</summary>
+    private static void GivesUpAfterWaitLimit(string directory)
+    {
+        var log = new FileAppLog(Path.Combine(directory, "dialshift.log"));
+        var holdFor = FileAppLog.LockWaitLimit + 3 * FileAppLog.LockWaitBudget;
+        var holder = WriteWhileLockHeld(log, holdFor, appendEvery: TimeSpan.FromMilliseconds(20));
+        Console.WriteLine($"  endless holder: held {holdFor.TotalMilliseconds:F0} ms while writing; the waiter returned after {holder.Waited.TotalMilliseconds:F0} ms");
+        // Its line may race the holder's unlocked appends here, so only the timing is checked.
+        var bounded = holder.Waited >= FileAppLog.LockWaitLimit && holder.Waited < holdFor;
+        if (!bounded) Diagnose(HolderGap(holder));
+        Check("LOG-D2 a writer waits at most LockWaitLimit (2 s) in total, even while the holder keeps writing", bounded);
+    }
+
+    /// <summary>What <see cref="WriteWhileLockHeld"/> observed: the waiter's write time, the holder's appends and its longest pause between two of them.</summary>
+    private sealed record HolderRun(TimeSpan Waited, int Lines, TimeSpan LongestGap);
+
+    /// <summary>
+    /// Why a busy-holder check can fail without a regression: a scheduler or GC stall that paused the holder for
+    /// <see cref="FileAppLog.LockWaitBudget"/> or more makes it look stuck, and then giving up is correct.
+    /// </summary>
+    private static string HolderGap(HolderRun holder) =>
+        $"the holder's longest gap between appends was {holder.LongestGap.TotalMilliseconds:F0} ms " +
+        (holder.LongestGap >= FileAppLog.LockWaitBudget
+            ? $"(at least LockWaitBudget, {FileAppLog.LockWaitBudget.TotalMilliseconds:F0} ms: the holder itself stalled, so the waiter rightly took it for stuck)"
+            : $"(under LockWaitBudget, {FileAppLog.LockWaitBudget.TotalMilliseconds:F0} ms: the holder kept writing, so this is a regression)");
+
+    /// <summary>
+    /// Holds <paramref name="log"/>'s cross-process lock on a dedicated thread (not the thread pool, so its appends do
+    /// not queue behind other work) for <paramref name="holdFor"/>, appending a <see cref="HolderEvent"/> line every
+    /// <paramref name="appendEvery"/> (never when null), and meanwhile logs one <c>x.waiter</c> line.
+    /// </summary>
+    private static HolderRun WriteWhileLockHeld(FileAppLog log, TimeSpan holdFor, TimeSpan? appendEvery)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(log.LogFile)!);
+        using var held = new ManualResetEventSlim();
+        var lines = 0;
+        var longestGap = TimeSpan.Zero;
+        Exception? failure = null;
+        var holder = new Thread(() =>
+        {
+            try
+            {
+                using var lockFile = new FileStream(log.LockFile, FileMode.OpenOrCreate, FileAccess.Read, FileShare.None);
+                held.Set();
+                var clock = Stopwatch.StartNew();
+                var lastAppend = clock.Elapsed;
+                while (clock.Elapsed < holdFor)
+                {
+                    if (appendEvery is { } every)
+                    {
+                        File.AppendAllText(log.LogFile, $"{{\"event\":\"{HolderEvent}\",\"msg\":\"{lines++}\"}}\n");
+                        var now = clock.Elapsed;
+                        if (lines > 1 && now - lastAppend > longestGap) longestGap = now - lastAppend;
+                        lastAppend = now;
+                        Thread.Sleep(every);
+                    }
+                    else Thread.Sleep(10);
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+                held.Set();
+            }
+        }) { IsBackground = true, Name = "log-lock-holder" };
+        holder.Start();
+        if (!held.Wait(TimeSpan.FromSeconds(10)) || failure is not null)
+            throw new CheckFailedException($"precondition: the test couldn't take the log's lock file ({failure?.Message ?? "timed out"})");
+        var wait = Stopwatch.StartNew();
+        log.Info("x.waiter", "logged while another writer held the lock");
+        var waited = wait.Elapsed;
+        holder.Join();
+        if (failure is not null) throw new CheckFailedException($"precondition: the lock holder failed: {failure.Message}");
+        return new HolderRun(waited, lines, longestGap);
+    }
+
     // ---- LOG-D1 / §8.2.7 cross-process -----------------------------------------------------------------------
 
     private const string ChildEvent = "x.child";
@@ -251,13 +367,13 @@ public static class FileAppLogTests
         Check("LOG-D1 two processes: precondition: the file did not rotate", !File.Exists(path + ".1"));
 
         var lines = ReadChildLines(path);
-        var switches = lines.Zip(lines.Skip(1)).Count(pair => pair.First?.Pid != pair.Second?.Pid);
-        Console.WriteLine($"  two processes: {lines.Count} lines of {2 * perChild}, {lines.Count(l => l is null)} invalid, writer switched {switches} times");
+        var switches = lines.Zip(lines.Skip(1)).Count(pair => pair.First.Child?.Pid != pair.Second.Child?.Pid);
+        Console.WriteLine($"  two processes: {lines.Count} lines of {2 * perChild}, {lines.Count(l => l.Child is null)} invalid, writer switched {switches} times");
         Check($"LOG-D1 two processes: all {2 * perChild} lines are present and each is one valid JSON object",
-            lines.Count == 2 * perChild && lines.All(l => l is not null));
+            Diagnose(FirstInvalidLine(lines)) is null && lines.Count == 2 * perChild);
         Check("LOG-D1 two processes: the writes really interleaved (the scenario exercised contention)", switches > 1);
         Check("LOG-D1 two processes: each process's lines are all there, in its own order (0..N-1)",
-            children.All(c => lines.Where(l => l!.Pid == c.Pid).Select(l => l!.Sequence).SequenceEqual(Enumerable.Range(0, perChild))));
+            EachInOrder(lines, children, firstSequence: 0, newestSequence: perChild - 1));
     }
 
     /// <summary>
@@ -280,28 +396,113 @@ public static class FileAppLogTests
         Check("LOG-D1 rotation: precondition: the file rotated at least twice (older lines were dropped)", old > 0 && lines.Count < 2 * perChild);
         Check("LOG-D1 rotation: dialshift.log is at most 1 MiB", live <= FileAppLog.MaxFileBytes);
         Check("LOG-D1 rotation: dialshift.log.1 is at most 1 MiB", old <= FileAppLog.MaxFileBytes);
-        Check("LOG-D1 rotation: every kept line is one valid JSON object", lines.All(l => l is not null));
+        Check("LOG-D1 rotation: every kept line is one valid JSON object", Diagnose(FirstInvalidLine(lines)) is null);
         Check("LOG-D1 rotation: each process's kept lines (.1, then the live file) are consecutive and end with its newest",
-            children.All(c =>
-            {
-                var sequence = lines.Where(l => l!.Pid == c.Pid).Select(l => l!.Sequence).ToList();
-                return sequence.Count > 0 && sequence[^1] == perChild - 1 && sequence.Zip(sequence.Skip(1)).All(pair => pair.Second == pair.First + 1);
-            }));
+            EachInOrder(lines, children, firstSequence: null, newestSequence: perChild - 1));
+    }
+
+    /// <summary>
+    /// LOG-D2 regression, many writers: more contenders than the lock's polling serves fairly, so a waiter often loses
+    /// the lock to the others for long stretches. Before the fix it gave up on those healthy holders after 250 ms and
+    /// appended without the lock, overwriting another writer's line. Each round writes ~1.5 MB, so the file rotates
+    /// exactly once and every line of every writer is still kept: any lost line shows up as a gap.
+    /// </summary>
+    private static async Task ManyProcessesRotateAsync(string directory)
+    {
+        const int rounds = 3, childCount = 8, perChild = 2000; // ~95 bytes a line: 1 to 2 MiB a round, one rotation
+        for (var round = 1; round <= rounds; round++)
+        {
+            var path = Path.Combine(directory, $"round-{round}", "dialshift.log");
+            var children = await RunLogChildrenAsync(path, perChild, childCount);
+            Check($"LOG-D2 {childCount} writers, round {round}: every --log-child writer exits 0", children.All(c => c.ExitCode == 0));
+            var lines = ReadChildLines(path);
+            var live = new FileInfo(path).Length;
+            var old = File.Exists(path + ".1") ? new FileInfo(path + ".1").Length : -1;
+            Console.WriteLine($"  round {round}: dialshift.log {live} bytes, dialshift.log.1 {old} bytes, {lines.Count} lines of {childCount * perChild}");
+            Check($"LOG-D2 round {round}: precondition: the file rotated once, so both files hold every line",
+                old > 0 && live + old > FileAppLog.MaxFileBytes);
+            Check($"LOG-D2 round {round}: both files are at most 1 MiB and every line is one valid JSON object",
+                live <= FileAppLog.MaxFileBytes && old <= FileAppLog.MaxFileBytes && Diagnose(FirstInvalidLine(lines)) is null);
+            Check($"LOG-D2 round {round}: every line of every writer is there, in its own order (none overwritten by a writer that stopped waiting)",
+                EachInOrder(lines, children, firstSequence: 0, newestSequence: perChild - 1) && lines.Count == childCount * perChild);
+        }
     }
 
     private sealed record ChildLine(int Pid, int Sequence);
 
+    /// <summary>One line of <c>dialshift.log.1</c> or <c>dialshift.log</c>: its file name, 1-based line number, text and parsed content.</summary>
+    private sealed record KeptLine(string File, int LineNumber, string Text, ChildLine? Child)
+    {
+        public string Where => $"{File} line {LineNumber}";
+
+        public override string ToString() => Child is null ? $"{Where}: invalid" : $"{Where}: process {Child.Pid} #{Child.Sequence}";
+    }
+
     private sealed record LogChild(int Pid, int ExitCode);
 
-    /// <summary>
-    /// The lines of <c>path.1</c> then <c>path</c>, in file order; null for a line that is not a whole
-    /// <see cref="ChildEvent"/> JSON object with a <c>"&lt;pid&gt; &lt;sequence&gt;"</c> message.
-    /// </summary>
-    private static List<ChildLine?> ReadChildLines(string path)
+    /// <summary>Prints <paramref name="problem"/> as a diagnostic line when there is one, and returns it.</summary>
+    private static string? Diagnose(string? problem)
     {
-        var rotated = path + ".1";
-        var text = (File.Exists(rotated) ? File.ReadAllLines(rotated) : []).Concat(File.ReadAllLines(path));
-        return text.Select(ParseChildLine).ToList();
+        if (problem is not null) Console.WriteLine("  diagnostic: " + problem);
+        return problem;
+    }
+
+    private static string? FirstInvalidLine(IReadOnlyList<KeptLine> lines) =>
+        lines.FirstOrDefault(l => l.Child is null) is { } bad
+            ? $"{bad.Where} is not a whole {ChildEvent} line: \"{(bad.Text.Length > 200 ? bad.Text[..200] + "…" : bad.Text)}\""
+            : null;
+
+    /// <summary>
+    /// True when every child's kept lines pass <see cref="SequenceProblem"/>; prints a diagnostic for each child that
+    /// does not (all of them, not just the first).
+    /// </summary>
+    private static bool EachInOrder(IReadOnlyList<KeptLine> lines, IEnumerable<LogChild> children, int? firstSequence, int newestSequence) =>
+        children.Select(c => Diagnose(SequenceProblem(lines, c.Pid, firstSequence, newestSequence))).ToList().All(p => p is null);
+
+    /// <summary>
+    /// Null when process <paramref name="pid"/>'s kept lines, in file order (<c>.1</c> then the live file), are
+    /// consecutive, start at <paramref name="firstSequence"/> (any start when null) and end with
+    /// <paramref name="newestSequence"/>. Otherwise names the first gap: the expected and found sequence, where each
+    /// was, whether the gap crosses the rotation boundary, and the lines around it (which process wrote them).
+    /// </summary>
+    private static string? SequenceProblem(IReadOnlyList<KeptLine> lines, int pid, int? firstSequence, int newestSequence)
+    {
+        var own = lines.Select((line, index) => (line, index)).Where(x => x.line.Child?.Pid == pid).ToList();
+        if (own.Count == 0) return $"process {pid}: no kept lines";
+        for (var i = 0; i < own.Count; i++)
+        {
+            var (line, index) = own[i];
+            var expected = i == 0 ? firstSequence : own[i - 1].line.Child!.Sequence + 1;
+            if (expected is not { } want || line.Child!.Sequence == want) continue;
+            var after = i == 0
+                ? "its first kept line"
+                : $"after #{own[i - 1].line.Child!.Sequence} at {own[i - 1].line.Where}" +
+                  (own[i - 1].line.File == line.File ? "" : ", across the rotation boundary");
+            var context = string.Join("; ", lines.Skip(Math.Max(0, index - 3)).Take(6));
+            return $"process {pid}: expected #{want} at {line.Where}, found #{line.Child.Sequence} ({after}); " +
+                   $"{own.Count} kept, #{own[0].line.Child!.Sequence}..#{own[^1].line.Child!.Sequence}; around it: {context}";
+        }
+        var newest = own[^1].line;
+        return newest.Child!.Sequence == newestSequence
+            ? null
+            : $"process {pid}: newest kept line is #{newest.Child.Sequence} at {newest.Where}, expected #{newestSequence}";
+    }
+
+    /// <summary>
+    /// The lines of <c>path.1</c> then <c>path</c>, in file order; <see cref="KeptLine.Child"/> is null for a line that is
+    /// not a whole <see cref="ChildEvent"/> JSON object with a <c>"&lt;pid&gt; &lt;sequence&gt;"</c> message.
+    /// </summary>
+    private static List<KeptLine> ReadChildLines(string path)
+    {
+        var lines = new List<KeptLine>();
+        foreach (var file in new[] { path + ".1", path })
+        {
+            if (!File.Exists(file)) continue;
+            var number = 0;
+            foreach (var text in File.ReadAllLines(file))
+                lines.Add(new KeptLine(Path.GetFileName(file), ++number, text, ParseChildLine(text)));
+        }
+        return lines;
     }
 
     private static ChildLine? ParseChildLine(string line)
@@ -324,15 +525,16 @@ public static class FileAppLogTests
     }
 
     /// <summary>
-    /// Starts two <c>--log-child</c> processes, waits until both report <c>ready</c>, then releases them together with
-    /// <c>go</c> on stdin so their writes overlap. A child that does not finish within 60 s is a broken precondition.
+    /// Starts <paramref name="childCount"/> <c>--log-child</c> processes, waits until all report <c>ready</c>, then
+    /// releases them together with <c>go</c> on stdin so their writes overlap. A child that does not finish within 60 s
+    /// is a broken precondition.
     /// </summary>
-    private static async Task<IReadOnlyList<LogChild>> RunLogChildrenAsync(string logFile, int perChild)
+    private static async Task<IReadOnlyList<LogChild>> RunLogChildrenAsync(string logFile, int perChild, int childCount = 2)
     {
         var processes = new List<Process>();
         try
         {
-            for (var i = 0; i < 2; i++)
+            for (var i = 0; i < childCount; i++)
             {
                 var startInfo = SelfProcess.StartInfo("--log-child", logFile, perChild.ToString(CultureInfo.InvariantCulture));
                 startInfo.RedirectStandardInput = true;
@@ -360,7 +562,9 @@ public static class FileAppLogTests
             }
             for (var i = 0; i < processes.Count; i++)
             {
+                var summary = (await processes[i].StandardOutput.ReadToEndAsync()).Trim();
                 var error = await stderr[i];
+                if (summary.Length > 0) Console.WriteLine($"  --log-child {processes[i].Id}: {summary}");
                 if (error.Length > 0) Console.WriteLine($"  --log-child {processes[i].Id} stderr: {error.Trim()}");
             }
             return processes.Select(p => new LogChild(p.Id, p.ExitCode)).ToList();
@@ -378,7 +582,9 @@ public static class FileAppLogTests
     /// <summary>
     /// Entry point for <c>DialShift.Tests --log-child &lt;absolute log file&gt; &lt;n&gt;</c>: prints <c>ready</c>, waits
     /// for <c>go</c> on stdin, then appends <c>n</c> info lines <c>"&lt;pid&gt; &lt;sequence&gt;"</c> (sequence 0..n-1)
-    /// with a <see cref="FileAppLog"/>. Exit 0 when done, 64 on bad arguments, 65 when stdin did not say <c>go</c>.
+    /// with a <see cref="FileAppLog"/>, and prints how long its slowest write took and how many writes took at least
+    /// <see cref="FileAppLog.LockWaitBudget"/> (a write that waited that long for the lock may have given up on it). Exit 0
+    /// when done, 64 on bad arguments, 65 when stdin did not say <c>go</c>.
     /// </summary>
     public static int RunChild(string[] args)
     {
@@ -393,8 +599,18 @@ public static class FileAppLogTests
         Console.WriteLine("ready");
         Console.Out.Flush();
         if (Console.In.ReadLine() != "go") return 65;
+        var slowest = TimeSpan.Zero;
+        var slow = 0;
         for (var i = 0; i < count; i++)
+        {
+            var started = Stopwatch.GetTimestamp();
             log.Info(ChildEvent, pid + " " + i.ToString(CultureInfo.InvariantCulture));
+            var took = Stopwatch.GetElapsedTime(started);
+            if (took > slowest) slowest = took;
+            if (took >= FileAppLog.LockWaitBudget) slow++;
+        }
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"slowest write {slowest.TotalMilliseconds:F1} ms, {slow} of {count} writes took {FileAppLog.LockWaitBudget.TotalMilliseconds:F0} ms or more"));
         return 0;
     }
 
