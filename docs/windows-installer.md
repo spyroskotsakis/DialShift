@@ -114,7 +114,9 @@ compiler binary differs.
   missing), the folder `Install.ps1` uses. **No directory page** (D94): one fixed per-user location keeps upgrades,
   the Run value and `Install.ps1` coexistence simple. An earlier setup's `InstallLocation` (the uninstall key, §5.7) is
   used when present (`InstallDirRegKey`), and the standard NSIS `/D=<folder>` switch overrides both, for automation
-  and CI only (README documents it as such).
+  and CI only (README documents it as such). **A `/D=` folder is used exactly as given, or the setup stops** (R3,
+  D101): NSIS itself would silently replace a `/D=` folder it can't use with that `InstallLocation` or the default
+  folder, so a mistyped path would upgrade or create an install the command line never named.
 - **Steps, all inside the install lock** (§5.4): refuse per §5.4 → remove exact-name leftovers of earlier runs beside
   the install (§5.3) → extract the payload into `DialShift.new-<8 lowercase hex>` beside the install folder → write
   `Uninstall DialShift.exe` into it → swap it in (§5.3; for a fresh install, one rename) → Start menu shortcut, optional
@@ -134,7 +136,7 @@ compiler binary differs.
   volume), then the install is renamed to `DialShift.old-<id>`, the staging folder to `DialShift`, and the old copy is
   deleted. Each rename, and the restore rename, is tried 10 times 400 ms apart. A failed extraction removes the
   staging folder and changes nothing; a failed swap removes the staging folder, renames the old install back and
-  exits 5 with the reason; if the restore also fails, the message names the `DialShift.old-<id>` folder to rename back.
+  exits 14 with the reason; if the restore also fails, the message names the `DialShift.old-<id>` folder to rename back.
   A failure to delete the old copy after a successful swap is a warning that names the folder (exit 0). Result: no
   file of the old build survives an upgrade (a stale LibVLC plugin from an older VLC would otherwise be loaded).
 - **Leftovers** (as D56): before staging, folders beside the install named exactly `^DialShift\.(new|old)-[0-9a-f]{8}$`
@@ -155,17 +157,21 @@ Checked in this order, before anything changes. Interactive runs show the messag
 
 | # | Condition | Message | Silent exit |
 |---|---|---|---|
-| R1 | Not 64-bit Windows, or older than Windows 10 (`${RunningX64}`, `${AtLeastWin10}`) | `DialShift needs 64-bit Windows 10 or later.` | 4 |
-| R2 | Another install holds `Local\DialShift.Install` for 5 s (created with the System plugin; a `WAIT_ABANDONED` counts as acquired, as in D56). Held from here until the setup exits, so a double-click and a concurrent `Install.ps1` never interleave | `Another DialShift install is running. Wait for it to finish, then run DialShift Setup again.` | 3 |
-| R3 | The install folder is, is inside, or contains `%LOCALAPPDATA%\DialShift` (textual, case-insensitive, one trailing `\`, as D56), or is a drive root | `DialShift can't be installed in <folder>: that folder holds your DialShift settings. Choose another folder.` | 4 |
-| R4 | The install folder exists, is not empty and has no `DialShift.exe` | `<folder> already holds other files. Choose an empty folder or the folder DialShift is installed in.` | 4 |
-| R5 | `DialShift.exe` in the install folder is running: opening it for writing fails (Windows denies write access to a running executable's image; this also catches the retired WPF app, same file name) | `DialShift is running. Quit it from its tray menu (Quit DialShift), then choose Retry.` with **Retry** / **Cancel** | 2 |
+| R1 | Not 64-bit Windows, or older than Windows 10 (`${RunningX64}`, `${AtLeastWin10}`) | `DialShift needs 64-bit Windows 10 or later.` | 12 |
+| R2 | Another install holds `Local\DialShift.Install` for 5 s (created with the System plugin; a `WAIT_ABANDONED` counts as acquired, as in D56). Held from here until the setup exits, so a double-click and a concurrent `Install.ps1` never interleave | `Another DialShift install is running. Wait for it to finish, then run DialShift Setup again.` | 11 |
+| R3 | (a) `/D=` names a folder NSIS can't use as given (no drive or share root, such as `DialShift` or `C:DialShift`; a drive that doesn't exist; a file in the path; forward slashes; quotes; nothing), which NSIS would replace before the setup's checks run, or the command line carries a `/D=` NSIS does not take (quoted, lowercase, not last), D101; (b) the install folder is a drive or network share root (`C:\`, `\\server\share`), before and after the path is normalized; (c) it is, is inside, or contains `%LOCALAPPDATA%\DialShift` (textual, case-insensitive, one trailing `\`, as D56) | (a) `/D=<folder> isn't a folder DialShift can be installed in. Give a full path on a drive that exists, with no file in its place, such as /D=C:\Apps\DialShift.` or `DialShift Setup could not read its /D= switch. Put it last on the command line, in capitals and without quotes, even when the folder has spaces: /S /D=C:\My Apps\DialShift.`; (b) `DialShift can't be installed in <root>\, the top of a drive or network share. Choose a folder in it, such as <root>\DialShift.`; (c) `DialShift can't be installed in <folder>: that folder holds your DialShift settings. Choose another folder.` | 13 |
+| R4 | The install folder is neither missing, nor empty, nor a DialShift install holding nothing else (an install: `Uninstall DialShift.exe`, or `DialShift.exe`, `DialShift.dll` and `libvlc\` as `Install.ps1` leaves them; every top-level entry DialShift's); then, while a setup install elsewhere still has its uninstaller, any other folder (one Apps & features entry per user) | `<folder> already holds other files. Choose an empty folder or the folder DialShift is installed in.`, `<folder> holds files that are not part of DialShift, such as <name>. Move them out of that folder, then run DialShift Setup again.`, or `DialShift is already installed in <folder>. To install it in <other>, uninstall it in Settings > Apps first.` | 13 |
+| R5 | `DialShift.exe` in the install folder is running: opening it for writing fails (Windows denies write access to a running executable's image; this also catches the retired WPF app, same file name) | `DialShift is running. Quit it from its tray menu (Quit DialShift), then choose Retry.` with **Retry** / **Cancel**; any other failure to open it is reported with its reason | 10 (Cancel); 15 (could not open it) |
 
 Other exit codes: **0** success (also after the old-copy warning), **1** the user cancelled (NSIS standard),
-**5** the extraction or the swap failed and the previous install is unchanged. **The setup never closes or kills
+**14** the extraction or the swap failed and the previous install is unchanged. The setup's own codes start at 10, so
+none meets NSIS's own 2 ("aborted by script"); D101 records them. **The setup never closes or kills
 DialShift** (D94): the app has no "quit" command over its activation channel, a forced kill could interrupt a settings
 save, and "quit it first" is D56's rule. R3 and R4 can only be reached through `/D=` today; they guard the uninstaller's
-and the swap's deletes from ever pointing at the settings folder or at someone else's files.
+and the swap's deletes from ever pointing at the settings folder or at someone else's files. NSIS reads `/D=` before
+`.onInit`; `AllowRootDirInstall true` lets a root through to R3 (b), and R3 (a) compares the `/D=` text of the
+process's command line (`GetCommandLineW`) with the folder NSIS chose, both read through NSIS's own `$INSTDIR`
+normalization (D101).
 
 ### 5.5 Launch at sign-in (Run value)
 
@@ -207,7 +213,8 @@ on every upgrade, removed by the uninstaller:
 
 ### 5.8 Uninstall
 
-- **Refusals first:** R2 (the install lock, exit 3) and R5 (DialShift running, Retry/Cancel, exit 2), as in §5.4.
+- **Refusals first:** R2 (the install lock, exit 11) and R5 (DialShift running, Retry/Cancel, exit 10; 15 when it can't
+  be checked), as in §5.4.
 - **Question** (interactive only), before anything is removed: `Keep your stations, schedule and settings?` with the
   detail `Choose No to also delete %LOCALAPPDATA%\DialShift (settings, log and settings backups). This can't be
   undone.`; buttons **Yes** (default) / **No**. A silent uninstall keeps them (`/SD IDYES`). **No** removes exactly
@@ -218,14 +225,15 @@ on every upgrade, removed by the uninstaller:
   uninstall key; exact-name leftovers beside the install (§5.3 rules). **Never `RMDir /r` of the install folder**:
   a file the user put there stays, with its folder, and the Finish text says `Some files you added were left in
   <folder>.`
-- **Exit codes:** 0, 1 (cancelled), 2, 3; 5 when a listed file cannot be deleted (it is named). NSIS runs an uninstaller
-  from a temporary copy and the first process returns at once; automation that needs the result runs
+- **Exit codes:** 0, 1 (cancelled), 10, 11, 15; 14 when a listed file cannot be deleted (it is named). NSIS runs an
+  uninstaller from a temporary copy and the first process returns at once; automation that needs the result runs
   `"Uninstall DialShift.exe" /S _?=<install folder>` (runs in place and waits; the uninstaller file itself then stays
   and is deleted by the caller). §8 tests both forms.
 
 ### 5.9 Switches
 
-`/S` silent (install and uninstall), `/D=<folder>` (install; last on the command line, unquoted, NSIS rule),
+`/S` silent (install and uninstall), `/D=<folder>` (install; last on the command line, in capitals, unquoted even with
+spaces, NSIS rule; a folder NSIS can't use, or a `/D=` it does not take, is refused with 13, R3 (a)),
 `_?=<folder>` (uninstall in place, NSIS rule). No custom switches: a silent install never launches DialShift and never
 creates a desktop shortcut; a silent uninstall always keeps settings.
 
@@ -375,13 +383,19 @@ and `DialShift.exe` itself (an x64 PE without NSIS data) each fail with the veri
      `DialShift.new-0badf00d` with its target (kept); a Run value `"C:\Old\DialShift\DialShift.exe" --tray` (now
      `"<install>\DialShift.exe" --tray`); a desktop `DialShift.lnk` pointing elsewhere (now pointing here); the
      uninstall key's `DisplayVersion` rewritten.
-   - **(s3) Locked file:** `DialShift.dll` of the install open without delete sharing: exit 5, tree unchanged, no
+   - **(s3) Locked file:** `DialShift.dll` of the install open without delete sharing: exit 14, tree unchanged, no
      leftovers.
-   - **(s4) Install lock held** by the step: exit 3 after about 5 s, nothing changed.
+   - **(s4) Install lock held** by the step: exit 11 after about 5 s, nothing changed.
    - **(s5) DialShift running** from the install (`--tray`, `DIALSHIFT_DATA_DIR` in a temp folder, `DIALSHIFT_AUDIO_OUTPUT=dummy`):
-     the setup `/S` exits 2 and the uninstaller `/S _?=` exits 2, nothing changed; then the step stops the process.
-   - **(s6) Folder refusals:** `/D=` the data folder, a folder inside it, and a non-empty folder without
-     `DialShift.exe`: exit 4 each, nothing created or changed.
+     the setup `/S` exits 10 and the uninstaller `/S _?=` exits 10, nothing changed; then the step stops the process.
+   - **(s6) Folder refusals**, each with the uninstaller moved aside so that the one-install rule cannot refuse it
+     too: `/D=` the emptied data folder, a folder inside it, a folder with foreign files, a folder with `DialShift.exe`
+     among other files, drive roots (an empty `subst` drive as `X:\`, `X:\\` and `X:\sub\..`, and the system
+     drive), and (D101) `/D=` folders NSIS can't use (a missing drive, a relative and a drive-relative path, a file in
+     the path, a file, forward slashes, a quoted folder, nothing) and `/D=` switches it does not take (quoted,
+     lowercase): exit 13 each, nothing created or changed (not the install, which NSIS would otherwise have
+     upgraded in their place, not the default folder, not the named folders); then, with the uninstaller back, a
+     second install location: exit 13.
    - **(s7) `Install.ps1` over the setup install** (D95): exit 1 with the §5.11 message (whitespace-insensitive, as
      the existing step matches), tree unchanged.
    - **(s8) Silent uninstall**, run from `QuietUninstallString` exactly as Windows would, then waiting up to 60 s for
@@ -457,6 +471,10 @@ the job also installs `sevenzip` and compares listings). Its artifacts do not ma
   through a reparse point) and, on an explicit **No**, `%LOCALAPPDATA%\DialShift`. The install folder is never
   deleted recursively; R3 and R4 keep `/D=` from pointing the swap or the uninstaller at the settings or at foreign
   files.
+- **NSIS replaces an unusable `/D=` silently** (before `.onInit`, with the `InstallDirRegKey` folder or `InstallDir`)
+  and ignores a `/D=` that is quoted or lowercase, so a typo in automation would upgrade the existing install or
+  install into the default folder with exit 0. R3 (a) refuses both instead (D101; CI run `36226968746` exposed it
+  with `/D=<subst root>`, which reinstalled into the existing install).
 - **Stale files after an upgrade** would load: LibVLC scans `libvlc\win-x64\plugins`, so an in-place overwrite could
   mix VLC versions. The staged swap removes the whole old build.
 - **The uninstaller returns before it finishes** (it runs from a temporary copy); tests and scripts must wait or use
@@ -496,9 +514,9 @@ gates hold (no dead code; docs current in the same change; QG-03 for the wizard;
 | INS-08 | Upgrade setup over setup: old files gone, exact-name leftovers removed, junction and foreign folder kept, Run value moved, desktop shortcut kept, entry rewritten, settings untouched | CI (s2) |
 | INS-09 | Setup over an `Install.ps1` install in the same folder: one install, one shortcut, entry created | CI (s9) |
 | INS-10 | `Install.ps1` refuses over a setup install (D95); its seven existing CI cases still pass | CI (s7) and the `Install.ps1` step |
-| INS-11 | DialShift running: setup and uninstaller refuse (exit 2), nothing changed; interactive Retry/Cancel wording | CI (s5); NC-19 step 4 |
-| INS-12 | Locked file (exit 5, install restored) and held install lock (exit 3), nothing changed | CI (s3), (s4) |
-| INS-13 | Folder refusals R3/R4 (exit 4, nothing created); R1 by review (no 32-bit or pre-10 runner) | CI (s6); review of the script |
+| INS-11 | DialShift running: setup and uninstaller refuse (exit 10), nothing changed; interactive Retry/Cancel wording | CI (s5); NC-19 step 4 |
+| INS-12 | Locked file (exit 14, install restored) and held install lock (exit 11), nothing changed | CI (s3), (s4) |
+| INS-13 | Folder refusals R3/R4 (exit 13, nothing created), each through its own rule; a `/D=` folder or switch NSIS can't use refused, never replaced (D101); R1 by review (no 32-bit or pre-10 runner) | CI (s6); review of the script |
 | INS-14 | Silent uninstall: payload, uninstaller, shortcuts, key removed; Run + StartupApproved removed only when pointing here; a user file and its folder kept; settings kept | CI (s8), (s9) |
 | INS-15 | Interactive uninstall asks to keep settings: Yes (default) keeps, No deletes exactly `%LOCALAPPDATA%\DialShift` | NC-19 step 8; review |
 | INS-16 | Wizard UX (QG-03): pages of §5.10, branding, icon, DPI, keyboard, messages that name the fix | NC-19 steps 3–4; design review of screenshots |

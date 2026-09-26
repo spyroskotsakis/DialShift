@@ -423,8 +423,12 @@ jobs:
       # link only, Run value and desktop shortcut moved. (s2b) an old copy that cannot be deleted is a warning (exit 0).
       # (s3) a locked file: the install cannot be moved aside (14). (s3b) the new build cannot be moved in: the previous
       # install is moved back (14). (s4) install lock (11). (s5) DialShift running: setup and uninstaller (10). (s6) folder
-      # refusals (13): the settings folder (emptied, so only R3 can refuse it), a folder inside it, a foreign folder, a
-      # folder with DialShift.exe among other files, a drive root (subst), a second install location. (s7) Install.ps1
+      # refusals (13), each with the uninstaller moved aside so that only its own rule can refuse it: the settings folder
+      # (emptied, so only R3 can refuse it), a folder inside it, a foreign folder, a folder with DialShift.exe among other
+      # files, drive roots (subst, the system drive); /D= folders NSIS cannot use (a missing drive, a relative and a
+      # drive-relative path, a file in the path, a file, forward slashes, quotes, nothing) and /D= switches it does not
+      # take (quoted, lowercase), which it would replace with the install's own folder (D101); then, with the
+      # uninstaller back, a second install location. (s7) Install.ps1
       # over the setup install (D95), by the uninstaller and by the entry's InstallLocation. (s8) silent uninstall through
       # QuietUninstallString. (s9) setup over an Install.ps1 install, an in-place uninstall that keeps another copy's Run
       # value, then a reinstall into the folder the in-place uninstall left (only the uninstaller) and its uninstall.
@@ -727,39 +731,77 @@ jobs:
             }
             Write-Host '(s5) DialShift running: the setup and the uninstaller exit 10, nothing changed.'
 
-            # (s6) Folder refusals, exit 13, nothing created or changed.
-            Move-Item -LiteralPath $sentinel -Destination $sentinelAside
+            # (s6) Folder refusals, exit 13, nothing created or changed. Until the second-location case, the uninstaller
+            # is moved aside, so the one-install rule (a setup install elsewhere) cannot refuse these folders too and
+            # each case passes only through the rule it names. Before D101 an unusable /D= folder was silently replaced
+            # by the entry's InstallLocation, i.e. an upgrade of $install with exit 0: Assert-Unchanged catches that.
+            $defaultInstall = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\DialShift'
+            $defaultExisted = Test-Path -LiteralPath $defaultInstall
+            $aside = Join-Path $env:RUNNER_TEMP 'setup-check-uninstaller.exe'
+            Move-Item -LiteralPath $uninstaller -Destination $aside
             try {
-              # The settings folder itself, emptied: only R3 can refuse it (R4 accepts an empty folder).
-              Assert-Code 's6 settings folder' (Invoke-Setup "/S /D=$dataDir") 13
-              if ((Get-Names $dataDir).Count) { throw '(s6) The refused run wrote into the settings folder.' }
-              Assert-Code 's6 inside the settings folder' (Invoke-Setup "/S /D=$(Join-Path $dataDir 'inside')") 13
-              if (Test-Path -LiteralPath (Join-Path $dataDir 'inside')) { throw '(s6) A refused run created a folder inside the settings folder.' }
-            } finally { Move-Item -LiteralPath $sentinelAside -Destination $sentinel }
-            $foreign = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-foreign')
-            Set-Content -LiteralPath (Join-Path $foreign 'someone-else.txt') -Value 'not DialShift'
-            # An extracted zip among other downloads: DialShift.exe, DialShift.dll and libvlc\ do not make it an install.
-            $downloads = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-downloads')
-            Copy-Item -LiteralPath (Join-Path $package 'DialShift.exe'), (Join-Path $package 'DialShift.dll') -Destination $downloads
-            New-Item -ItemType Directory -Path (Join-Path $downloads 'libvlc') | Out-Null
-            Set-Content -LiteralPath (Join-Path $downloads 'tax-return.pdf') -Value 'not DialShift'
-            $foreignBefore = Get-Listing $foreign.FullName
-            $downloadsBefore = Get-Listing $downloads.FullName
-            Assert-Code 's6 foreign folder' (Invoke-Setup "/S /D=$($foreign.FullName)") 13
-            Assert-Code 's6 DialShift.exe among other files' (Invoke-Setup "/S /D=$($downloads.FullName)") 13
-            if (Compare-Object $foreignBefore (Get-Listing $foreign.FullName)) { throw '(s6) The foreign folder changed.' }
-            if (Compare-Object $downloadsBefore (Get-Listing $downloads.FullName)) { throw '(s6) The folder with DialShift.exe among other files changed.' }
-            # A drive root: an empty folder as a subst drive, so only the drive rule can refuse it.
-            $emptyRoot = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-drive')
-            $letter = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
-            if (-not $letter) { throw '(s6) No free drive letter for subst.' }
-            & subst "${letter}:" $emptyRoot.FullName
-            if ($LASTEXITCODE -ne 0) { throw "(s6) subst ${letter}: failed." }
-            $substDrive = "${letter}:"
-            foreach ($target in "${letter}:\", "${letter}:\\", "$env:SystemDrive\") {
-              Assert-Code "s6 drive root $target" (Invoke-Setup "/S /D=$target") 13
-            }
-            if ((Get-Names $emptyRoot.FullName).Count) { throw '(s6) A refused run wrote into the subst drive.' }
+              Move-Item -LiteralPath $sentinel -Destination $sentinelAside
+              try {
+                # The settings folder itself, emptied: only R3 can refuse it (R4 accepts an empty folder).
+                Assert-Code 's6 settings folder' (Invoke-Setup "/S /D=$dataDir") 13
+                if ((Get-Names $dataDir).Count) { throw '(s6) The refused run wrote into the settings folder.' }
+                Assert-Code 's6 inside the settings folder' (Invoke-Setup "/S /D=$(Join-Path $dataDir 'inside')") 13
+                if (Test-Path -LiteralPath (Join-Path $dataDir 'inside')) { throw '(s6) A refused run created a folder inside the settings folder.' }
+              } finally { Move-Item -LiteralPath $sentinelAside -Destination $sentinel }
+              $foreign = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-foreign')
+              Set-Content -LiteralPath (Join-Path $foreign 'someone-else.txt') -Value 'not DialShift'
+              # An extracted zip among other downloads: DialShift.exe, DialShift.dll and libvlc\ do not make it an install.
+              $downloads = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-downloads')
+              Copy-Item -LiteralPath (Join-Path $package 'DialShift.exe'), (Join-Path $package 'DialShift.dll') -Destination $downloads
+              New-Item -ItemType Directory -Path (Join-Path $downloads 'libvlc') | Out-Null
+              Set-Content -LiteralPath (Join-Path $downloads 'tax-return.pdf') -Value 'not DialShift'
+              $foreignBefore = Get-Listing $foreign.FullName
+              $downloadsBefore = Get-Listing $downloads.FullName
+              Assert-Code 's6 foreign folder' (Invoke-Setup "/S /D=$($foreign.FullName)") 13
+              Assert-Code 's6 DialShift.exe among other files' (Invoke-Setup "/S /D=$($downloads.FullName)") 13
+              if (Compare-Object $foreignBefore (Get-Listing $foreign.FullName)) { throw '(s6) The foreign folder changed.' }
+              if (Compare-Object $downloadsBefore (Get-Listing $downloads.FullName)) { throw '(s6) The folder with DialShift.exe among other files changed.' }
+              # A drive root: an empty folder as a subst drive, so only the root rule can refuse it (AllowRootDirInstall
+              # lets it reach .onInit, D101).
+              $emptyRoot = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'setup-check-drive')
+              $letter = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+              if (-not $letter) { throw '(s6) No free drive letter for subst.' }
+              & subst "${letter}:" $emptyRoot.FullName
+              if ($LASTEXITCODE -ne 0) { throw "(s6) subst ${letter}: failed." }
+              $substDrive = "${letter}:"
+              foreach ($target in "${letter}:\", "${letter}:\\", "${letter}:\sub\..", "$env:SystemDrive\") {
+                Assert-Code "s6 drive root $target" (Invoke-Setup "/S /D=$target") 13
+              }
+              if ((Get-Names $emptyRoot.FullName).Count) { throw '(s6) A refused run wrote into the subst drive.' }
+              # A /D= folder NSIS cannot use, or a /D= switch it does not take (D101): refused, never replaced.
+              $missing = [char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+              if (-not $missing) { throw '(s6) No free drive letter for the missing-drive case.' }
+              $notFolder = Join-Path $root 'not-a-folder.txt'
+              Set-Content -LiteralPath $notFolder -Value 'a file, not a folder'
+              $notFolderHash = (Get-FileHash -LiteralPath $notFolder -Algorithm SHA256).Hash
+              $relative = 'setup-check-relative'
+              $spaced = Join-Path $root 'Spaced Folder\DialShift'
+              $unusable = [ordered]@{
+                "missing drive ${missing}:" = "/S /D=${missing}:\DialShift"
+                'relative path' = "/S /D=$relative\DialShift"
+                'drive-relative path' = "/S /D=$env:SystemDrive$relative"
+                'a file in the path' = "/S /D=$notFolder\DialShift"
+                'a file' = "/S /D=$notFolder"
+                'forward slashes' = "/S /D=$($root -replace '\\', '/')/Programs3/DialShift"
+                'quoted folder' = "/S /D=`"$spaced`""
+                'empty /D=' = '/S /D='
+                'quoted switch' = "/S `"/D=$spaced`""
+                'lowercase switch' = "/S /d=$root\Programs4\DialShift"
+              }
+              foreach ($case in $unusable.Keys) { Assert-Code "s6 $case" (Invoke-Setup $unusable[$case]) 13 }
+              if ((Get-FileHash -LiteralPath $notFolder -Algorithm SHA256).Hash -ne $notFolderHash) { throw '(s6) The file given as the folder changed.' }
+              Remove-Item -LiteralPath $notFolder
+              if ("$(Get-Names $root)" -ne 'Programs') { throw "(s6) A refused run created '$((Get-Names $root) -join "', '")' in $root." }
+              foreach ($path in [IO.Path]::GetFullPath($relative), [IO.Path]::GetFullPath("$env:SystemDrive$relative")) {
+                if (Test-Path -LiteralPath $path) { throw "(s6) A refused run created $path." }
+              }
+              if (-not $defaultExisted -and (Test-Path -LiteralPath $defaultInstall)) { throw "(s6) A refused run installed into $defaultInstall." }
+            } finally { Move-Item -LiteralPath $aside -Destination $uninstaller }
             # A second install location while the setup install here still has its uninstaller: its entry is kept.
             $second = Join-Path $root 'Programs2\DialShift'
             Assert-Code 's6 second location' (Invoke-Setup "/S /D=$second") 13
@@ -771,7 +813,7 @@ jobs:
             Assert-Unchanged 's6' $before
             Assert-Entry 's6'
             Assert-Clean 's6'
-            Write-Host '(s6) Folder refusals (the emptied settings folder, a folder inside it, a foreign folder, DialShift.exe among other files, drive roots, a second location): exit 13, nothing created or changed.'
+            Write-Host '(s6) Folder refusals (the emptied settings folder, a folder inside it, a foreign folder, DialShift.exe among other files, drive roots, unusable /D= folders and switches, a second location): exit 13, nothing created or changed.'
 
             $message = "DialShift in $install was installed with DialShift Setup. To upgrade it, run the new DialShift-Setup-win-x64.exe, or uninstall DialShift in Settings > Apps first." -replace '\s', ''
             $result = Invoke-Install
@@ -779,7 +821,6 @@ jobs:
             if (-not ($result.Text -replace '\s', '').Contains($message)) { throw '(s7) Install.ps1 did not refuse with the D95 message.' }
             Assert-Unchanged 's7' $before
             # The same refusal from the entry's InstallLocation alone, with the uninstaller file moved away.
-            $aside = Join-Path $env:RUNNER_TEMP 'setup-check-uninstaller.exe'
             Move-Item -LiteralPath $uninstaller -Destination $aside
             try { $result = Invoke-Install } finally { Move-Item -LiteralPath $aside -Destination $uninstaller }
             Assert-Code 's7 InstallLocation' $result.Code 1
