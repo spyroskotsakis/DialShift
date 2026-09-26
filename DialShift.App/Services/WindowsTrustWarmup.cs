@@ -47,17 +47,29 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
     public const string LogEvent = "playback.tls_warmup";
 
     private readonly IAppLog log;
+    private readonly TimeSpan timeout;
     private readonly HttpClient client;
     private readonly ConcurrentDictionary<string, byte> warmed = new(StringComparer.Ordinal);
     private int disposed;
 
     /// <param name="handler">The handler the requests go through: <see cref="CreateHandler"/> in the app. Owned.</param>
     /// <param name="log">Receives the redacted line of a failed warm-up.</param>
-    public WindowsTrustWarmup(HttpMessageHandler handler, IAppLog log)
+    public WindowsTrustWarmup(HttpMessageHandler handler, IAppLog log) : this(handler, log, Timeout)
+    {
+    }
+
+    /// <summary>
+    /// Test seam: a warm-up bounded by <paramref name="timeout"/> instead of <see cref="Timeout"/>. The app always uses
+    /// <see cref="Timeout"/>; the checks whose subject is not the bound use a longer one, so a stalled test machine cannot
+    /// turn their warm-up into a timeout (TW-11 on Windows CI, run 36244042354).
+    /// </summary>
+    internal WindowsTrustWarmup(HttpMessageHandler handler, IAppLog log, TimeSpan timeout)
     {
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
         this.log = log;
+        this.timeout = timeout;
         // Each warm-up carries its own Timeout token, so the client's own timeout stays out of the way.
         client = new HttpClient(handler, disposeHandler: true) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
         client.DefaultRequestHeaders.UserAgent.Add(AppUserAgent.Create());
@@ -85,7 +97,7 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         if (warmed.ContainsKey(Origin(url))) return;
 
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        bound.CancelAfter(Timeout);
+        bound.CancelAfter(timeout);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, WithoutUserInfo(url));
@@ -109,7 +121,7 @@ public sealed class WindowsTrustWarmup : IStreamTrustWarmup
         }
         catch (Exception ex)
         {
-            var reason = bound.IsCancellationRequested ? $"no answer within {Timeout.TotalSeconds:0} s" : Describe(ex);
+            var reason = bound.IsCancellationRequested ? $"no answer within {timeout.TotalSeconds:0} s" : Describe(ex);
             log.Warn(LogEvent, StreamUrlRedactor.RedactDiagnostic(
                 $"TLS trust warm-up for {StreamUrlRedactor.RedactUrl(url)} failed ({reason}); the player connects anyway.", maxLength: 400));
         }

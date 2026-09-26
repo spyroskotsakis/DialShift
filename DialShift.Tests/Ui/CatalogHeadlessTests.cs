@@ -24,8 +24,10 @@ namespace DialShift.Tests.Ui;
 /// docs/catalog-contracts.md §5.5, §8): CAT-10 (a keyboard or pointer pick fills the real text boxes, the detail pane, the
 /// logos), CAT-11 (Edit mode is today's form), CAT-12 (focus, Up/Down/Enter/Escape, Tab order), CAT-13 (loading, no match,
 /// no catalog), CAT-14 (automation names, nothing clipped at 780×650 and 1366×768 with the dialog at 680 and 620 wide, the
-/// dialog's height, fast typing) and CAT-17 (the status line, with the real catalog). Part of the HeadlessUi suite. Every
-/// dialog opens through "+  Add station" or a row's Edit button, so the app's own wiring and 200 ms debounce are used.
+/// dialog's height, fast typing) and CAT-17 (the status line, with the real catalog). Part of the HeadlessUi suite. The
+/// dialogs open through "+  Add station" or a row's Edit button, so the app's own wiring and 200 ms debounce are used,
+/// except where a check must act while a search is pending: those open the real dialog over an editor whose UI
+/// dispatcher the check steps (<see cref="SteppedEditor"/>), so the pending state is held, not raced against the debounce.
 /// </summary>
 internal static partial class CatalogHeadlessTests
 {
@@ -353,30 +355,49 @@ internal static partial class CatalogHeadlessTests
     }
 
     /// <summary>
-    /// D87 items 6–9 against the app's real 200 ms debounce (QA M1, m2): Enter while a search is pending runs it at once and
+    /// D87 items 6–9 against the app's 200 ms debounce (QA M1, m2): Enter while a search is pending runs it at once and
     /// picks its first row, or nothing on no match, and never saves; any close (a pick, D89; Escape, focus into a form field,
     /// a press outside) lets a search in flight apply without reopening the results; the overlay never opens without rows.
     /// After Escape, Enter picks from a pending search only if the results were reopened; without a reopen it is Save (D89).
     /// </summary>
+    /// <remarks>
+    /// Every "while the search is pending" step needs the key or click to land before the debounced search is applied. With
+    /// the app's UI dispatcher that was a race against the 200 ms debounce in real time, which a slow runner lost (CI run
+    /// 36244042354, macOS: the search for "kosmos" landed before Escape). The editor therefore runs over a
+    /// <see cref="QueuedUiDispatcher"/> (<see cref="SteppedEditor"/>): the debounce and the search still run on the thread
+    /// pool with the app's delay, but their result reaches the editor only when the check drains the queue, so "pending"
+    /// is a state the check holds however slow the machine is.
+    /// </remarks>
     private static async Task EnterAndEscapeBeforeTheDebounce()
     {
-        await using var rig = await UiRig.CreateHeadlessAsync();
-        rig.Catalog.Result = Loaded(Small);
-        var (dialog, editor) = await OpenAddAsync(rig);
+        var debounce = StationEditorViewModel.DefaultSearchDelay;
+        var rig = new SteppedEditor(Loaded(Small), debounce);
+        var (dialog, editor) = (rig.Dialog, rig.Editor);
+        await rig.ShowAsync();
+        await rig.SettleAsync();
         var search = ByName<TextBox>(dialog, "Search stations");
         var name = Field(dialog, StationEditorViewModel.NameLabel);
-        var debounce = StationEditorViewModel.DefaultSearchDelay;
         var stations = rig.Settings.Stations.Count;
         Check($"CAT-12 D87 fixture: the dialog searches after a non-zero delay ({debounce.TotalMilliseconds:F0} ms)", debounce > TimeSpan.Zero);
         string State() =>
             $"name \"{name.Text}\", picked {editor.SelectedEntry?.Name ?? "none"}, open {editor.IsResultsOpen}, overlay {Overlay(dialog).IsVisible}, " +
             $"status \"{StatusLine(dialog).Text}\", error \"{VisibleError(dialog)?.Text}\", focus {FocusedName(dialog)}, pending {!editor.PendingSearch.IsCompleted}, " +
-            $"rows {editor.Results.Count}, highlight {editor.HighlightedResult?.Entry.Name ?? "none"}";
+            $"rows {editor.Results.Count}, highlight {editor.HighlightedResult?.Entry.Name ?? "none"}, queued {rig.Ui.Pending}";
         void Report(string step) => Console.WriteLine($"  {step}: {State()}");
-        // Long enough for any search still in flight to land (or to show that it never will).
+        // Types the text and applies its search (past the debounce).
+        async Task SearchForAsync(string text)
+        {
+            await TypeAsync(search, text);
+            await rig.SettleAsync();
+            if (editor.SearchText != text) throw new InvalidOperationException($"The search box holds \"{editor.SearchText}\", not \"{text}\".");
+        }
+        // Applies the search in flight, however long its thread-pool part takes; false after 10 s.
+        Task<bool> LandsAsync() => rig.Ui.RunUntilAsync(() => editor.PendingSearch.IsCompleted);
+        // Past the debounce, several times over: whatever a search still in flight would post has been posted, and is applied.
         async Task PastTheDelayAsync()
         {
             await Task.Delay(debounce * 3);
+            rig.Ui.Drain();
             await PumpAsync();
             Layout(dialog);
         }
@@ -388,7 +409,7 @@ internal static partial class CatalogHeadlessTests
         }
 
         // Item 6, no search pending: Enter after the results arrived picks their top match (D85, unchanged).
-        await SearchAsync(dialog, editor, "thessaloniki");
+        await SearchForAsync("thessaloniki");
         await PressAsync(dialog, Key.Enter);
         Report("Enter after the results arrived");
         Check("CAT-12 D85 D87 Enter after the results arrived (no search pending) picks the top match: Radio Thessaloniki, the results closed",
@@ -396,9 +417,10 @@ internal static partial class CatalogHeadlessTests
         await ClearFormAsync();
 
         // Item 6, pending, no match: the stale row is not picked, Enter is handled and nothing is saved.
-        await SearchAsync(dialog, editor, "melodia");
+        await SearchForAsync("melodia");
         await TypeAsync(search, "melodia xyz");
         var raced = !editor.PendingSearch.IsCompleted && editor.HighlightedResult?.Entry == Melodia && Overlay(dialog).IsVisible;
+        Report("\"melodia xyz\" typed, before Enter");
         await PressAsync(dialog, Key.Enter);
         Layout(dialog);
         Report("Enter at once after \"melodia xyz\"");
@@ -420,9 +442,10 @@ internal static partial class CatalogHeadlessTests
         Check("CAT-12 D87 item 9(a) asking to open the results with no rows leaves them closed", !editor.IsResultsOpen && !Overlay(dialog).IsVisible);
 
         // Item 6, pending, a match: the new text's first row, not the stale one.
-        await SearchAsync(dialog, editor, "radio");
+        await SearchForAsync("radio");
         await TypeAsync(search, "kosmos");
         raced = !editor.PendingSearch.IsCompleted && editor.HighlightedResult is { } stale && stale.Entry != Kosmos;
+        Report("\"kosmos\" typed, before Enter");
         await PressAsync(dialog, Key.Enter);
         Layout(dialog);
         Report("Enter at once after \"kosmos\"");
@@ -433,15 +456,16 @@ internal static partial class CatalogHeadlessTests
         Check("CAT-12 D87 item 6 past the delay the pick stays and the results stay closed", !Overlay(dialog).IsVisible && name.Text == "Kosmos 93.6");
 
         // Item 7 as amended by D89: a pointer pick leaves a pending search to land, with the results closed.
-        await SearchAsync(dialog, editor, "radio");
+        await SearchForAsync("radio");
         await TypeAsync(search, "melodia");
         raced = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
+        Report("\"melodia\" typed, before the pointer pick");
         await ClickAsync(ItemOf(dialog, KolnAm));
         Report("pointer pick while \"melodia\" is pending");
         Check("CAT-10 D87 fixture: the row is clicked while the search for \"melodia\" is pending", raced);
         Check("CAT-10 D89 a pointer pick while a search is pending picks the clicked row (Radio Köln AM) and closes the results",
             name.Text == "Radio Köln AM" && editor.SelectedEntry == KolnAm && !Overlay(dialog).IsVisible);
-        var pickedLanded = await CompletesAsync(editor.PendingSearch);
+        var pickedLanded = await LandsAsync();
         await PastTheDelayAsync();
         Report("after the pointer pick, past the delay");
         Check("CAT-10 D89 past the delay the search for \"melodia\" lands closed: its rows (Melodia 99.2 first) and footer, nothing highlighted; " +
@@ -454,14 +478,16 @@ internal static partial class CatalogHeadlessTests
         // Items 8 and 9(b): Escape, focus into a form field and a press outside each let the search in flight apply, closed.
         async Task CloseWhilePendingAsync(string how, Func<Task> close)
         {
-            await SearchAsync(dialog, editor, "radio");
+            await SearchForAsync("radio");
             await TypeAsync(search, "kosmos");
             var inFlight = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
+            Report($"\"kosmos\" typed, before {how}");
             await close();
             Layout(dialog);
+            Report($"after {how}");
             Check($"CAT-12 D87 fixture: {how} lands while the search for \"kosmos\" is pending, with the results open", inFlight);
             Check($"CAT-12 D87 {how} closes the results; the dialog stays open", !Overlay(dialog).IsVisible && dialog.IsVisible);
-            var landed = await CompletesAsync(editor.PendingSearch);
+            var landed = await LandsAsync();
             await PastTheDelayAsync();
             Report($"after {how}, past the delay");
             Check($"CAT-12 D87 after {how} the search in flight still lands (Kosmos 93.6 its only row, the footer \"1 match\") without reopening the results, nothing highlighted",
@@ -485,12 +511,13 @@ internal static partial class CatalogHeadlessTests
         async Task ReopenThenEnterAsync(string how, Func<Task> reopen)
         {
             await ClearFormAsync();
-            await SearchAsync(dialog, editor, "radio");
+            await SearchForAsync("radio");
             await TypeAsync(search, "kosmos");
             await PressAsync(dialog, Key.Escape);
             await reopen();
             Layout(dialog);
             var reopened = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible && editor.HighlightedResult is { } stale && stale.Entry != Kosmos;
+            Report($"Escape and {how} while \"kosmos\" is pending, before Enter");
             await PressAsync(dialog, Key.Enter);
             Layout(dialog);
             Report($"Enter at once after Escape and {how}");
@@ -508,11 +535,13 @@ internal static partial class CatalogHeadlessTests
         // cleared openOnApply, so Enter only applies the typed text's search (closed) and is not handled: it goes on to Save.
         async Task<bool> EscapeThenEnterAsync(string step)
         {
-            await SearchAsync(dialog, editor, "radio");
+            await SearchForAsync("radio");
             await TypeAsync(search, "kosmos");
             var pending = !editor.PendingSearch.IsCompleted && Overlay(dialog).IsVisible;
+            Report($"{step}: \"kosmos\" typed, before Escape");
             await PressAsync(dialog, Key.Escape);
             Layout(dialog);
+            Report($"{step}: after Escape");
             var escaped = pending && !editor.PendingSearch.IsCompleted && !editor.IsResultsOpen && !Overlay(dialog).IsVisible
                 && editor.HighlightedResult == null && Focused(dialog) == search && dialog.IsVisible;
             await PressAsync(dialog, Key.Enter);

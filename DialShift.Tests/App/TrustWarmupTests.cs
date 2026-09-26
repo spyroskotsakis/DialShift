@@ -16,12 +16,23 @@ namespace DialShift.Tests.App;
 /// Whether Windows then really adds a missing root is the by-hand check NC-20; the engine's use of the warm-up is HS-17
 /// LV-12 (Windows).
 /// </summary>
-/// <remarks><see cref="WindowsTrustWarmup.Timeout"/> is a fixed 5 s, so TW-07 takes 5 s of real time.</remarks>
+/// <remarks>
+/// TW-07 checks the app's bound, <see cref="WindowsTrustWarmup.Timeout"/> (5 s), in real time. Every other check is about
+/// something else, and a hosted runner can stall for seconds (Windows CI run 36244042354: TW-11, which takes about 10 ms,
+/// took 7.3 s, and a warm-up ran into the 5 s bound after the server had counted its handshake, so a "no answer" warning
+/// was logged). Those checks therefore run the warm-up through its test seam with <see cref="Patient"/> as the bound, and
+/// <see cref="Pinned"/> and <see cref="Unpinned"/> give the handler the same connect timeout, so only a longer stall can
+/// turn their warm-up into a timeout. A check that expects nothing logged prints what was logged, and TW-11 prints each
+/// warm-up's duration and the server's counts, so a recurrence names its cause.
+/// </remarks>
 public static class TrustWarmupTests
 {
     private const string Password = "warm-secret-4d1c";
     private const string Token = "warm-token-77e0";
-    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
+
+    /// <summary>The warm-up's bound (and the handler's connect timeout) in every check but TW-07's; below <see cref="Bound"/>.</summary>
+    private static readonly TimeSpan Patient = TimeSpan.FromSeconds(15);
 
     public static async Task RunAsync()
     {
@@ -53,13 +64,15 @@ public static class TrustWarmupTests
             handler.SslOptions.RemoteCertificateValidationCallback is null && handler.SslOptions.ClientCertificates is null or { Count: 0 });
         Check("TW-01 the warm-up refuses a null handler or log",
             Throws<ArgumentNullException>(() => new WindowsTrustWarmup(null!, NullAppLog.Instance)) && Throws<ArgumentNullException>(() => new WindowsTrustWarmup(Pinned(), null!)));
+        Check("TW-01 ... and its test seam refuses a bound that is not positive",
+            Throws<ArgumentOutOfRangeException>(() => new WindowsTrustWarmup(Pinned(), NullAppLog.Instance, TimeSpan.Zero)));
     }
 
     /// <summary>One GET without user-info, the headers awaited, the body left unread, the origin cached.</summary>
     private static async Task SuccessChecksAsync(LocalTlsServer server)
     {
         var log = new RecordingAppLog();
-        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        using var warmup = Warmup(Pinned(), log);
         var url = new Uri($"https://listener:{Password}@127.0.0.1:{server.Port}/stream?token={Token}#part");
         var requests = server.Requests.Count;
         var watch = Stopwatch.StartNew();
@@ -67,13 +80,13 @@ public static class TrustWarmupTests
         var took = watch.Elapsed;
         var request = server.Requests.Skip(requests).FirstOrDefault();
         var version = typeof(WindowsTrustWarmup).Assembly.GetName().Version!.ToString(3);
-        Check($"TW-02 an https warm-up returns once the response headers arrive ({took.TotalSeconds:0.00} s) after one GET for the URL's path",
-            warmed && took < WindowsTrustWarmup.Timeout && server.Requests.Count == requests + 1 && request is { Method: "GET", Path: "/stream" });
+        Check($"TW-02 an https warm-up returns once the response headers arrive ({took.TotalSeconds:0.00} s; the body never ends, so waiting for it would take the {Patient.TotalSeconds:0} s bound) after one GET for the URL's path",
+            warmed && took < Patient && server.Requests.Count == requests + 1 && request is { Method: "GET", Path: "/stream" });
         Check($"TW-02 ... without the URL's user-info (no Authorization header: {request?.AuthorizationSummary}) and with User-Agent DialShift/{version} (got '{request?.Header("User-Agent")}')",
             request is not null && request.Header("Authorization") is null && request.Header("User-Agent") == $"DialShift/{version}");
         var closed = await Wait.Until(() => server.OpenStreams == 0, TimeSpan.FromSeconds(1));
         Check($"TW-03 the response is disposed unread: the server's endless chunked body ends within 1 s of the warm-up returning (open streams {server.OpenStreams})", closed);
-        Check("TW-03 ... and a successful warm-up logs nothing", log.Entries.Count == 0);
+        Check($"TW-03 ... and a successful warm-up logs nothing ({Logged(log)})", log.Entries.Count == 0);
 
         var accepted = server.Accepted;
         var cachedCall = warmup.WarmAsync(server.Url("/another/path"), CancellationToken.None);
@@ -84,11 +97,11 @@ public static class TrustWarmupTests
             atOnce && server.Accepted == accepted && server.Requests.Count == requests + 1);
 
         // A fresh instance (the origin is cached above): a server that asks for credentials still never gets the URL's.
-        using var challenged = new WindowsTrustWarmup(Pinned(), log);
+        using var challenged = Warmup(Pinned(), log);
         var before = server.Requests.Count;
         await challenged.WarmAsync(new Uri($"https://listener:{Password}@127.0.0.1:{server.Port}/auth"), CancellationToken.None);
         var seen = server.Requests.Skip(before).ToList();
-        Check($"TW-02 ... not even after a 401 Basic challenge: one request, no Authorization header, nothing logged (server saw [{string.Join(", ", seen)}])",
+        Check($"TW-02 ... not even after a 401 Basic challenge: one request, no Authorization header, nothing logged (server saw [{string.Join(", ", seen)}]; {Logged(log)})",
             seen.Count == 1 && seen[0].Path == "/auth" && seen[0].Header("Authorization") is null && log.Entries.Count == 0);
 
         // SocketsHttpHandler ignores a URL's user-info anyway (the checks above pass without the stripping), so the
@@ -117,7 +130,7 @@ public static class TrustWarmupTests
     /// <summary>A redirect to another origin is followed, so both hops' handshakes happen.</summary>
     private static async Task RedirectChecksAsync(LocalTlsServer server, LocalTlsServer other)
     {
-        using var warmup = new WindowsTrustWarmup(Pinned(), NullAppLog.Instance);
+        using var warmup = Warmup(Pinned(), NullAppLog.Instance);
         server.RedirectTarget = other.Url("/stream");
         var (fromRequests, toRequests, toHandshakes) = (server.Requests.Count, other.Requests.Count, other.Handshakes);
         var warmed = await Wait.Finishes(warmup.WarmAsync(server.Url("/redirect"), CancellationToken.None), Bound);
@@ -132,18 +145,20 @@ public static class TrustWarmupTests
     {
         await using var icy = LocalTlsServer.Start();
         var log = new RecordingAppLog();
-        using var warmup = new WindowsTrustWarmup(Pinned(), log);
-        await warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None);
-        await warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None);
+        using var warmup = Warmup(Pinned(), log);
+        var first = await TimedAsync(() => warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None));
+        var second = await TimedAsync(() => warmup.WarmAsync(icy.Url("/icy"), CancellationToken.None));
+        // The server counts a handshake when its side completes, which can be just after the client's warm-up returned.
         var handshakes = await Wait.Until(() => icy.Handshakes == 2, TimeSpan.FromSeconds(5));
-        Check($"TW-11 an 'ICY 200 OK' reply is not a failure (nothing is logged) and, its hop unknown, is not cached: the second warm-up completes a handshake again ({icy.Handshakes})",
+        Check($"TW-11 an 'ICY 200 OK' reply is not a failure (nothing is logged) and, its hop unknown, is not cached: the second warm-up completes a handshake again " +
+              $"(warm-ups {first.TotalMilliseconds:0} ms and {second.TotalMilliseconds:0} ms; server: {icy.Accepted} accepted, {icy.Handshakes} handshakes, {icy.Requests.Count} requests; {Logged(log)})",
             log.Entries.Count == 0 && handshakes);
     }
 
     /// <summary>The cache records the origin that answered: A→B records B, not A, so A→C later is warmed again.</summary>
     private static async Task RedirectCacheChecksAsync(LocalTlsServer server, LocalTlsServer other, LocalTlsServer third)
     {
-        using var warmup = new WindowsTrustWarmup(Pinned(), NullAppLog.Instance);
+        using var warmup = Warmup(Pinned(), NullAppLog.Instance);
         server.RedirectTarget = other.Url("/stream");
         await warmup.WarmAsync(server.Url("/redirect"), CancellationToken.None);
         var (serverRequests, otherAccepted, thirdRequests) = (server.Requests.Count, other.Accepted, third.Requests.Count);
@@ -166,37 +181,37 @@ public static class TrustWarmupTests
     {
         await using var plain = LocalMediaServer.Start();
         var log = new RecordingAppLog();
-        using (var downgrade = new WindowsTrustWarmup(Pinned(), log))
+        using (var downgrade = Warmup(Pinned(), log))
         {
             server.RedirectTarget = plain.Url("/live.wav");
             var requests = server.Requests.Count;
             await downgrade.WarmAsync(server.Url("/redirect"), CancellationToken.None);
             await downgrade.WarmAsync(server.Url("/redirect"), CancellationToken.None);
             await Task.Delay(200);
-            Check($"TW-13 an https → http redirect is not followed: the http server sees no request ({plain.Requests.Count}), nothing is logged, "
+            Check($"TW-13 an https → http redirect is not followed: the http server sees no request ({plain.Requests.Count}), nothing is logged ({Logged(log)}), "
                 + "and the redirecting origin is not cached (the second warm-up requests it again)",
                 plain.Requests.Count == 0 && log.Entries.Count == 0 && server.Requests.Skip(requests).Count(r => r.Path == "/redirect") == 2);
         }
-        using (var multiple = new WindowsTrustWarmup(Pinned(), log))
+        using (var multiple = Warmup(Pinned(), log))
         {
             var requests = server.Requests.Count;
             await multiple.WarmAsync(server.Url("/redirect-300"), CancellationToken.None);
             await multiple.WarmAsync(server.Url("/redirect-300"), CancellationToken.None);
             await Task.Delay(200);
-            Check($"TW-13 ... the same with 300 Multiple Choices: not followed ({plain.Requests.Count} http requests), not logged, not cached",
+            Check($"TW-13 ... the same with 300 Multiple Choices: not followed ({plain.Requests.Count} http requests), not logged ({Logged(log)}), not cached",
                 plain.Requests.Count == 0 && log.Entries.Count == 0 && server.Requests.Skip(requests).Count(r => r.Path == "/redirect-300") == 2);
         }
 
         var max = WindowsTrustWarmup.MaxRedirects;
-        using (var chain = new WindowsTrustWarmup(Pinned(), log))
+        using (var chain = Warmup(Pinned(), log))
         {
             var requests = server.Requests.Count;
             await chain.WarmAsync(server.Url($"/chain/{max + 1}"), CancellationToken.None);
             var seen = server.Requests.Skip(requests).Select(r => r.Path).ToList();
-            Check($"TW-14 a chain of {max + 1} redirects is followed {max} times and no further: [{string.Join(", ", seen)}]",
+            Check($"TW-14 a chain of {max + 1} redirects is followed {max} times and no further: [{string.Join(", ", seen)}] ({Logged(log)})",
                 seen.SequenceEqual(Enumerable.Range(1, max + 1).Reverse().Select(n => $"/chain/{n}")) && log.Entries.Count == 0);
         }
-        using (var chain = new WindowsTrustWarmup(Pinned(), log))
+        using (var chain = Warmup(Pinned(), log))
         {
             var requests = server.Requests.Count;
             await chain.WarmAsync(server.Url($"/chain/{max}"), CancellationToken.None);
@@ -210,7 +225,7 @@ public static class TrustWarmupTests
     private static async Task StrictValidationChecksAsync(LocalTlsServer server)
     {
         var log = new RecordingAppLog();
-        using var warmup = new WindowsTrustWarmup(WindowsTrustWarmup.CreateHandler(), log);
+        using var warmup = Warmup(Unpinned(), log);
         var url = new Uri($"https://listener:{Password}@127.0.0.1:{server.Port}/private/stream?token={Token}");
         var (accepted, requests) = (server.Accepted, server.Requests.Count);
         var first = await Wait.Finishes(warmup.WarmAsync(url, CancellationToken.None), Bound);
@@ -232,7 +247,7 @@ public static class TrustWarmupTests
     private static async Task TimeoutChecksAsync(LocalTlsServer server)
     {
         var log = new RecordingAppLog();
-        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        using var warmup = new WindowsTrustWarmup(Pinned(WindowsTrustWarmup.Timeout), log); // the app's bound, 5 s
         var watch = Stopwatch.StartNew();
         var finished = await Wait.Finishes(warmup.WarmAsync(server.Url("/hang"), CancellationToken.None), Bound);
         var took = watch.Elapsed;
@@ -250,7 +265,7 @@ public static class TrustWarmupTests
     private static async Task HttpChecksAsync()
     {
         await using var plain = LocalMediaServer.Start();
-        using var warmup = new WindowsTrustWarmup(Pinned(), NullAppLog.Instance);
+        using var warmup = Warmup(Pinned(), NullAppLog.Instance);
         await warmup.WarmAsync(plain.Url("/live.wav"), CancellationToken.None);
         await warmup.WarmAsync(new Uri("/stream", UriKind.Relative), CancellationToken.None);
         await Task.Delay(200);
@@ -262,7 +277,7 @@ public static class TrustWarmupTests
     private static async Task CancellationChecksAsync(LocalTlsServer server)
     {
         var log = new RecordingAppLog();
-        using var warmup = new WindowsTrustWarmup(Pinned(), log);
+        using var warmup = Warmup(Pinned(), log);
         var accepted = server.Accepted;
         Check("TW-09 a cancelled token throws OperationCanceledException before connecting",
             await ThrowsAsync<OperationCanceledException>(() => warmup.WarmAsync(server.Url("/stream"), new CancellationToken(canceled: true))) && server.Accepted == accepted);
@@ -274,7 +289,7 @@ public static class TrustWarmupTests
         var watch = Stopwatch.StartNew();
         await cts.CancelAsync();
         var threw = await ThrowsAsync<OperationCanceledException>(() => warming.WaitAsync(Bound));
-        Check($"TW-09 cancelled while waiting for the answer: OperationCanceledException after {watch.Elapsed.TotalMilliseconds:0} ms, and nothing is logged",
+        Check($"TW-09 cancelled while waiting for the answer: OperationCanceledException after {watch.Elapsed.TotalMilliseconds:0} ms, and nothing is logged ({Logged(log)})",
             waiting && threw && watch.Elapsed < TimeSpan.FromSeconds(2) && log.Entries.Count == 0);
     }
 
@@ -282,28 +297,52 @@ public static class TrustWarmupTests
     private static async Task DisposeChecksAsync(LocalTlsServer server)
     {
         var log = new RecordingAppLog();
-        var warmup = new WindowsTrustWarmup(Pinned(), log);
+        var warmup = Warmup(Pinned(), log);
         var requests = server.Requests.Count;
         var warming = warmup.WarmAsync(server.Url("/hang"), CancellationToken.None);
         var waiting = await Wait.Until(() => server.Requests.Count == requests + 1, Bound);
         var watch = Stopwatch.StartNew();
         warmup.Dispose();
         var ended = await NoThrowAsync(() => warming.WaitAsync(Bound));
-        Check($"TW-10 Dispose ends a warm-up in flight at once ({watch.Elapsed.TotalMilliseconds:0} ms) without an exception or a log line",
+        Check($"TW-10 Dispose ends a warm-up in flight at once ({watch.Elapsed.TotalMilliseconds:0} ms) without an exception or a log line ({Logged(log)})",
             waiting && ended && watch.Elapsed < TimeSpan.FromSeconds(2) && log.Entries.Count == 0);
         var accepted = server.Accepted;
         await warmup.WarmAsync(server.Url("/stream"), CancellationToken.None);
         warmup.Dispose();
         await Task.Delay(200);
-        Check("TW-10 ... after Dispose a warm-up returns without connecting, and a second Dispose is harmless", server.Accepted == accepted && log.Entries.Count == 0);
+        Check($"TW-10 ... after Dispose a warm-up returns without connecting, and a second Dispose is harmless ({Logged(log)})", server.Accepted == accepted && log.Entries.Count == 0);
     }
 
-    /// <summary>The app's handler, trusting only the test server's certificate: the handshake is the only thing the test changes.</summary>
-    private static SocketsHttpHandler Pinned()
+    /// <summary>The warm-up under test, bounded by <see cref="Patient"/> instead of the app's <see cref="WindowsTrustWarmup.Timeout"/>.</summary>
+    private static WindowsTrustWarmup Warmup(HttpMessageHandler handler, IAppLog log) => new(handler, log, Patient);
+
+    /// <summary>The app's handler with its default certificate validation, connecting within <paramref name="connectTimeout"/> (default <see cref="Patient"/>).</summary>
+    private static SocketsHttpHandler Unpinned(TimeSpan? connectTimeout = null)
     {
         var handler = WindowsTrustWarmup.CreateHandler();
+        handler.ConnectTimeout = connectTimeout ?? Patient;
+        return handler;
+    }
+
+    /// <summary>The app's handler, trusting only the test server's certificate: besides the connect timeout (see
+    /// <see cref="Unpinned"/>), the handshake is the only thing the test changes.</summary>
+    private static SocketsHttpHandler Pinned(TimeSpan? connectTimeout = null)
+    {
+        var handler = Unpinned(connectTimeout);
         handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, _) =>
             certificate is not null && string.Equals(certificate.GetCertHashString(), LocalTlsServer.Thumbprint, StringComparison.OrdinalIgnoreCase);
         return handler;
     }
+
+    /// <summary>How long <paramref name="warm"/> took.</summary>
+    private static async Task<TimeSpan> TimedAsync(Func<Task> warm)
+    {
+        var watch = Stopwatch.StartNew();
+        await warm();
+        return watch.Elapsed;
+    }
+
+    /// <summary>"nothing logged", or every entry (level, event, message): a check that expects no log line names the one it got.</summary>
+    private static string Logged(RecordingAppLog log) =>
+        log.Entries is { Count: > 0 } entries ? "logged: " + string.Join(" | ", entries.Select(e => $"{e.Level} {e.EventName}: {e.Message}")) : "nothing logged";
 }
