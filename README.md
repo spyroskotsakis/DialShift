@@ -78,7 +78,7 @@ This applies if you used the earlier separate Windows or macOS app, including `v
 
 ## Open items / release status
 
-Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` was released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), and so is `v0.4.0`, with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for the next releases. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
+Both packages build, test and pass the native smoke in CI. Some checks still need things CI can't provide: Windows hardware, a clean Mac, signing credentials, a real login and a person at the screen. `v0.3.0` was released as a full release before those checks (decision D57 in [docs/decisions.md](docs/decisions.md)), and so is `v0.4.0` (D92), with the testing status stated in the release notes and at the top of this README; the checks stay open and are tracked for the next releases. [docs/open-items.md](docs/open-items.md) lists every one of them, with why it is blocked and how to run and record it.
 To run them, use the guided [native-check kit](scripts/native-check/README.md): one script per OS that walks through the checks and produces an evidence zip to send back.
 
 ## Listen

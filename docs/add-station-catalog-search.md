@@ -1,13 +1,15 @@
 # Add-Station Catalog Search — Searchable Station Catalog in the Add-Station Dialog
 
 > **Status: implemented (2026-09-26, branch `feature/add-station-catalog-search`, prepared for release as `v0.4.0`:
-> CHANGELOG `[0.4.0]`, not tagged yet).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
+> CHANGELOG `[0.4.0]`, not tagged yet; a full release before the by-hand checks, D92).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
 > (8,270 stations at `8e38215`) that both packages carry, with five filters, a detail pane with notes, and manual entry
-> kept. Acceptance: `docs/acceptance-matrix.md` §11, **10 GREEN and 8 WINDOWS-PENDING** (D75: only a `windows-latest`
-> CI run, NC-18 or NC-01 step (4b) is missing; `docs/open-items.md` §2.11–§2.13). Where the build differs from this
+> kept. Acceptance: `docs/acceptance-matrix.md` §11, **15 GREEN and 3 NATIVE-PENDING** since public CI `36219966368`
+> at `cceff38` passed on `windows-latest` and `macos-latest` (after D91); CAT-03, CAT-12 and CAT-14 wait only for
+> by-hand checks: NC-18, NC-01's smoke from the extracted zip and its step (4b), NC-17 step (6b)
+> (`docs/open-items.md` §2.11–§2.13). Where the build differs from this
 > brief, the decisions win: D69 (the catalog is about 8,300 stations, not ~1,400; budget ≤ 10,000), D70 (`Search` takes
 > a pre-folded `StationCatalogIndex`), D83 and D85 (the dialog's layout: the detail pane beside the form, the results
-> over the form column), D84 (languages as single names) and the rest of D59–D90 in `docs/decisions.md`. The text below
+> over the form column), D84 (languages as single names) and the rest of D59–D92 in `docs/decisions.md`. The text below
 > is the brief as frozen, kept as written.
 >
 > **Spec frozen 2026-09-25.** This is brief 3, after

@@ -2,7 +2,7 @@
 
 > Status: **implemented** (Sept 2026) · Owner: DialShift · Station catalog per country → import-ready XLSX
 > The final architecture is YAML-driven (see "What changed vs. this plan" at the bottom).
-> Since brief 3 (`docs/add-station-catalog-search.md`, D59–D90) the same pipeline also writes
+> Since brief 3 (`docs/add-station-catalog-search.md`, D59–D92) the same pipeline also writes
 > `output/app-catalog.json`, which the app's Add-station dialog searches; the XLSX is the fallback for manual entry.
 
 ## Goal
