@@ -2,6 +2,8 @@
 
 > Status: **implemented** (Sept 2026) · Owner: DialShift · Station catalog per country → import-ready XLSX
 > The final architecture is YAML-driven (see "What changed vs. this plan" at the bottom).
+> Since brief 3 (`docs/add-station-catalog-search.md`, D59–D90) the same pipeline also writes
+> `output/app-catalog.json`, which the app's Add-station dialog searches; the XLSX is the fallback for manual entry.
 
 ## Goal
 
@@ -23,15 +25,20 @@ data/
 │   ├── greece.yaml               ← curated stations, ERT national programme rules, city aliases
 │   ├── france.yaml
 │   └── germany.yaml              ← + `focus:` block (Munich) for the Munich tab
+├── collections/                  ← curated internet-radio folders (ambient-chill.yaml)
+├── languages.yaml                ← the app catalog's language names, aliases, drops (D84)
+├── frequency-bands.yaml          ← band words a frequency may be (`Shortwave`, D88)
 ├── raw/<CC>/                     ← disposable caches (Wikipedia md, radio-browser JSON);
 │                                  auto-regenerated, gitignored, never hand-maintained
 ├── build/
 │   ├── common.py                 ← shared helpers: normalization, classification, fetching
 │   ├── build_stations.py         ← THE ONE generic pipeline for every country (no per-country code)
-│   └── build_all.py              ← runs all countries → canonical CSVs + multi-tab XLSX
-├── canonical/                    ← generated, checked-in clean CSVs (one per country)
+│   ├── app_catalog.py            ← the app catalog export + validation + self-test (brief 3)
+│   └── build_all.py              ← runs all countries → canonical CSVs + app catalog + multi-tab XLSX
+├── canonical/                    ← generated, checked-in clean CSVs (one per country and collection)
 └── output/
-    └── dialshift-radio-catalog.xlsx   ← THE deliverable (multi-tab)
+    ├── app-catalog.json          ← what the app's Add-station search reads (generated, checked in)
+    └── dialshift-radio-catalog.xlsx   ← the human-readable workbook (multi-tab)
 ```
 
 **Rule:** adding a country = add one YAML file. Adding a focus city (like Munich) =
@@ -66,9 +73,9 @@ The 18 columns are frozen across countries — no per-country special columns.
 
 | tab | content |
 |---|---|
-| `README` | what the workbook is, how tabs work, how to import into DialShift |
+| `README` | what the workbook is, how tabs work, how to add a station to DialShift (the in-app search first, manual copy as the fallback) |
 | `Summary` | counts per country/type, top cities, Munich overview |
-| `Import Ready` | all countries, only `stream_status = Working`, sorted country → votes — the tab you pick stations from |
+| `Import Ready` | all countries, only `stream_status = Working`, sorted country → votes — the tab to copy from when you enter a station by hand (the app's catalog search covers the same working stations) |
 | `Greece` / `France` / `Germany` | full per-country rows (including stations with no stream, so you see the whole FM landscape) |
 | `Munich` | Germany rows for Munich area + Munich-based networks — your local shortlist |
 
@@ -146,7 +153,8 @@ data/schedules/
 ## Out of scope (explicitly)
 
 - No streaming licenses/legal checks — all URLs come from public directories or official sites.
-- No automatic import into DialShift settings (yet) — the `Import Ready` tab is the handoff.
+- No automatic import into DialShift settings: a station is added only when the user picks it in the Add-station
+  dialog's catalog search (brief 3, fed by `output/app-catalog.json`) or enters it by hand from the `Import Ready` tab.
 - No end-to-end play-testing of every stream — status comes from radio-browser checks + spot curls.
 
 ## What changed vs. the original plan
@@ -162,3 +170,7 @@ improved, per the "no hardcoded data in logic" and "same logic for all countries
 - **Frequency-preserving name matching** (`norm_freq`) avoids collisions like
   `norm('Radio Gong 96.3') == norm('Radio Gong 106.9')`.
 - **Final dedupe** on (normalized name + city + stream URL) guarantees no duplicate rows.
+- **App catalog export** (brief 3): `build/app_catalog.py` writes and validates `output/app-catalog.json` from the
+  same rows as the CSVs in every run (Working rows with a URL the app accepts, deduped per country; 8,270 stations
+  at `8e38215`), and the XLSX README tab points at the in-app search. See `data/README.md` and
+  `docs/catalog-contracts.md` §2.

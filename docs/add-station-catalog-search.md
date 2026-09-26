@@ -1,6 +1,16 @@
 # Add-Station Catalog Search — Searchable Station Catalog in the Add-Station Dialog
 
-> **Status: Ready to execute (spec frozen 2026-09-25).** Nothing implemented yet. This is brief 3, after
+> **Status: implemented (2026-09-26, branch `feature/add-station-catalog-search`, not yet released: CHANGELOG
+> `[Unreleased]`).** Phases 0–6 are done: the Add dialog searches a generated, checked-in `data/output/app-catalog.json`
+> (8,270 stations at `8e38215`) that both packages carry, with five filters, a detail pane with notes, and manual entry
+> kept. Acceptance: `docs/acceptance-matrix.md` §11, **10 GREEN and 8 WINDOWS-PENDING** (D75: only a `windows-latest`
+> CI run, NC-18 or NC-01 step (4b) is missing; `docs/open-items.md` §2.11–§2.13). Where the build differs from this
+> brief, the decisions win: D69 (the catalog is about 8,300 stations, not ~1,400; budget ≤ 10,000), D70 (`Search` takes
+> a pre-folded `StationCatalogIndex`), D83 and D85 (the dialog's layout: the detail pane beside the form, the results
+> over the form column), D84 (languages as single names) and the rest of D59–D90 in `docs/decisions.md`. The text below
+> is the brief as frozen, kept as written.
+>
+> **Spec frozen 2026-09-25.** This is brief 3, after
 > `single-codebase-refactor.md` (brief 1) and `schedule-timezone-research.md` (brief 2). Execution per §12
 > by the orchestrator (goal prompt: `docs/add-station-catalog-search-goal.md`, ≤4,000 chars, same discipline
 > as `claude-goal-execution.md`). All decisions taken during execution are recorded as D59+ (D58 is the local backup release path) in `docs/decisions.md`.
