@@ -1,10 +1,14 @@
 ; DialShift Setup: a per-user NSIS installer for the verified win-x64 package (brief 4, docs/windows-installer.md;
 ; decisions D93-D99). Built only by scripts/build-win-setup.sh, which checks the package and the version, generates
-; the three files included below into a temporary folder and passes that folder as GENERATED:
-;   defines.nsh          VERSION, VERSION_NUMERIC, ESTIMATED_SIZE_KB, ICON, OUTPUT
-;   install-files.nsh    SetOutPath/File lines for the payload (the package minus Install.ps1, plus
-;                        licenses\NSIS-COPYING.txt), in a fixed order so the output does not depend on the host (D98)
-;   uninstall-files.nsh  one un.DeleteListed call per installed file, then one RMDir per folder, deepest first (D96)
+; the three files included below into a temporary folder and passes every host path as a whole -D value in the host's
+; own form (Windows paths for makensis.exe): the files DEFINES_NSH, INSTALL_FILES_NSH, UNINSTALL_FILES_NSH, the
+; package folder PAYLOAD, the licence NSIS_COPYING, the icon ICON and the setup OUTPUT. This script joins no path to
+; them (makensis.exe splits an !include or File path at its last backslash, so "<folder>/<file>" is not found).
+;   DEFINES_NSH          VERSION, VERSION_NUMERIC, ESTIMATED_SIZE_KB
+;   INSTALL_FILES_NSH    SetOutPath/File lines for the payload (the package minus Install.ps1, plus
+;                        licenses\NSIS-COPYING.txt), in a fixed order so the output does not depend on the host (D98);
+;                        its File lines name ${PAYLOAD}\<relative path> with backslashes and ${NSIS_COPYING}
+;   UNINSTALL_FILES_NSH  one un.DeleteListed call per installed file, then one RMDir per folder, deepest first (D96)
 ;
 ; Install (D94): refusals R1-R5 before anything changes (exit 4, 3, 4, 4, 2), then, holding the install lock
 ; Local\DialShift.Install until the setup exits, remove exact-name leftovers beside the install, extract into
@@ -26,7 +30,7 @@ SetDateSave off
 AllowSkipFiles off
 XPStyle on
 
-!include "${GENERATED}/defines.nsh"
+!include "${DEFINES_NSH}"
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
@@ -364,7 +368,7 @@ Section "DialShift" SEC_APP
 
     DetailPrint "Extracting DialShift ${VERSION} into $Staging"
     StrCpy $Phase "extract"
-    !include "${GENERATED}/install-files.nsh"
+    !include "${INSTALL_FILES_NSH}"
     ClearErrors
     WriteUninstaller "$Staging\${UNINSTALLER}"
     ${If} ${Errors}
@@ -643,7 +647,7 @@ Section "Uninstall"
     ; Only the files this build installed, then its folders if empty: never a recursive delete of the install folder,
     ; so a file the user put there stays, with its folder.
     StrCpy $UnFailed ""
-    !include "${GENERATED}/uninstall-files.nsh"
+    !include "${UNINSTALL_FILES_NSH}"
     ${If} $UnFailed != ""
         StrCpy $0 "Could not delete $UnFailed. Quit DialShift and any program using files in $INSTDIR, then uninstall DialShift again."
         DetailPrint "$0"

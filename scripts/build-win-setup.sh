@@ -22,14 +22,21 @@
 # NSIS_ZIP_SHA256 together, with a decision, and check that the Mac and CI still build the same setup.
 #
 # The payload is the package minus Install.ps1 plus licenses/NSIS-COPYING.txt (the NSIS licence, brief 4 §10); the
-# setup writes "Uninstall DialShift.exe" at install time. The script generates defines.nsh, install-files.nsh (the
-# payload in a fixed, host-independent order) and uninstall-files.nsh (the uninstaller's file and folder list) into a
-# temporary folder, never into the repository, runs makensis -WX -V2 on scripts/windows-setup/DialShift.nsi, then
-# scripts/verify-win-setup.sh (with the package, so the contents are compared when 7-Zip is found) and prints the
-# size and SHA-256. Deterministic: the same payload, version and NSIS give the same bytes (SetDateSave off).
+# setup writes "Uninstall DialShift.exe" at install time. The script generates defines.nsh (version and size),
+# install-files.nsh (the payload in a fixed, host-independent order) and uninstall-files.nsh (the uninstaller's file and
+# folder list) into a temporary folder, never into the repository, runs makensis -WX -V2 on
+# scripts/windows-setup/DialShift.nsi, then scripts/verify-win-setup.sh (with the package, so the contents are
+# compared when 7-Zip is found) and prints the size and SHA-256. Deterministic: the same payload, version and NSIS give
+# the same bytes (SetDateSave off).
 #
-# bash 3.2+ and Python 3 (standard library): runs on macOS and under Git Bash on Windows, where paths reach
-# makensis.exe and Python through cygpath -w.
+# Paths: makensis gets every host path whole, as a -D value in the platform's own form (native below: cygpath -w
+# under Git Bash), and neither the script nor the generated files join a host path with a separator. The generated
+# files name payload files only as ${PAYLOAD}\<relative path> with backslashes, which makensis.exe reads natively and
+# the POSIX makensis converts, so they are the same text on every host. (makensis.exe splits an !include or File path
+# at its last backslash, so a joined "C:\...\generated/defines.nsh" is not found.)
+#
+# bash 3.2+ and Python 3 (standard library): runs on macOS and under Git Bash on Windows. $PYTHON names the
+# interpreter, else /usr/bin/python3, python3 or python.
 set -euo pipefail
 
 NSIS_VERSION=3.12
@@ -59,19 +66,29 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$PACKAGE" ] || [ -z "$ZIP" ] || fail "give --package or --zip, not both."
 
-# A path as the native tools of this platform read it: Windows form under Git Bash, unchanged elsewhere.
-native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi; }
+# A path as the native tools of this platform (makensis.exe, Python) read it: Windows form under Git Bash, unchanged
+# elsewhere. It must also be a string makensis can carry: no quotes, $, backquotes, wildcards or control characters.
+native() {
+    local path="$1"
+    if command -v cygpath >/dev/null 2>&1; then path="$(cygpath -w "$1")"; fi
+    case "$path" in
+        *[\"\$\`*?]* | *[[:cntrl:]]*) fail "the path '$path' has a character makensis cannot take (quotes, \$, \`, * or ?); use another folder." ;;
+    esac
+    printf '%s\n' "$path"
+}
 absolute() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$PWD/$1" ;; esac; }
 
-# Python 3: macOS's own (as verify-mac-app.sh uses), else python3, else python (the Windows runner). Each candidate
-# must run: on Windows, python3 can be a Microsoft Store stub that fails.
+# Python 3: $PYTHON, else macOS's own (as verify-mac-app.sh uses), else python3, else python (the Windows runner). Each
+# candidate must run: on Windows, python3 can be a Microsoft Store stub that fails.
+python_candidates=(/usr/bin/python3 python3 python)
+if [ -n "${PYTHON:-}" ]; then python_candidates=("$PYTHON"); fi
 PYTHON=""
-for candidate in /usr/bin/python3 python3 python; do
+for candidate in "${python_candidates[@]}"; do
     if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
         PYTHON="$candidate"; break
     fi
 done
-[ -n "$PYTHON" ] || fail "Python 3 not found (macOS: xcode-select --install; Windows: python on PATH)."
+[ -n "$PYTHON" ] || fail "Python 3 not found (macOS: xcode-select --install; Windows: python on PATH; or set PYTHON)."
 
 MAKENSIS="${MAKENSIS:-makensis}"
 command -v "$MAKENSIS" >/dev/null 2>&1 \
@@ -89,7 +106,8 @@ fi
 [ "${VERSION%%-*}" = "$CSPROJ_VERSION" ] \
     || fail "--version $VERSION does not match the csproj <Version>$CSPROJ_VERSION</Version>; bump the csproj first (D53)."
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/dialshift-setup.XXXXXX")"
+TEMP_ROOT="${TMPDIR:-/tmp}"
+WORK="$(mktemp -d "${TEMP_ROOT%/}/dialshift-setup.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/generated"
 
@@ -130,14 +148,23 @@ OUTPUT="$(absolute "$OUTPUT")"
 mkdir -p "$(dirname "$OUTPUT")"
 rm -f "$OUTPUT"
 
+# Every host path makensis or Python gets, converted once (native fails on a path makensis cannot take).
+N_PACKAGE="$(native "$PACKAGE")"
+N_COPYING="$(native "$ROOT/licenses/NSIS-COPYING.txt")"
+N_GENERATED="$(native "$WORK/generated")"
+N_DEFINES="$(native "$WORK/generated/defines.nsh")"
+N_INSTALL_FILES="$(native "$WORK/generated/install-files.nsh")"
+N_UNINSTALL_FILES="$(native "$WORK/generated/uninstall-files.nsh")"
+N_ICON="$(native "$ROOT/DialShift.App/Assets/dialshift.ico")"
+N_OUTPUT="$(native "$OUTPUT")"
+N_SCRIPT="$(native "$ROOT/scripts/windows-setup/DialShift.nsi")"
+
 echo "Building DialShift Setup $VERSION (NSIS $NSIS_VERSION) from $PACKAGE"
 # Checks DialShift.dll's version and writes the three generated include files.
-"$PYTHON" - "$(native "$PACKAGE")" "$(native "$ROOT/licenses/NSIS-COPYING.txt")" "$(native "$WORK/generated")" \
-    "$VERSION" "${VERSION%%-*}" "$(native "$ROOT/DialShift.App/Assets/dialshift.ico")" "$(native "$OUTPUT")" <<'PY' \
-    || exit 1
+"$PYTHON" - "$N_PACKAGE" "$N_COPYING" "$N_GENERATED" "$VERSION" "${VERSION%%-*}" <<'PY' || exit 1
 import math, os, re, sys
 
-package, copying, generated, version, numeric, icon, output = sys.argv[1:8]
+package, copying, generated, version, numeric = sys.argv[1:6]
 
 # The informational version is a length-prefixed UTF-8 string in DialShift.dll's AssemblyInformationalVersion
 # attribute blob (prolog 01 00, length, text, no named arguments 00 00): <version> or <version>+<commit>.
@@ -152,9 +179,9 @@ if not any(v == version or v.startswith(version + "+") for v in found):
              % (os.path.join(package, "DialShift.dll"), ", ".join(found) or "<none found>", version, version))
 
 def checked(text, what):
-    # Names become NSIS strings: no variables, quotes or control characters.
-    if any(c in text for c in '$"`') or any(ord(c) < 32 for c in text):
-        sys.exit("error: %s %r has a character the setup script cannot carry ($, quotes or a control character)." % (what, text))
+    # Names become NSIS strings and File patterns: no variables, quotes, wildcards, backslashes or control characters.
+    if any(c in text for c in '$"`*?\\') or any(ord(c) < 32 for c in text):
+        sys.exit("error: %s %r has a character the setup script cannot carry ($, quotes, *, ?, a backslash or a control character)." % (what, text))
     return text
 
 files = {}   # relative path with "/" -> source path
@@ -179,14 +206,19 @@ if "licenses/NSIS-COPYING.txt" in files:
     sys.exit("error: the package already has licenses/NSIS-COPYING.txt; the setup adds it (brief 4 section 10).")
 files["licenses/NSIS-COPYING.txt"] = copying
 folders.add("licenses")
-for source in list(files.values()) + [icon, output]:
-    checked(source, "path")
 
 total = sum(os.path.getsize(source) for source in files.values())
 estimated_kb = math.ceil(total / 1024)
 
 def nsis(path):
     return path.replace("/", "\\")
+
+# Where makensis reads a payload file: the package through ${PAYLOAD}, the licence through ${NSIS_COPYING} (both -D
+# values in the host's form), so no host path is written into the generated files.
+def source(path):
+    if path == "licenses/NSIS-COPYING.txt":
+        return "${NSIS_COPYING}"
+    return "${PAYLOAD}\\" + nsis(path)
 
 def write(name, lines):
     # UTF-8 with a byte order mark, so makensis reads the same text on every host.
@@ -197,8 +229,6 @@ write("defines.nsh", [
     "!define VERSION \"%s\"" % version,
     "!define VERSION_NUMERIC \"%s\"" % numeric,
     "!define ESTIMATED_SIZE_KB %d" % estimated_kb,
-    "!define ICON \"%s\"" % icon,
-    "!define OUTPUT \"%s\"" % output,
 ])
 
 # Folder by folder in code-point order, files by name: the order is the setup's, not the file system's (D98).
@@ -210,7 +240,7 @@ install = []
 for folder in sorted(by_folder):
     install.append("SetOutPath \"$Staging%s\"" % ("\\" + nsis(folder) if folder else ""))
     for path in sorted(by_folder[folder]):
-        install.append("File \"%s\"" % files[path])
+        install.append("File \"%s\"" % source(path))
 write("install-files.nsh", install)
 
 uninstall = []
@@ -225,10 +255,12 @@ print("Payload: %d files in %d folders, %d bytes (EstimatedSize %d KiB); DialShi
       % (len(files), len(folders), total, estimated_kb, ", ".join(found)))
 PY
 
-# MSYS must not rewrite the arguments of the Windows compiler (Git Bash).
-MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$MAKENSIS" -WX -V2 "-DGENERATED=$(native "$WORK/generated")" \
-    "$(native "$ROOT/scripts/windows-setup/DialShift.nsi")" \
-    || fail "makensis failed (see above); with -WX every warning is an error."
+# The arguments are already in the host's form: MSYS must not rewrite them for the Windows compiler (Git Bash).
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$MAKENSIS" -WX -V2 \
+    "-DDEFINES_NSH=$N_DEFINES" "-DINSTALL_FILES_NSH=$N_INSTALL_FILES" "-DUNINSTALL_FILES_NSH=$N_UNINSTALL_FILES" \
+    "-DPAYLOAD=$N_PACKAGE" "-DNSIS_COPYING=$N_COPYING" "-DICON=$N_ICON" "-DOUTPUT=$N_OUTPUT" \
+    "$N_SCRIPT" \
+    || fail "makensis failed (see above; -WX makes every warning an error)."
 [ -f "$OUTPUT" ] || fail "makensis wrote no $OUTPUT."
 
 bash "$ROOT/scripts/verify-win-setup.sh" "$OUTPUT" --version "$VERSION" --package "$PACKAGE"

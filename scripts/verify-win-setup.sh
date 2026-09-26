@@ -26,7 +26,7 @@
 # wizard, SmartScreen and Apps & features, which NC-19 checks by hand.
 #
 # Prints "verified: ..." and exits 0, or "error: ..." and exits 1; 2 for a usage error. bash 3.2+ and Python 3
-# (standard library only): macOS (/usr/bin/python3) and Git Bash on Windows (python).
+# (standard library only): macOS (/usr/bin/python3) and Git Bash on Windows (python); $PYTHON names another.
 set -euo pipefail
 
 usage() { echo "usage: scripts/verify-win-setup.sh <setup.exe> [--version <semver>] [--package <folder>] [--require-contents]" >&2; exit 2; }
@@ -57,13 +57,16 @@ fi
 NSIS_VERSION="$(bash "$ROOT/scripts/build-win-setup.sh" --print-nsis-pin | awk -F= '$1 == "nsis_version" { print $2 }')"
 [ -n "$NSIS_VERSION" ] || fail "could not read the NSIS pin from scripts/build-win-setup.sh."
 
+# Python 3: $PYTHON, else /usr/bin/python3, python3 or python (as build-win-setup.sh finds it).
+python_candidates=(/usr/bin/python3 python3 python)
+if [ -n "${PYTHON:-}" ]; then python_candidates=("$PYTHON"); fi
 PYTHON=""
-for candidate in /usr/bin/python3 python3 python; do
+for candidate in "${python_candidates[@]}"; do
     if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
         PYTHON="$candidate"; break
     fi
 done
-[ -n "$PYTHON" ] || fail "Python 3 not found (macOS: xcode-select --install; Windows: python on PATH)."
+[ -n "$PYTHON" ] || fail "Python 3 not found (macOS: xcode-select --install; Windows: python on PATH; or set PYTHON)."
 
 SEVEN_ZIP_TOOL=""
 if [ -n "$PACKAGE" ]; then
@@ -74,7 +77,8 @@ if [ -n "$PACKAGE" ]; then
         fail "7-Zip not found (7z, 7zz or \$SEVEN_ZIP), and --require-contents was given."
     fi
 fi
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/dialshift-verify-setup.XXXXXX")"
+TEMP_ROOT="${TMPDIR:-/tmp}"
+WORK="$(mktemp -d "${TEMP_ROOT%/}/dialshift-verify-setup.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 "$PYTHON" - "$(native "$SETUP")" "$VERSION" "$NSIS_VERSION" "$(native "$ROOT/DialShift.App/Assets/dialshift.ico")" \
