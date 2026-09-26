@@ -606,8 +606,19 @@ FunctionEnd
 ; ---------------------------------------------------------------------------------------------------------------
 ; The Welcome/Finish image at the display's scale (D104). The Modern UI shows the 100 % drawing stretched to its image
 ; control (109 x 193 dialog units: 164 x 314 pixels at 100 %, 328 x 628 at 200 %); this puts the drawing whose width is
-; nearest the control's in its place, fitted exactly (LoadAndSetImage deletes the bitmap it replaces). In: $R0 the image
-; control. Out: $R1 the new bitmap, which the page frees when it ends, or "" when the 100 % one stays. Changes $R2-$R4.
+; nearest the control's in its place, fitted exactly (LoadAndSetImage deletes the bitmap it replaces). Each drawing is
+; extracted once, when first needed. Should it not load, the 100 % one is loaded again, so the control never goes blank.
+; In: $R0 the image control. Out: $R1 the new bitmap (0 if even the 100 % one failed), which the page frees when it
+; ends, or "" when the Modern UI's own load stays. Changes $R2-$R4.
+!macro WIZARD_SCALE SCALE
+    ; A literal name: 7-Zip and verify-win-setup.sh list the entry by it.
+    StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-${SCALE}.bmp"
+    ${IfNot} ${FileExists} $R4
+        File "/oname=$PLUGINSDIR\dialshift-wizard-${SCALE}.bmp" "${WIZARD_BMP_${SCALE}}"
+        !pragma verifyloadimage "${WIZARD_BMP_${SCALE}}"
+    ${EndIf}
+!macroend
+
 !macro WIZARD_IMAGE UN
 Function ${UN}WizardImage
     System::Call '*(&i16) p .R2'
@@ -617,27 +628,24 @@ Function ${UN}WizardImage
     StrCpy $R1 ""
     ; Widths 164, 205, 246, 287, 328, 410 and 492; the thresholds are the midpoints between them.
     ${If} $R3 >= 451
-        File "/oname=$PLUGINSDIR\dialshift-wizard-300.bmp" "${WIZARD_BMP_300}"
-        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-300.bmp"
+        !insertmacro WIZARD_SCALE 300
     ${ElseIf} $R3 >= 369
-        File "/oname=$PLUGINSDIR\dialshift-wizard-250.bmp" "${WIZARD_BMP_250}"
-        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-250.bmp"
+        !insertmacro WIZARD_SCALE 250
     ${ElseIf} $R3 >= 308
-        File "/oname=$PLUGINSDIR\dialshift-wizard-200.bmp" "${WIZARD_BMP_200}"
-        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-200.bmp"
+        !insertmacro WIZARD_SCALE 200
     ${ElseIf} $R3 >= 267
-        File "/oname=$PLUGINSDIR\dialshift-wizard-175.bmp" "${WIZARD_BMP_175}"
-        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-175.bmp"
+        !insertmacro WIZARD_SCALE 175
     ${ElseIf} $R3 >= 226
-        File "/oname=$PLUGINSDIR\dialshift-wizard-150.bmp" "${WIZARD_BMP_150}"
-        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-150.bmp"
+        !insertmacro WIZARD_SCALE 150
     ${ElseIf} $R3 >= 185
-        File "/oname=$PLUGINSDIR\dialshift-wizard-125.bmp" "${WIZARD_BMP_125}"
-        StrCpy $R4 "$PLUGINSDIR\dialshift-wizard-125.bmp"
+        !insertmacro WIZARD_SCALE 125
     ${Else}
         Return
     ${EndIf}
     ${NSD_SetStretchedImage} $R0 "$R4" $R1
+    ${If} $R1 = 0
+        ${NSD_SetStretchedImage} $R0 "$PLUGINSDIR\modern-wizard.bmp" $R1
+    ${EndIf}
 FunctionEnd
 
 Function ${UN}FinishImage

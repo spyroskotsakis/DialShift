@@ -272,7 +272,8 @@ creates a desktop shortcut; a silent uninstall always keeps settings.
 Modern UI 2, English, `ManifestDPIAware true` (crisp at 150 % and 200 %), `BrandingText "DialShift <version>"`
 (not "Nullsoft Install System"), the app icon, no license page. The Welcome and Finish image is DialShift's own (D104):
 the app icon's green clock mark on its dark background, drawn by `scripts/windows-setup/wizard-image.py` for 100, 125,
-150, 175, 200, 250 and 300 %, and the drawing nearest the image control's width is shown, fitted exactly. Pages: **Welcome** (what is installed where; "No
+150, 175, 200, 250 and 300 %, and the drawing nearest the image control's width is shown, fitted exactly (slightly out of
+round at some scales, D104's known limitation). Pages: **Welcome** (what is installed where; "No
 administrator rights are needed."; the upgrade sentence of §5.3) → **Components** (DialShift, required; Desktop
 shortcut) → **Installing** → **Finish** (Run DialShift, checked). Uninstaller: **Confirm** → the §5.8 question →
 **Uninstalling** → **Finish**. Every message names the fix; no dead-end dialog (Retry where a retry can succeed). Tab
@@ -375,7 +376,10 @@ Windows runner), so it runs on the Mac without PowerShell and in CI.
 `--package` is given: the listing, with the output-folder prefix removed and the uninstaller entry 7-Zip synthesizes
 ignored, equals the package's files minus `Install.ps1` plus `licenses\NSIS-COPYING.txt`: same paths, sizes and
 CRC-32; `DialShift.exe`, `app-catalog.json`, `libvlc\win-x64\libvlc.dll`, `THIRD-PARTY-NOTICES.md` and every license
-text present, `Install.ps1` absent. Without 7-Zip the verifier prints `contents: not checked (7-Zip not found)` and
+text present, `Install.ps1` absent. Beside the payload only NSIS's `System.dll` and `nsDialogs.dll` and the
+Welcome/Finish image are allowed; the image must be there at all seven scales (`$PLUGINSDIR\modern-wizard.bmp` at
+100 %, `$PLUGINSDIR\dialshift-wizard-<scale>.bmp` at 125–300 %) and equal `wizard-image.py`'s drawings byte for byte
+(D104). Without 7-Zip the verifier prints `contents: not checked (7-Zip not found)` and
 still passes, unless `--require-contents` (CI) is given. If 7-Zip turns out unable to list this installer, a decision
 records it and CI's content proof is the installed tree of §8.1 (s1) alone.
 
@@ -599,7 +603,8 @@ SHA-256 `704b06d8…d22567338`, with a Mark of the Web added): a fresh install (
 existing settings with 3 stations) covered steps 2, 3 (not the keyboard), 4 for the uninstaller (the setup's own
 running check not exercised), 5 (not launch at sign-in, not a sign-out), 6 by the registry values (not the Settings
 page), 7 as a silent reinstall, and 8 both ways. It found the stock Welcome/Finish image blurry at 200 % and not
-DialShift's, replaced by D104. The full observations are in matrix §9 NC-19.
+DialShift's, replaced by D104; D104's Welcome image was then seen crisp at 200 % in the same VM (the setup built from
+`41a19de`), and **Cancel** → **Yes** quit with nothing installed. The full observations are in matrix §9 NC-19.
 
 ## 14. Open questions (pre-seeded defaults, adopted as D93–D99)
 

@@ -6,7 +6,7 @@ One Avalonia app, `DialShift.App`, ships as two self-contained packages, and the
 
 | Package | Platform | Playback | Status |
 |---|---|---|---|
-| `DialShift-Setup-win-x64.exe` | Windows 10/11, x64 | LibVLC (bundled) | Windows setup of the package below (per user, no administrator rights); unsigned; new in `v0.5.0`: CI builds it on `windows-latest` and on macOS (byte-identical), checks it and runs its install, upgrade, refusals and uninstall silently, all green (public CI run `36240957220`); by hand it has run in part in a Windows 11 ARM64 VM, not yet on a physical PC (NC-19) |
+| `DialShift-Setup-win-x64.exe` | Windows 10/11, x64 | LibVLC (bundled) | Windows setup of the package below (per user, no administrator rights); unsigned; new in `v0.5.0`: CI builds it on `windows-latest` and on macOS (byte-identical), checks it and runs its install, upgrade, refusals and uninstall silently, all green (public CI run `36243801937`); by hand it has run in part in a Windows 11 ARM64 VM, not yet on a physical PC (NC-19) |
 | `DialShift-win-x64.zip` | Windows 10/11, x64 | LibVLC (bundled) | Windows build; unsigned; passes CI on `windows-latest`, not yet tested by hand on a real Windows PC |
 | `DialShift-macos-arm64.zip` | macOS 14.0+, Apple Silicon only | Apple AVPlayer (part of macOS) | Native `osx-arm64` (AVPlayer, label `native-avplayer`); development build: ad-hoc signed, not yet notarized or clean-machine tested |
 

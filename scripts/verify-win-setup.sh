@@ -19,9 +19,10 @@
 # With --package and 7-Zip (7z, 7zz, or $SEVEN_ZIP): the installer is listed and extracted, and its payload must equal
 # the package minus Install.ps1 plus licenses/NSIS-COPYING.txt: the same paths, sizes and CRC-32; DialShift.exe,
 # app-catalog.json, libvlc/win-x64/libvlc.dll, THIRD-PARTY-NOTICES.md and every licence text present, Install.ps1
-# absent. The only other entries allowed are exactly NSIS's own $PLUGINSDIR/System.dll, $PLUGINSDIR/nsDialogs.dll and
-# $PLUGINSDIR/modern-wizard.bmp, the Welcome/Finish image at the other display scales ($PLUGINSDIR/dialshift-wizard-<scale>.bmp,
-# D104), and an uninstaller entry, if a 7-Zip version shows one. Without 7-Zip the contents are reported
+# absent. The only other entries allowed are exactly NSIS's own $PLUGINSDIR/System.dll and $PLUGINSDIR/nsDialogs.dll,
+# the Welcome/Finish image, which must be there at every display scale and equal scripts/windows-setup/wizard-image.py's
+# drawings ($PLUGINSDIR/modern-wizard.bmp at 100 %, $PLUGINSDIR/dialshift-wizard-<scale>.bmp at 125-300 %; D104), and an
+# uninstaller entry, if a 7-Zip version shows one. Without 7-Zip the contents are reported
 # as not checked and the script still passes, unless --require-contents (CI) is given.
 # Not checkable without running it: the install logic, which build.yml's setup cases run on windows-latest, and the
 # wizard, SmartScreen and Apps & features, which NC-19 checks by hand.
@@ -84,10 +85,10 @@ trap 'rm -rf "$WORK"' EXIT
 
 "$PYTHON" - "$(native "$SETUP")" "$VERSION" "$NSIS_VERSION" "$(native "$ROOT/DialShift.App/Assets/dialshift.ico")" \
     "${PACKAGE:+$(native "$PACKAGE")}" "$(native "$ROOT/licenses/NSIS-COPYING.txt")" "$SEVEN_ZIP_TOOL" \
-    "$(native "$WORK")" <<'PY'
+    "$(native "$WORK")" "$(native "$ROOT/scripts/windows-setup/wizard-image.py")" <<'PY'
 import os, re, struct, subprocess, sys, zlib
 
-setup, version, nsis_version, icon_path, package, copying, seven_zip, work = sys.argv[1:9]
+setup, version, nsis_version, icon_path, package, copying, seven_zip, work, wizard_image = sys.argv[1:10]
 name = os.path.basename(setup)
 
 def fail(message):
@@ -288,9 +289,13 @@ else:
         fail("7-Zip lists no single payload folder holding DialShift.exe (found %s)." % sorted(prefixes))
     prefix = prefixes.pop() + "/"
     # NSIS's own files: the System plugin, nsDialogs (the Modern UI's pages) and the Welcome/Finish image, at 100 % as
-    # modern-wizard.bmp and at the other display scales (D104).
-    nsis_files = {"$PLUGINSDIR/System.dll", "$PLUGINSDIR/nsDialogs.dll", "$PLUGINSDIR/modern-wizard.bmp"}
-    nsis_files |= {"$PLUGINSDIR/dialshift-wizard-%d.bmp" % scale for scale in (125, 150, 175, 200, 250, 300)}
+    # modern-wizard.bmp and at the other display scales (D104), each entry with the scale of its drawing.
+    wizard_images = {"$PLUGINSDIR/modern-wizard.bmp": 100}
+    wizard_images.update(("$PLUGINSDIR/dialshift-wizard-%d.bmp" % scale, scale) for scale in (125, 150, 175, 200, 250, 300))
+    nsis_files = {"$PLUGINSDIR/System.dll", "$PLUGINSDIR/nsDialogs.dll"} | set(wizard_images)
+    absent = sorted(set(wizard_images) - set(entries))
+    if absent:
+        fail("the setup has no %s (the Welcome/Finish image, D104)." % ", ".join(absent))
     listed = {}
     for path, length in entries.items():
         if path == prefix + "Uninstall DialShift.exe":
@@ -326,8 +331,21 @@ else:
             fail("%s is %d bytes in the setup and %d in the package." % (path, os.path.getsize(got), os.path.getsize(expected_files[path])))
         if crc_of(got) != crc_of(expected_files[path]):
             fail("%s differs from the package's copy (CRC-32 0x%08X, expected 0x%08X)." % (path, crc_of(got), crc_of(expected_files[path])))
-    contents = "contents: %d files equal to the package minus Install.ps1 plus licenses/NSIS-COPYING.txt (paths, sizes, CRC-32; %s)" % (
-        len(listed), os.path.basename(seven_zip))
+    # The Welcome/Finish images: byte for byte the generator's drawings.
+    drawn = os.path.join(work, "wizard")
+    os.mkdir(drawn)
+    drawing = subprocess.run([sys.executable, wizard_image, drawn], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if drawing.returncode != 0:
+        fail("wizard-image.py failed (exit %d):\n%s" % (drawing.returncode, drawing.stdout.decode("utf-8", "replace")[-2000:]))
+    for path, scale in sorted(wizard_images.items(), key=lambda item: item[1]):
+        got = os.path.join(target, *path.split("/"))
+        if not os.path.isfile(got):
+            fail("7-Zip did not extract %s." % path)
+        with open(got, "rb") as f, open(os.path.join(drawn, "dialshift-wizard-%d.bmp" % scale), "rb") as g:
+            if f.read() != g.read():
+                fail("%s is not wizard-image.py's drawing at %d %% (D104)." % (path, scale))
+    contents = ("contents: %d files equal to the package minus Install.ps1 plus licenses/NSIS-COPYING.txt (paths, sizes, CRC-32; %s), "
+                "the Welcome/Finish image at %d scales equal to wizard-image.py's" % (len(listed), os.path.basename(seven_zip), len(wizard_images)))
 
 print("verified: %s (%s; %s)" % (setup, summary, contents))
 PY

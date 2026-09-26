@@ -7,8 +7,12 @@ bitmaps of 164 x 314 pixels at 100 % (the Modern UI's Welcome/Finish image, 109 
 
 The picture is DialShift's own app icon (DialShift.App/Assets/icon-512.png, its 512 px source): the green clock mark
 on the icon's dark background, redrawn here from the icon's geometry so that every size is drawn, not resampled.
-Everything is integer arithmetic (the geometry is rounded once per size, each pixel is covered by 4 x 4 samples), so the
-bytes are the same on every host and Python version: the setup built on the Mac and in CI stays byte-identical (D98).
+The geometry is computed in floating point and rounded once per size to whole sample units (1/8 pixel); every value
+rounded lies at least 0.02 units from a rounding boundary, far more than floating-point error can move it. From there
+on everything is integer arithmetic (each pixel is covered by 4 x 4 samples), so the bytes are the same on every host
+and Python version: the setup built on the Mac and in CI stays byte-identical (D98).
+Every drawing has the 100 % image's proportions; the image control's own proportions vary a little with the display
+scale, so fitting a drawing to the control stretches it slightly out of round at some scales (D104, a known limitation).
 Called by scripts/build-win-setup.sh; standard library only.
 """
 import os
