@@ -14,12 +14,15 @@ namespace DialShift.Tests.Catalog;
 /// Content item copies <c>app-catalog.json</c> next to the test binary through the project reference), CAT-04's "the
 /// default location in the test process loads the real file", and CAT-01's export contract, read independently of the
 /// provider and compared with it and with <c>data/canonical/*.csv</c>, including the D84 shape of <c>language</c> (a
-/// normalized list of single names) and CAT-08's Language filter over the real entries.
+/// normalized list of single names), the D86/D90 one spelling per place among the city values, and CAT-08's Language
+/// filter over the real entries.
 /// </summary>
 /// <remarks>
 /// These are the only catalog checks that read the real file. They assert its contract, never its contents: the station
 /// count is whatever the JSON says, and the language checks are shape checks that hold no language name (D84, CAT-17: the
-/// names and their mapping are <c>data/languages.yaml</c>'s and the pipeline self-test's). The repository checks (byte equality with <c>data/output/</c>, the canonical CSVs)
+/// names and their mapping are <c>data/languages.yaml</c>'s and the pipeline self-test's). The city checks are patterns
+/// too (fold-equal values, stream-detail tokens), plus spelling-variant sets of place names that must not co-occur: they
+/// name no station and pick no winner, which spelling stays is <c>data/countries/*.yaml</c>'s (D90). The repository checks (byte equality with <c>data/output/</c>, the canonical CSVs)
 /// SKIP with a reason when the repository root (the folder with <c>DialShift.slnx</c>) is not above the test binary.
 /// </remarks>
 internal static class CatalogExportContractTests
@@ -78,6 +81,7 @@ internal static class CatalogExportContractTests
         Order(result.Catalog.Entries);
         Languages(result.Catalog.Entries);
         TagNotes(result.Catalog.Entries);
+        Cities(result.Catalog.Entries);
         LanguageFilter(result.Catalog.Entries);
         Canonical(root, result.Catalog.Entries);
     }
@@ -260,6 +264,55 @@ internal static class CatalogExportContractTests
                                  && t.Any(char.IsLetterOrDigit))
                 && tags.Select(t => t.Normalize(NormalizationForm.FormC)).Distinct(StringComparer.OrdinalIgnoreCase).Count() == tags.Length;
         }
+    }
+
+    /// <summary>
+    /// Spelling-variant sets of one place name each (D90's German states: the English, German and abbreviated spellings the
+    /// radio-browser data mixed before the YAML aliases gave each one spelling). Which spelling the file keeps is the YAML's
+    /// choice (the one with the most rows); the check only asks that one set never shows two of its spellings.
+    /// </summary>
+    private static readonly string[][] PlaceSpellingVariants =
+    [
+        ["Bavaria", "Bayern"], ["North Rhine-Westphalia", "Nordrhein-Westfalen", "Nrw"], ["Lower Saxony", "Niedersachsen"],
+        ["Saxony", "Sachsen"], ["Saxony-Anhalt", "Sachsen-Anhalt"], ["Rhineland-Palatinate", "Rheinland-Pfalz"], ["Hesse", "Hessen"]
+    ];
+
+    /// <summary>A stream detail (a bitrate, a codec or a stream format) inside a city value (D90).</summary>
+    private static readonly Regex StreamDetail = new(@"\b(\d+\s*)?kbits?\b|\baac\b|\bmp3\b|\bhls\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// D86 and D90, over the checked-in file: one spelling per place in the City filter. Within a country no two distinct
+    /// city values fold alike (a case or accent variant); each spelling-variant set of <see cref="PlaceSpellingVariants"/>
+    /// shows at most one spelling among the city values, compared by <c>Fold</c>, so a case variant of the kept spelling
+    /// also counts as a second one; and no city value carries a stream detail (<see cref="StreamDetail"/>).
+    /// </summary>
+    private static void Cities(IReadOnlyList<StationCatalogEntry> entries)
+    {
+        var cities = entries.Where(e => e.City.Length > 0).Select(e => (e.Country, e.City)).Distinct().ToList();
+
+        var folded = cities.GroupBy(c => (c.Country, Fold: StationCatalogQuery.Fold(c.City))).Where(g => g.Count() > 1).ToList();
+        foreach (var g in folded.Take(10)) Console.WriteLine($"  {g.Key.Country} cities folding to {CatalogFixtures.Show(g.Key.Fold)}: {string.Join(" | ", g.Select(c => CatalogFixtures.Show(c.City)))}");
+        Check($"CAT-01 D86 D90 within each country no two distinct city values have the same Fold ({cities.Count} distinct (country, city) values; actual {folded.Count} clashes)",
+            cities.Count > 0 && folded.Count == 0);
+
+        var values = cities.Select(c => c.City).Distinct(StringComparer.Ordinal).ToList();
+        var mixed = new List<string>();
+        var kept = new List<string>();
+        foreach (var set in PlaceSpellingVariants)
+        {
+            var spellings = set.Select(StationCatalogQuery.Fold).ToHashSet(StringComparer.Ordinal);
+            var found = values.Where(v => spellings.Contains(StationCatalogQuery.Fold(v))).ToList();
+            if (found.Count > 1) mixed.Add(string.Join(" / ", found.Select(CatalogFixtures.Show)));
+            else if (found.Count == 1) kept.Add(found[0]);
+        }
+        Console.WriteLine($"  spelling-variant sets: kept {string.Join(", ", kept)}; mixed {(mixed.Count == 0 ? "none" : string.Join("; ", mixed))}");
+        Check($"CAT-01 D90 each of the {PlaceSpellingVariants.Length} spelling-variant sets appears under at most one spelling among the city values " +
+              $"({kept.Count} appear, each once; actual mixed {mixed.Count})",
+            mixed.Count == 0 && kept.Count > 0);
+
+        var details = values.Where(v => StreamDetail.IsMatch(v)).ToList();
+        foreach (var v in details.Take(10)) Console.WriteLine($"  city with a stream detail: {CatalogFixtures.Show(v)}");
+        Check($"CAT-01 D90 no city value carries a stream detail (a bitrate, a codec or HLS: {StreamDetail}) (actual {details.Count})", details.Count == 0);
     }
 
     /// <summary>
