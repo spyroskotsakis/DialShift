@@ -46,9 +46,10 @@ cat <<EOF
 
 | File | For |
 |---|---|
-| \`DialShift-win-x64.zip\` | Windows 10/11, x64. Self-contained: .NET and VLC are included. |
+| \`DialShift-Setup-win-x64.exe\` | Windows 10/11, x64: installs for your user, no administrator rights; Apps & features uninstall. .NET and VLC are included. |
+| \`DialShift-win-x64.zip\` | Windows 10/11, x64, without installing: run it from the extracted folder. Self-contained: .NET and VLC are included. |
 | \`DialShift-macos-arm64.zip\` | macOS 14.0 or later, Apple Silicon only (there is no Intel build). The native \`osx-arm64\` build with Apple's AVPlayer (\`native-avplayer\`); .NET is included. |
-| \`SHA256SUMS.txt\` | SHA-256 checksums of both zips. |
+| \`SHA256SUMS.txt\` | SHA-256 checksums of the three downloads. |
 
 ### Check the download
 
@@ -61,19 +62,25 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 On Windows, in PowerShell, in the folder with the downloads (\`True\` means the file is intact):
 
 \`\`\`powershell
-\$expected = ((Select-String -Path SHA256SUMS.txt -Pattern 'DialShift-win-x64.zip' -SimpleMatch).Line -split '\s+')[0]
-(Get-FileHash DialShift-win-x64.zip -Algorithm SHA256).Hash -eq \$expected
+foreach (\$file in 'DialShift-Setup-win-x64.exe', 'DialShift-win-x64.zip') {
+    if (Test-Path \$file) {
+        \$expected = ((Select-String -Path SHA256SUMS.txt -Pattern \$file -SimpleMatch).Line -split '\s+')[0]
+        "\${file}: \$((Get-FileHash \$file -Algorithm SHA256).Hash -eq \$expected)"
+    }
+}
 \`\`\`
 
 ### Install
 
-**Windows:** extract the zip and run \`DialShift.exe\` from the extracted folder (keep the folder together). Optional: right-click \`Install.ps1\` and choose **Run with PowerShell** to install for your user, with a Start menu shortcut and no administrator rights. The build is not code-signed, so SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
+**Windows, setup:** run \`DialShift-Setup-win-x64.exe\`. It installs DialShift for your user in \`%LOCALAPPDATA%\\Programs\\DialShift\` with a Start menu shortcut, without administrator rights, and lists it in **Settings → Apps**, where you uninstall it. Run a newer setup to upgrade: it replaces the installed copy, including one installed with \`Install.ps1\`, and keeps your stations, schedule, settings and launch at sign-in. Quit DialShift from its tray menu first. The setup is not code-signed, so SmartScreen may say "Windows protected your PC": choose **More info**, then **Run anyway**.
+
+**Windows, zip:** extract the zip and run \`DialShift.exe\` from the extracted folder (keep the folder together). Optional: right-click \`Install.ps1\` and choose **Run with PowerShell** to install for your user, with a Start menu shortcut and no administrator rights; it does not upgrade an install made with the setup (use the setup). The build is not code-signed, so SmartScreen may warn in the same way.
 
 **macOS:** unzip, move \`DialShift.app\` to \`/Applications\` and open it. The app is ad-hoc signed and not notarized, so macOS blocks the first launch: open **System Settings → Privacy & Security** and choose **Open Anyway** (on older macOS, right-click the app and choose **Open**). DialShift lives in the menu bar; it has no Dock icon.
 
 ### Signing status
 
-- Windows: unsigned (no Authenticode signature).
+- Windows: the setup, its uninstaller and the app are unsigned (no Authenticode signature).
 - macOS: ad-hoc signed; not signed with a Developer ID and not notarized by Apple.
 EOF
 if [ -n "$SUMS" ]; then

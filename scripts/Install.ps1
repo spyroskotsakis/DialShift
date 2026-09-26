@@ -3,6 +3,7 @@
 # Settings live separately in %LOCALAPPDATA%\DialShift and are never touched here.
 # The new build is copied into a staging folder beside the install first and then swapped in by renames (SW-N4, D56),
 # so a failed copy or a locked file leaves the previous install as it was.
+# A folder installed with DialShift Setup (DialShift-Setup-win-x64.exe) is refused: the setup upgrades it (D95).
 param([switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
 
@@ -38,6 +39,17 @@ try {
     }
     if ($destinationKey.StartsWith($sourceKey, [StringComparison]::OrdinalIgnoreCase)) {
         throw "The install folder $destination is inside $source. Extract the release zip to a folder of its own and run Install.ps1 from there."
+    }
+    # An install of DialShift Setup (D95): swapping this folder in would drop its uninstaller and leave an Apps & features
+    # entry whose uninstaller is gone. Found by the uninstaller in the folder or by the entry's InstallLocation.
+    $setupInstall = Test-Path -LiteralPath (Join-Path $destination 'Uninstall DialShift.exe')
+    $setupLocation = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DialShift' -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+    if (-not $setupInstall -and $setupLocation) {
+        try { $setupInstall = ([IO.Path]::GetFullPath($setupLocation).TrimEnd('\') + '\').Equals($destinationKey, [StringComparison]::OrdinalIgnoreCase) }
+        catch { $setupInstall = $false }
+    }
+    if ($setupInstall) {
+        throw "DialShift in $destination was installed with DialShift Setup. To upgrade it, run the new DialShift-Setup-win-x64.exe, or uninstall DialShift in Settings > Apps first."
     }
     $running = Get-Process DialShift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $executable }
     if ($running) { throw 'Quit DialShift from its tray menu before installing an update.' }

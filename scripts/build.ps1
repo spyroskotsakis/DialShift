@@ -2,7 +2,9 @@
 Builds the Windows release of DialShift.App (win-x64, self-contained; decisions D13, D7).
 
   artifacts\DialShift-win-x64\       published app + Install.ps1, README, notices, licenses
-  artifacts\DialShift-win-x64.zip    the distributable: a zip of that folder (MSIX/installer later)
+  artifacts\DialShift-win-x64.zip    the distributable: a zip of that folder
+
+The Windows setup is a separate step on this verified folder: scripts/build-win-setup.sh (D93, D98).
 
 -Version <semver>: SemVer without build metadata, for example 0.3.0-rc.1. Its MAJOR.MINOR.PATCH
 must equal the csproj <Version>, the single source of the numeric version (D53): the override

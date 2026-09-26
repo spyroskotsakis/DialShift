@@ -2,11 +2,11 @@
 #   resolve  checks the tag (vMAJOR.MINOR.PATCH[-prerelease]), that the run was started on that tag, that its
 #            MAJOR.MINOR.PATCH equals the csproj <Version>, and that CHANGELOG.md has a section for it, before
 #            anything is built.
-#   build    the same build, test, native smoke, package, zip verification and macOS bundle smoke as CI (build.yml),
-#            at the tag, with the tag's version in the packages.
-#   publish  the only job that can write: attaches DialShift-win-x64.zip, DialShift-macos-arm64.zip and SHA256SUMS.txt
-#            to a new release. A tag with a pre-release suffix (v0.3.0-rc.1) makes a pre-release; vX.Y.Z makes the
-#            latest release.
+#   build    the same build, test, native smoke, package, zip verification, macOS bundle smoke, Windows setup checks
+#            and setup cross-build as CI (build.yml), at the tag, with the tag's version in the packages.
+#   publish  the only job that can write: attaches DialShift-win-x64.zip, DialShift-Setup-win-x64.exe,
+#            DialShift-macos-arm64.zip and SHA256SUMS.txt (D99) to a new release. A tag with a pre-release suffix
+#            (v0.3.0-rc.1) makes a pre-release; vX.Y.Z makes the latest release.
 # Nothing here names a repository: the workflow publishes to the repository it runs in, so a tag pushed to the private
 # development repository is a dry run and the same tag pushed to the public repository is the public release.
 # A run started by hand must be started on the tag itself (gh workflow run Release --ref <tag> -f tag=<tag>): GitHub
@@ -121,8 +121,8 @@ jobs:
           ref: refs/tags/${{ needs.resolve.outputs.tag }}
           persist-credentials: false
 
-      # The two zips the build jobs verified and uploaded (DialShift-win-x64, DialShift-osx-arm64-<label>); the smoke
-      # result artifacts do not match the pattern.
+      # The packages the build jobs verified and uploaded (DialShift-win-x64, DialShift-Setup-win-x64,
+      # DialShift-osx-arm64-<label>); the smoke result artifacts do not match the pattern.
       - name: Download the verified packages
         uses: actions/download-artifact@v8
         with:
@@ -138,12 +138,12 @@ jobs:
         run: |
           shopt -s nullglob
           mac=(DialShift-osx-arm64-*.zip)
-          if [ ! -f DialShift-win-x64.zip ] || [ "${#mac[@]}" -ne 1 ]; then
-            echo "::error title=Packages::Expected DialShift-win-x64.zip and one DialShift-osx-arm64-<label>.zip, found: $(printf '%s ' *)"
+          if [ ! -f DialShift-win-x64.zip ] || [ ! -f DialShift-Setup-win-x64.exe ] || [ "${#mac[@]}" -ne 1 ]; then
+            echo "::error title=Packages::Expected DialShift-win-x64.zip, DialShift-Setup-win-x64.exe and one DialShift-osx-arm64-<label>.zip, found: $(printf '%s ' *)"
             exit 1
           fi
           mv "${mac[0]}" DialShift-macos-arm64.zip
-          sha256sum DialShift-win-x64.zip DialShift-macos-arm64.zip > SHA256SUMS.txt
+          sha256sum DialShift-win-x64.zip DialShift-Setup-win-x64.exe DialShift-macos-arm64.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create the release
@@ -157,5 +157,6 @@ jobs:
           # gh uploads the assets to a draft and publishes it only when every upload succeeded.
           gh release create "$TAG" --verify-tag --title "DialShift $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" \
             "${channel[@]}" \
-            "$packages/DialShift-win-x64.zip" "$packages/DialShift-macos-arm64.zip" "$packages/SHA256SUMS.txt"
+            "$packages/DialShift-win-x64.zip" "$packages/DialShift-Setup-win-x64.exe" "$packages/DialShift-macos-arm64.zip" \
+            "$packages/SHA256SUMS.txt"
           echo "Published $(gh release view "$TAG" --json url --jq .url) (pre-release: $PRERELEASE)" >> "$GITHUB_STEP_SUMMARY"

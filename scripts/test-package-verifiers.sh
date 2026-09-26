@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Runs the package verifiers against the station catalog fixtures of CAT-03 (brief 3; docs/catalog-contracts.md §4.4
-# and §8; decisions D81, D82 (c) and (d), D58) and checks each verdict.
+# and §8; decisions D81, D82 (c) and (d), D58) and the setup verifier against the broken setups of brief 4 §7 (D98,
+# INS-04), and checks each verdict.
 #
 # Usage: scripts/test-package-verifiers.sh [--mac-app <DialShift.app>] [--win-package <folder>]
 #                                          [--powershell <command>] [--no-smoke]
+#                                          [--win-setup <DialShift-Setup-win-x64.exe>] [--win-exe <DialShift.exe>]
+#                                          [--version <semver>]
 #
 #   --mac-app      a verified macOS bundle, for example dist/DialShift.app from scripts/build-mac-app.sh (macOS only).
 #   --win-package  a verified win-x64 package folder, for example artifacts/DialShift-win-x64 from scripts/build.ps1,
@@ -12,7 +15,14 @@
 #                  powershell.exe (Windows PowerShell 5.1) runs the script's fallback parser, native check NC-18; there
 #                  the invalid UTF-8 fixture is reported as "noted", not checked (D82 (d)).
 #   --no-smoke     skip the bundle smoke runs (they open DialShift windows for about a minute each).
-#   Without --mac-app and --win-package: dist/DialShift.app and artifacts/DialShift-win-x64, whichever exist.
+#   --win-setup    a setup from scripts/build-win-setup.sh. scripts/verify-win-setup.sh (static checks) must pass it,
+#                  and reject, each with its own message: the setup checked with --version 9.9.9, a copy with one byte
+#                  of the compressed payload flipped (integrity CRC), a copy one byte short, a copy one byte longer, and
+#                  DialShift.exe (an x64 PE without NSIS data).
+#   --win-exe      that DialShift.exe. Default: DialShift.exe of --win-package, else of artifacts/DialShift-win-x64.
+#   --version      the version the setup must carry (as build-win-setup.sh --version). Default: the csproj <Version>.
+#   Without --mac-app, --win-package and --win-setup: dist/DialShift.app, artifacts/DialShift-win-x64 and
+#   artifacts/DialShift-Setup-win-x64.exe, whichever exist.
 #
 # Each package is copied once to a temporary folder. For every fixture the copy's app-catalog.json is replaced and
 # each verifier runs on the copy: scripts/verify-mac-app.sh (after an ad-hoc re-signature, since the catalog is a
@@ -23,13 +33,14 @@
 # "Catalog loads from the app folder" check must fail with "not valid catalog JSON"; a minimal valid file is the
 # control that the check passes on the same re-signed copy.
 # Prints one table row per fixture and exits 1 on any mismatch, 2 on a usage or setup error. CI (build.yml) runs it
-# after the verify steps: on macOS with --mac-app dist/DialShift.app, on Windows with the folder extracted from the zip.
+# after the verify steps: on macOS with --mac-app dist/DialShift.app, on Windows with the folder extracted from the zip,
+# and with --win-setup on the setup built on Windows and on the one the setup-crossbuild job builds on macOS.
 # Requires bash 3.2 or later; on macOS the tools of verify-mac-app.sh (with /usr/bin/python3) and codesign; for the
 # Windows package a PowerShell (pwsh on macOS: a dotnet tool or brew install powershell). On Windows, run it from
 # Git Bash (CI's `shell: bash`); paths reach PowerShell through cygpath.
 set -euo pipefail
 
-usage() { echo "usage: $0 [--mac-app <DialShift.app>] [--win-package <folder>] [--powershell <command>] [--no-smoke]" >&2; exit 2; }
+usage() { echo "usage: $0 [--mac-app <DialShift.app>] [--win-package <folder>] [--powershell <command>] [--no-smoke] [--win-setup <exe>] [--win-exe <DialShift.exe>] [--version <semver>]" >&2; exit 2; }
 fail() { echo "error: $*" >&2; exit 2; }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,20 +48,27 @@ MAC_APP=""
 WIN_PACKAGE=""
 POWERSHELL="pwsh"
 SMOKE=true
+WIN_SETUP=""
+WIN_EXE=""
+SETUP_VERSION=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --mac-app) [ $# -ge 2 ] || usage; MAC_APP="${2%/}"; shift 2 ;;
         --win-package) [ $# -ge 2 ] || usage; WIN_PACKAGE="${2%/}"; shift 2 ;;
         --powershell) [ $# -ge 2 ] || usage; POWERSHELL="$2"; shift 2 ;;
         --no-smoke) SMOKE=false; shift ;;
+        --win-setup) [ $# -ge 2 ] || usage; WIN_SETUP="$2"; shift 2 ;;
+        --win-exe) [ $# -ge 2 ] || usage; WIN_EXE="$2"; shift 2 ;;
+        --version) [ $# -ge 2 ] || usage; SETUP_VERSION="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
-if [ -z "$MAC_APP" ] && [ -z "$WIN_PACKAGE" ]; then
+if [ -z "$MAC_APP" ] && [ -z "$WIN_PACKAGE" ] && [ -z "$WIN_SETUP" ]; then
     if [ "$(uname -s)" = Darwin ] && [ -d "$ROOT/dist/DialShift.app" ]; then MAC_APP="$ROOT/dist/DialShift.app"; fi
     if [ -d "$ROOT/artifacts/DialShift-win-x64" ]; then WIN_PACKAGE="$ROOT/artifacts/DialShift-win-x64"; fi
-    [ -n "$MAC_APP" ] || [ -n "$WIN_PACKAGE" ] \
-        || fail "no package to test: build one (scripts/build-mac-app.sh, scripts/build.ps1) or pass --mac-app / --win-package."
+    if [ -f "$ROOT/artifacts/DialShift-Setup-win-x64.exe" ]; then WIN_SETUP="$ROOT/artifacts/DialShift-Setup-win-x64.exe"; fi
+    [ -n "$MAC_APP" ] || [ -n "$WIN_PACKAGE" ] || [ -n "$WIN_SETUP" ] \
+        || fail "no package to test: build one (scripts/build-mac-app.sh, scripts/build.ps1, scripts/build-win-setup.sh) or pass --mac-app / --win-package / --win-setup."
 fi
 if [ -n "$MAC_APP" ]; then
     [ "$(uname -s)" = Darwin ] || fail "--mac-app needs macOS (verify-mac-app.sh and codesign)."
@@ -61,6 +79,13 @@ fi
 if [ -n "$WIN_PACKAGE" ]; then
     [ -d "$WIN_PACKAGE" ] || fail "package folder not found: $WIN_PACKAGE"
     command -v "$POWERSHELL" >/dev/null 2>&1 || fail "PowerShell not found: $POWERSHELL (pass --powershell <command>)"
+fi
+if [ -n "$WIN_SETUP" ]; then
+    [ -f "$WIN_SETUP" ] || fail "setup not found: $WIN_SETUP"
+    if [ -z "$WIN_EXE" ]; then
+        if [ -n "$WIN_PACKAGE" ]; then WIN_EXE="$WIN_PACKAGE/DialShift.exe"; else WIN_EXE="$ROOT/artifacts/DialShift-win-x64/DialShift.exe"; fi
+    fi
+    [ -f "$WIN_EXE" ] || fail "DialShift.exe not found for the setup fixtures: $WIN_EXE (pass --win-exe <DialShift.exe>)"
 fi
 [ -n "$MAC_APP" ] || SMOKE=false
 
@@ -76,6 +101,76 @@ TEMP_ROOT="${TMPDIR:-/tmp}"
 WORK="$(cd "$(mktemp -d "${TEMP_ROOT%/}/dialshift-verifier-fixtures.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/fixtures" "$WORK/logs"
+
+# The setup fixtures (brief 4 §7; D98; INS-04): id | verdict of verify-win-setup.sh | the text its output must hold
+# (for a rejection: the message of the check that must catch it) | what the file is.
+SETUP_FIXTURES=(
+    "real-setup|pass|verified: |the setup as built"
+    "wrong-version|fail|version resource ProductVersion is|the same setup, checked with --version 9.9.9"
+    "payload-byte-flipped|fail|integrity CRC mismatch|one byte in the middle of the compressed payload flipped"
+    "truncated|fail|was cut off or has data appended|the last byte removed"
+    "byte-appended|fail|was cut off or has data appended|a zero byte appended"
+    "dialshift-exe|fail|not an NSIS setup|DialShift.exe, an x64 PE without NSIS data"
+)
+
+# Builds the broken copies, runs the verifier on each and prints a table; returns 1 on any mismatch.
+setup_fixtures() {
+    local folder="$WORK/setup" size offset byte row id expected needle description status verdict result mismatches=0
+    mkdir -p "$folder"
+    size="$(wc -c <"$WIN_SETUP" | tr -d ' ')"
+    cp "$WIN_SETUP" "$folder/real-setup.exe"
+    cp "$WIN_SETUP" "$folder/wrong-version.exe"
+    cp "$WIN_SETUP" "$folder/payload-byte-flipped.exe"
+    offset=$((size / 2))
+    byte="$(od -An -tu1 -j "$offset" -N1 "$WIN_SETUP" | tr -d ' ')"
+    # shellcheck disable=SC2059
+    printf "\\$(printf '%03o' $((byte ^ 255)))" | dd of="$folder/payload-byte-flipped.exe" bs=1 seek="$offset" conv=notrunc 2>/dev/null
+    head -c $((size - 1)) "$WIN_SETUP" >"$folder/truncated.exe"
+    { cat "$WIN_SETUP"; printf '\0'; } >"$folder/byte-appended.exe"
+    cp "$WIN_EXE" "$folder/dialshift-exe.exe"
+
+    echo "Setup verifier fixtures (brief 4 §7; D98, INS-04)"
+    echo "  setup: $WIN_SETUP ($size bytes; byte $offset flipped in payload-byte-flipped)"
+    echo "  DialShift.exe: $WIN_EXE"
+    echo
+    local SETUP_ROW='%-22s | %-8s | %-8s | %-8s | %s\n'
+    # shellcheck disable=SC2059
+    printf "$SETUP_ROW" Fixture Expected Verifier Result File
+    # shellcheck disable=SC2059
+    printf "$SETUP_ROW" ---------------------- -------- -------- -------- ------------------------------
+    for row in "${SETUP_FIXTURES[@]}"; do
+        IFS='|' read -r id expected needle description <<<"$row"
+        local args=("$folder/$id.exe" --version "${SETUP_VERSION:-$(awk -F'[<>]' '/<Version>/ { print $3; exit }' "$ROOT/DialShift.App/DialShift.App.csproj")}")
+        [ "$id" != wrong-version ] || args=("$folder/$id.exe" --version 9.9.9)
+        status=0
+        bash "$ROOT/scripts/verify-win-setup.sh" "${args[@]}" >"$WORK/logs/$id.setup.log" 2>&1 || status=$?
+        if [ "$status" -eq 0 ] && grep -qF "$needle" "$WORK/logs/$id.setup.log"; then verdict=pass
+        elif [ "$status" -ne 0 ] && grep -qF "$needle" "$WORK/logs/$id.setup.log"; then verdict=fail
+        else verdict=ERROR; fi
+        result=ok
+        if [ "$verdict" != "$expected" ]; then result=MISMATCH; mismatches=$((mismatches + 1)); fi
+        # shellcheck disable=SC2059
+        printf "$SETUP_ROW" "$id" "$expected" "$verdict" "$result" "$description"
+    done
+    echo
+    echo "Messages (the last line of each run):"
+    for row in "${SETUP_FIXTURES[@]}"; do
+        IFS='|' read -r id _ _ _ <<<"$row"
+        echo "  $id: $(grep -v '^[[:space:]]*$' "$WORK/logs/$id.setup.log" | tail -n 1 | tr -s '[:space:]' ' ' | cut -c1-300)"
+    done
+    echo
+    if [ "$mismatches" -gt 0 ]; then
+        echo "FAILED: $mismatches of ${#SETUP_FIXTURES[@]} setup fixtures did not get the expected verdict."
+        return 1
+    fi
+    echo "All ${#SETUP_FIXTURES[@]} setup fixtures got the expected verdict."
+}
+
+# Only a setup to test: no catalog fixtures.
+if [ -z "$MAC_APP" ] && [ -z "$WIN_PACKAGE" ]; then
+    setup_fixtures || exit 1
+    exit 0
+fi
 
 # The fixtures: id | verdict of both verifiers (pass or fail) | bundle smoke's catalog check (loads, rejects or -) |
 # what the file holds. real-catalog is the package's own app-catalog.json.
@@ -290,8 +385,15 @@ done
 
 echo
 total=${#FIXTURES[@]}
+failed=false
 if [ "$mismatches" -gt 0 ]; then
     echo "FAILED: $mismatches of $total fixtures did not get the expected verdict."
-    exit 1
+    failed=true
+else
+    echo "All $total fixtures got the expected verdict$([ "$noted" -eq 0 ] || echo " ($noted noted, not checked, under Windows PowerShell 5.1)")."
 fi
-echo "All $total fixtures got the expected verdict$([ "$noted" -eq 0 ] || echo " ($noted noted, not checked, under Windows PowerShell 5.1)")."
+if [ -n "$WIN_SETUP" ]; then
+    echo
+    setup_fixtures || failed=true
+fi
+if $failed; then exit 1; fi

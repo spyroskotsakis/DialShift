@@ -13,6 +13,10 @@ data/output/*.json text eol=lf
 # fields): never converted, so a rebuild matches the checked-in bytes on every platform.
 data/canonical/*.csv -text
 
+# The NSIS licence text the Windows setup installs, verbatim as NSIS 3.12 ships it (CRLF; SHA-256 388357c1...65442aba):
+# the same bytes on every checkout, or the setups built on the Mac and on Windows would differ (D98).
+licenses/NSIS-COPYING.txt -text
+
 *.xlsx binary
 *.png binary
 *.ico binary

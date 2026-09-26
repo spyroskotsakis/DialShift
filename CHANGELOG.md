@@ -8,6 +8,28 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-26
+
+Adds a Windows setup, `DialShift-Setup-win-x64.exe`, beside the zip, and fixes a rare lost line in `dialshift.log`. Otherwise the app works as in [0.4.1](CHANGELOG.md#041---2026-09-26), and what 0.4.1 and 0.4.0 say about testing still applies.
+
+### Testing status and known limitations
+
+Please read this before you install.
+
+- **The setup is checked by automated tests on GitHub's Windows machines, and only in part by hand.** CI builds it on `windows-latest` and again on macOS, checks that both builds are byte-identical and that it holds exactly the zip's files, and runs it silently on `windows-latest`: a fresh install, upgrades over a setup install and over an `Install.ps1` install, a locked file, the install lock, a running DialShift, dozens of refused folders, silent and in-place uninstalls, and folders with spaces, a non-ASCII letter and the longest path the setup allows, all green (public CI run `36243801937`; the release's own CI run repeats them on the final code). By hand (native check NC-19) it has so far run only in a Windows 11 ARM64 virtual machine (Parallels, the x64 setup under emulation, display scale 200 %), not a physical PC, as a fresh install: SmartScreen warned and **Run anyway** went on (Smart App Control was off), no administrator prompt, the wizard's pages and text were right and crisp at 200 %, the installed app kept the existing stations and played, the uninstaller asked to quit a running DialShift and went on after **Retry**, and its keep-settings question worked both ways. Not yet checked by hand: an upgrade of a `0.4.0` `Install.ps1` install with launch at sign-in on, a sign-out and in, keyboard navigation, the Settings → Apps page, the setup's own check for a running DialShift, Windows 10, and a physical PC. That run found the Welcome and Finish pages' picture blurry and not DialShift's; this release has DialShift's own (decision D104), seen by hand so far on the Welcome page at 200 % only. At some other display scales it may look slightly stretched.
+- **Everything [0.4.1](CHANGELOG.md#041---2026-09-26) and [0.4.0](CHANGELOG.md#040---2026-09-26) say about testing still applies:** Windows has not been tested by hand on a physical PC (tray, audible playback, launch at sign-in, sleep and wake), and macOS has not been tested on a clean Mac or on macOS 14 and 15.
+- **The setup is not code-signed,** like the rest of the Windows download, so SmartScreen may warn: choose **More info**, then **Run anyway**. Windows 11's Smart App Control, when on, blocks unsigned programs with no way past it, the zip's `DialShift.exe` too.
+- **Going back to 0.4.1 from a setup install:** uninstall DialShift in **Settings → Apps** (choose **Yes** to keep your stations, schedule and settings), then use the [v0.4.1 release](https://github.com/spyroskotsakis/DialShift/releases/tag/v0.4.1)'s zip, with or without `Install.ps1`. `Install.ps1` refuses to replace a setup install.
+
+### Added
+
+- **A Windows setup, `DialShift-Setup-win-x64.exe`,** published beside the zip, which stays as it is. Double-click it to install DialShift for your user in `%LOCALAPPDATA%\Programs\DialShift`, without administrator rights, with a Start menu shortcut, an optional desktop shortcut and an entry in **Settings → Apps**, from where it uninstalls. Uninstalling asks whether to keep your stations, schedule and settings. Running a newer setup upgrades in place, over a setup install or an `Install.ps1` install, and keeps your settings and launch at sign-in; if DialShift is running, the setup asks you to quit it first and waits for **Retry**. `/S` installs and uninstalls silently; `/D=<folder>` installs into another folder, for automation, and a folder the setup can't use exactly as given is refused (exit code 13), never swapped for another. The setup is built with NSIS 3.12 and is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**. Its licence is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and `licenses/NSIS-COPYING.txt`.
+
+### Changed
+
+- **`Install.ps1` does not replace an install made with the setup.** It stops with a message that says to run the new setup, or to uninstall DialShift in Settings → Apps first, because its copy would drop the setup's uninstaller.
+- **Releases have a fourth file,** `DialShift-Setup-win-x64.exe`, and `SHA256SUMS.txt` covers the three downloads.
+
 ### Fixed
 
 - **`dialshift.log` could lose a line when two DialShift processes logged at once.** DialShift writes the log under a lock that the running app and a second launch share. A write that could not get the lock within 250 ms treated the lock as stuck, even while the other process was still writing normally. It then wrote without the lock and could overwrite the other process's newest line. This mostly affects Windows, where waiting processes check the lock less often. A write now waits while the other process keeps writing. It gives up only after 250 ms without progress, or 2 s in total. Found by the automated tests on a GitHub-hosted Windows machine. No user reports (decision D103).
@@ -131,7 +153,8 @@ The full lists are in [0.3.0-rc.1](CHANGELOG.md#030-rc1---2026-09-25) (the rebui
 - The schedule does not wake a sleeping computer, and slots have no end time.
 - Going back to an earlier DialShift keeps stations and schedule, but the earlier app ignores slot time zones and removes them when it next saves.
 
-[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/spyroskotsakis/DialShift/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/spyroskotsakis/DialShift/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/spyroskotsakis/DialShift/compare/v0.3.0-rc.2...v0.3.0

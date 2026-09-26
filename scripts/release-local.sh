@@ -4,9 +4,9 @@
 # account's Actions minutes are refused). The normal path stays the tag push and release.yml (D53).
 #
 # It makes the release release.yml would: the tag's code and scripts, the same checks where a Mac can run them, the
-# same assets (DialShift-win-x64.zip, DialShift-macos-arm64.zip, SHA256SUMS.txt), the notes of scripts/release-notes.sh
-# and the same gh release create call. The notes end with a line saying the release was built and uploaded locally
-# and which checks ran.
+# same assets (DialShift-win-x64.zip, DialShift-Setup-win-x64.exe for tags from brief 4 on, DialShift-macos-arm64.zip,
+# SHA256SUMS.txt), the notes of scripts/release-notes.sh and the same gh release create call. The notes end with a
+# line saying the release was built and uploaded locally and which checks ran.
 #
 # Usage: scripts/release-local.sh <tag> [--repo <owner/name>] [--win-zip <path>] [--publish]
 #
@@ -16,6 +16,8 @@
 #               spyroskotsakis/dialshift-dev is the private dry run.
 #   --win-zip   a DialShift-win-x64.zip built on Windows at the tag (scripts/build.ps1 -Version <version>), used instead
 #               of cross-building the Windows package here with PowerShell 7 (pwsh; brew install powershell).
+#               The Windows setup is built from the zip that is uploaded, either way, with Homebrew's makensis at the
+#               version the tag's scripts/build-win-setup.sh pins (brew install makensis; D99).
 #   --publish   create the release. Without it, a dry run: everything is built and verified, the assets and the notes
 #               are written, and the gh command is printed; nothing is uploaded.
 #
@@ -23,9 +25,11 @@
 # tag's MAJOR.MINOR.PATCH equals the csproj <Version>, CHANGELOG.md has the version's section; with --publish also a
 # gh login, the tag on the target repository at the same commit, and no release for it there yet.
 # Then, like build.yml: build (-warnaserror) -> tests -> package (Windows, macOS) -> verify the zips that are
-# uploaded -> macOS native smoke (build output, --recovery-test) and bundle smoke (the app unzipped from the release
-# zip) -> the CAT-03 package verifier fixtures (tags from brief 3 on). Not run here: the tests' Windows-only checks (SKIP on macOS), the Windows native smoke and build.yml's
-# Install.ps1 cases.
+# uploaded -> the Windows setup from the uploaded zip and its verification (tags from brief 4 on; the contents only
+# with 7-Zip: brew install sevenzip) -> macOS native smoke (build output, --recovery-test) and bundle smoke (the app
+# unzipped from the release zip) -> the CAT-03 package verifier fixtures (tags from brief 3 on) and the setup
+# verifier fixtures (from brief 4 on). Not run here: the tests' Windows-only checks (SKIP on macOS), the Windows
+# native smoke, build.yml's Install.ps1 cases and its setup install, upgrade and uninstall cases.
 # CFBundleVersion: the number of the release.yml run that the tag push started on the target repository (a run whose
 # jobs GitHub refused still has one), else the next run number, so the build sorts like a CI release (D53).
 # Output: artifacts/release-local/<tag>/ in this checkout (git-ignored).
@@ -100,6 +104,17 @@ scripts/release-notes.sh "$VERSION" >/dev/null \
     || fail "add a '## [$VERSION]' section to CHANGELOG.md at the tagged commit; it becomes the release notes."
 LABEL="$(awk '$1 == "MACOS_LABEL:" { print $2; exit }' .github/workflows/build.yml)"
 [ -n "$LABEL" ] || fail "no MACOS_LABEL in .github/workflows/build.yml at $TAG."
+# The Windows setup exists from brief 4 on. Its build script refuses another makensis version with the pin to bump.
+SETUP=false
+if [ -f scripts/build-win-setup.sh ]; then
+    SETUP=true
+    NSIS_PIN="$(bash scripts/build-win-setup.sh --print-nsis-pin | awk -F= '$1 == "nsis_version" { print $2 }')"
+    command -v makensis >/dev/null 2>&1 \
+        || fail "makensis is needed to build the Windows setup of $TAG: brew install makensis (NSIS $NSIS_PIN)."
+    # Checked here, before the long builds, as build-win-setup.sh would check it at the end.
+    [ "$(makensis -VERSION 2>&1)" = "v$NSIS_PIN" ] \
+        || fail "makensis -VERSION printed '$(makensis -VERSION 2>&1)', but $TAG's scripts/build-win-setup.sh pins NSIS $NSIS_PIN; Homebrew cannot install an older version, so bump the pin and CI's zip together, with a decision (D98, D99)."
+fi
 echo "Release $TAG ($COMMIT): version $VERSION, pre-release: $PRERELEASE, target: $REPO"
 
 if [ "$PUBLISH" = true ]; then
@@ -128,6 +143,7 @@ echo "Build number (CFBundleVersion): $BUILD_NUMBER"
 
 CHECKED=()
 NOT_CHECKED=("the tests' Windows-only checks, the Windows native smoke and the Install.ps1 checks (they need Windows)")
+if $SETUP; then NOT_CHECKED+=("the setup's install, upgrade and uninstall cases (they need Windows)"); fi
 
 phase "Build DialShift.slnx (-warnaserror)"
 dotnet build DialShift.slnx -c Release -warnaserror
@@ -166,6 +182,19 @@ else
     echo "warning: pwsh not found: verify-win-package.ps1 did not run on the Windows zip here (build.ps1 verified it before zipping)." >&2
     CHECKED+=("$win_source (version $VERSION at the tag's commit)")
     NOT_CHECKED+=("verify-win-package.ps1 on the extracted Windows zip")
+fi
+
+if $SETUP; then
+    # From the zip that is uploaded, so the setup and the zip carry the same bytes; the script checks the version and
+    # runs verify-win-setup.sh (the contents too when 7-Zip is found).
+    phase "Package win-x64 setup (scripts/build-win-setup.sh, from DialShift-win-x64.zip)"
+    bash scripts/build-win-setup.sh --zip "$OUT/DialShift-win-x64.zip" --version "$VERSION" --output "$OUT/DialShift-Setup-win-x64.exe"
+    if command -v 7z >/dev/null 2>&1 || command -v 7zz >/dev/null 2>&1; then
+        CHECKED+=("the Windows setup, built with makensis $(makensis -VERSION) from the uploaded zip (verify-win-setup.sh, contents compared with 7-Zip)")
+    else
+        CHECKED+=("the Windows setup, built with makensis $(makensis -VERSION) from the uploaded zip (verify-win-setup.sh static checks)")
+        NOT_CHECKED+=("the setup's contents (7-Zip not found: brew install sevenzip)")
+    fi
 fi
 
 phase "Package osx-arm64 app bundle and zip"
@@ -209,12 +238,21 @@ if [ -f scripts/test-package-verifiers.sh ]; then
     else
         NOT_CHECKED+=("the CAT-03 verifier fixtures on the Windows package (pwsh not found)")
     fi
+    fixture_names="the CAT-03 package verifier fixtures on $fixture_packages"
+    if $SETUP; then
+        unzip -p "$OUT/DialShift-win-x64.zip" DialShift.exe > "$WORK/DialShift.exe"
+        fixture_args+=(--win-setup "$OUT/DialShift-Setup-win-x64.exe" --win-exe "$WORK/DialShift.exe" --version "$VERSION")
+        fixture_names+=" and the setup verifier fixtures"
+    fi
     bash scripts/test-package-verifiers.sh "${fixture_args[@]}"
-    CHECKED+=("the CAT-03 package verifier fixtures on $fixture_packages")
+    CHECKED+=("$fixture_names")
 fi
 
 phase "SHA256SUMS.txt and release notes"
-(cd "$OUT" && shasum -a 256 DialShift-win-x64.zip DialShift-macos-arm64.zip > SHA256SUMS.txt)
+ASSETS=(DialShift-win-x64.zip)
+if $SETUP; then ASSETS+=(DialShift-Setup-win-x64.exe); fi
+ASSETS+=(DialShift-macos-arm64.zip)
+(cd "$OUT" && shasum -a 256 "${ASSETS[@]}" > SHA256SUMS.txt)
 cat "$OUT/SHA256SUMS.txt"
 join() { local out="$1"; shift; for item in "$@"; do out+="; $item"; done; printf '%s' "$out"; }
 GITHUB_REPOSITORY="$REPO" scripts/release-notes.sh "$VERSION" "$OUT/SHA256SUMS.txt" > "$OUT/release-notes.md"
@@ -225,7 +263,8 @@ echo "Notes: $OUT/release-notes.md"
 if [ "$PRERELEASE" = true ]; then channel=(--prerelease --latest=false); else channel=(--latest); fi
 # gh uploads the assets to a draft and publishes it only when every upload succeeded.
 create=(gh release create "$TAG" --verify-tag --repo "$REPO" --title "DialShift $VERSION" --notes-file "$OUT/release-notes.md"
-    "${channel[@]}" "$OUT/DialShift-win-x64.zip" "$OUT/DialShift-macos-arm64.zip" "$OUT/SHA256SUMS.txt")
+    "${channel[@]}")
+for asset in "${ASSETS[@]}" SHA256SUMS.txt; do create+=("$OUT/$asset"); done
 if [ "$PUBLISH" = true ]; then
     phase "Publish the GitHub Release on $REPO"
     "${create[@]}"
