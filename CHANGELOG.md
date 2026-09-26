@@ -8,6 +8,10 @@ Versions before 0.3.0 are not covered here: `v0.1.0` and `v0.2.0` were released 
 
 ## [Unreleased]
 
+### Fixed
+
+- **`dialshift.log` could lose a line when two DialShift processes logged at once.** DialShift writes the log under a lock that the running app and a second launch share. A write that could not get the lock within 250 ms treated the lock as stuck, even while the other process was still writing normally. It then wrote without the lock and could overwrite the other process's newest line. This mostly affects Windows, where waiting processes check the lock less often. A write now waits while the other process keeps writing. It gives up only after 250 ms without progress, or 2 s in total. Found by the automated tests on a GitHub-hosted Windows machine. No user reports (decision D103).
+
 ## [0.4.1] - 2026-09-26
 
 Fixes `https://` stations on Windows. Everything else works as in [0.4.0](CHANGELOG.md#040---2026-09-26), and what 0.4.0 says about testing still applies.

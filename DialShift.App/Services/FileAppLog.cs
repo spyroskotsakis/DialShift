@@ -37,11 +37,15 @@ namespace DialShift.App.Services;
 /// lock file lives in the per-user temp directory, the same place the single-instance socket relies on, because the
 /// data directory only holds the files the spec lists (§8.2.6). It is never deleted: deleting a lock file lets two
 /// processes lock different inodes.</para>
-/// <para><b>Bounded latency.</b> The lock is held only for one stat, an optional rename and one small write. A
-/// writer waits at most <see cref="LockWaitBudget"/>. After that it assumes the holder is stuck (for example suspended
-/// in a debugger, so not writing) and appends without the cross-process lock and without rotating. If the lock file
-/// can't be opened at all (for example a read-only temp directory), no process can coordinate: it writes right away
-/// and still rotates, so the file stays bounded.</para>
+/// <para><b>Bounded latency.</b> The lock is held only for one stat, an optional rename and one small write. The
+/// lock is not fair, though: a waiter polls, and with several busy writers it can miss every short gap between their
+/// holds for a long time, especially on Windows, where <c>Thread.Sleep(1)</c> lasts a whole 15.6 ms timer tick. So a
+/// waiter does not give up on a holder that is still making progress: every hold appends a line, so the log file's
+/// size or write time changes. It gives up only when the log file has not changed for <see cref="LockWaitBudget"/>
+/// (the holder is stuck, for example suspended in a debugger) or after <see cref="LockWaitLimit"/> in total. Then it
+/// appends without the cross-process lock and without rotating, which can overwrite a line another writer appended
+/// meanwhile (LOG-D2). If the lock file can't be opened at all (for example a read-only temp directory), no process
+/// can coordinate: it writes right away and still rotates, so the file stays bounded.</para>
 /// <para>Thread-safe. Never throws: I/O and formatting failures are swallowed.</para>
 /// </remarks>
 public sealed class FileAppLog : IAppLog
@@ -55,8 +59,14 @@ public sealed class FileAppLog : IAppLog
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    /// <summary>The longest a write waits for another process's cross-process log lock.</summary>
+    /// <summary>
+    /// How long a write waits for another process's cross-process log lock while the log file does not change, that
+    /// is while the holder makes no progress.
+    /// </summary>
     public static readonly TimeSpan LockWaitBudget = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>The longest a write waits for the cross-process log lock in total, even while its holders keep writing.</summary>
+    public static readonly TimeSpan LockWaitLimit = TimeSpan.FromSeconds(2);
 
     /// <summary>In-process locks by log file, shared by every instance writing to the same file.</summary>
     private static readonly ConcurrentDictionary<string, Lock> ProcessLocks = new(StringComparer.Ordinal);
@@ -135,14 +145,17 @@ public sealed class FileAppLog : IAppLog
 
     /// <summary>
     /// Opens <see cref="LockFile"/> exclusively. It retries sharing violations (another process is writing) with a
-    /// short back-off until <see cref="LockWaitBudget"/> runs out. Returns null when the budget is spent
+    /// short back-off for as long as the holder makes progress: every hold appends a line, so the log file's size or
+    /// write time changes. It gives up when the log file has not changed for <see cref="LockWaitBudget"/> (the holder
+    /// is stuck) or after <see cref="LockWaitLimit"/> in total. Returns null when it gives up
     /// (<paramref name="contended"/> is true) or when the lock file can't be opened at all (false: no process can
     /// coordinate, so rotation still runs and keeps the file bounded).
     /// </summary>
     private FileStream? TryAcquireCrossProcessLock(out bool contended)
     {
         contended = false;
-        var clock = Stopwatch.StartNew();
+        long firstRefusal = 0, lastProgress = 0;
+        var seen = default(LogFileState);
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -151,8 +164,17 @@ public sealed class FileAppLog : IAppLog
             }
             catch (IOException ex) when (ex.GetType() == typeof(IOException))
             {
-                // Held by another writer (flock EWOULDBLOCK / ERROR_SHARING_VIOLATION); it holds it for microseconds.
-                if (clock.Elapsed >= LockWaitBudget)
+                // Held by another writer (flock EWOULDBLOCK / ERROR_SHARING_VIOLATION) for microseconds. With several
+                // writers this one can still miss every gap between their holds for a long time, so the wait is
+                // measured from the holders' last progress (each hold appends, changing the log file), not from the
+                // first refusal.
+                var now = Stopwatch.GetTimestamp();
+                var state = ReadLogFileState();
+                if (attempt == 0) firstRefusal = lastProgress = now;
+                else if (state != seen) lastProgress = now;
+                seen = state;
+                if (Stopwatch.GetElapsedTime(lastProgress, now) >= LockWaitBudget ||
+                    Stopwatch.GetElapsedTime(firstRefusal, now) >= LockWaitLimit)
                 {
                     contended = true;
                     return null;
@@ -165,6 +187,22 @@ public sealed class FileAppLog : IAppLog
                 // Not a contention (access denied, missing temp directory): waiting won't help.
                 return null;
             }
+        }
+    }
+
+    /// <summary>The log file's size and last write time; a holder of the lock changes one of them on every hold.</summary>
+    private readonly record struct LogFileState(long Length, DateTime LastWriteUtc);
+
+    private LogFileState ReadLogFileState()
+    {
+        try
+        {
+            var info = new FileInfo(LogFile);
+            return info.Exists ? new LogFileState(info.Length, info.LastWriteTimeUtc) : new LogFileState(-1, default);
+        }
+        catch (Exception)
+        {
+            return new LogFileState(-2, default);
         }
     }
 
