@@ -5,14 +5,12 @@ using DialShift.Tests.Core;
 using DialShift.Tests.Fakes;
 using DialShift.Tests.Platform;
 
-// Child-process modes used by the process-level single-instance (CT-SI-03) and cross-process log (LOG-D1) checks and by
-// CAT-16's later attempts (D102); never part of a normal run.
+// Child-process modes used by the process-level single-instance (CT-SI-03) and cross-process log (LOG-D1) checks;
+// never part of a normal run.
 if (args.Length > 0 && args[0].StartsWith("--si-", StringComparison.Ordinal))
     return await SingleInstanceTests.RunChildAsync(args);
 if (args.Length > 0 && args[0] == "--log-child")
     return FileAppLogTests.RunChild(args);
-if (args.Length > 0 && args[0] == "--catalog-perf-attempt")
-    return await CatalogPerfTests.RunAttemptChildAsync(args);
 
 // Deterministic console checks (no test framework). Usage: dotnet run --project DialShift.Tests -- [--filter Scheduler]
 return await TestHarness.RunAsync(args,

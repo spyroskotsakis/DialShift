@@ -39,9 +39,6 @@ public static class TestHarness
     private static int passed;
     private static int skipped;
 
-    /// <summary>This run's <c>--filter</c>, or null in a full run. CAT-16 uses it to choose where a later attempt runs (D102).</summary>
-    public static string? Filter { get; private set; }
-
     public static void Check(string name, bool condition)
     {
         if (!condition) throw new CheckFailedException(name);
@@ -96,7 +93,6 @@ public static class TestHarness
             Console.Error.WriteLine("Usage: DialShift.Tests [--filter <suite-name-substring>]");
             return 2;
         }
-        Filter = filter;
         var selected = suites.Where(s => filter is null || s.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         if (selected.Count == 0)
         {
