@@ -18,7 +18,7 @@
 > **Spec frozen 2026-09-25.** This is brief 3, after
 > `single-codebase-refactor.md` (brief 1) and `schedule-timezone-research.md` (brief 2). Execution per §12
 > by the orchestrator (goal prompt: `docs/add-station-catalog-search-goal.md`, ≤4,000 chars, same discipline
-> as `claude-goal-execution.md`). All decisions taken during execution are recorded as D59+ (D58 is the local backup release path) in `docs/decisions.md`.
+> as `claude-goal-execution-timezone.md`). All decisions taken during execution are recorded as D59+ (D58 is the local backup release path) in `docs/decisions.md`.
 >
 > **Phase 0 done (2026-09-25):** the six new agent files are in `.claude/agents/`, the contracts are frozen in
 > `docs/catalog-contracts.md`, the CAT rows are in `docs/acceptance-matrix.md` §11, and §11's defaults are D59–D68.
