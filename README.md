@@ -312,10 +312,3 @@ See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled dependencies an
 ### Earlier versions
 
 Before this single app, Windows and macOS had separate front-ends. The tag `legacy-last-known-good` (commit `82281e5`) keeps the last build of both, including the last Intel Mac build, as a rollback point.
-
-## Inspiration & related projects
-
-> *"Here's to the crazy ones. The rebels. The troublemakers… They push the human race forward."*
-> — Apple, *Think Different* campaign (1997).
-
-Saved-post research and the knowledge corpus (including the LinkedIn post that quotes the text above, corpus post #1173 by Charly Wargnier) live in a **separate** project: `~/Desktop/Coding-Agent-Research/`. It is deliberately not part of this repository — DialShift only contains the radio app and the station catalog in [`data/`](data/).
