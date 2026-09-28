@@ -114,12 +114,15 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D108 | 2026-09-28 | The Save dialog suggests `DialShift-transfer-<yyyy-MM-dd>.json`, with `*.json` and "All files" filters | brief 5 §6, §11 #4 |
 | D109 | 2026-09-28 | `schema_version` is the only version gate: import accepts 1 and refuses a higher value with "This transfer file was made by a newer DialShift."; `app_version` is informational and never blocks | brief 5 §5, §9, §11 #5 |
 | D110 | 2026-09-28 | Schedule slots whose `StationId` is not among the file's stations are dropped and counted in the success message, never a hard failure | brief 5 §5, §6, §11 #6 |
-| D111 | 2026-09-28 | The two buttons stack vertically under "Open settings folder ↗" with `MinWidth=216`, not a three-wide row (a three-wide row clips at 780 px) | brief 5 §6, §11 #7 |
-| D112 | 2026-09-28 | Transfer feedback uses message dialogs (the BHV-16 save-failure style): success with counts, failures via `UiText` | brief 5 §6, §11 #8 |
+| D111 | 2026-09-28 | The two buttons stack vertically under "Open settings folder ↗" with `MinWidth=216`, not a three-wide row (a three-wide row clips at 780 px). **Superseded by D118:** they sit side by side, each `MinWidth=264` | brief 5 §6, §11 #7; D118 |
+| D112 | 2026-09-28 | Transfer feedback uses message dialogs (the BHV-16 save-failure style): success with counts, failures via the `UiText.UnexpectedErrorTitle` title; the dialogs' copy lives in `TransferText`, not `UiText` (D117) | brief 5 §6, §11 #8; D117 |
 | D113 | 2026-09-28 | The smoke roundtrip calls `ISettingsTransferService` with explicit paths; the OS picker never runs in smoke or tests | brief 5 §6, §8, §11 #9 |
 | D114 | 2026-09-28 | `exported_utc` is supplied by the App layer (`DateTimeOffset.UtcNow`) and passed into the pure codec, which never reads a clock | brief 5 §5, §7, §11 #10 |
 | D115 | 2026-09-28 | The import confirmation's default (confirm) button is "Import", per the §8.2.5 confirm-button rule | brief 5 §6, §11 #11; matrix §8.2.5 |
 | D116 | 2026-09-28 | Suite count corrected: the repo has **27** existing test suites (`DialShift.Tests/Program.cs`), so the new `Transfer` suite is the 28th and IE-12 reads "28 suites green", not 29; the brief's §3/§8/§10 wording is superseded | brief 5 §3, §8, §10, §12; matrix §13 |
+| D117 | 2026-09-28 | The transfer dialogs' copy lives in `Services/TransferText.cs`, not `ViewModels/UiText.cs`; the two button labels stay in `UiText` and bind to `Content`, and a failure dialog reuses `UiText.UnexpectedErrorTitle` | brief 5 §6, §11 #8; D112 |
+| D118 | 2026-09-28 | The two transfer buttons sit side by side in one horizontal row under "Open settings folder ↗", each `MinWidth=264`, not stacked; the window height stays 860 (overrides D111 and brief §6/§11 #7) | brief 5 §6, §11 #7; D111 |
+| D119 | 2026-09-28 | The import confirmation's second line is "This file was made by DialShift {app_version}.", shown only when `app_version` is non-empty (brief §5's informational `app_version`) | brief 5 §5, §6; D109, D117 |
 
 
 **Brief 3 closure (Phase 6, 2026-09-26).** The D59–D90 entries below say, in their consequences, that the CAT rows they touch stay `TODO` "until the Phase 5 verdict" or name checks still to come from the test lane. That verdict has been given (QA: ACCEPT for the code; design review: QG-03 PASS). The test lane's checks for those entries have landed, the last being the D89 and D90 checks in `37c92b8` (merged at `0409c25`) and `56a9b20` (merged at `11114fb`), with the D89 follow-up `155027a` (merged at `c50db51`). The last two planned checks landed in `f45aeeb` (merged at `8836ec3`): contracts §8's CAT-12 case "Escape while a typed search is in flight, then Enter at once: not handled" (D89 item 1; `CatalogHeadlessTests.EnterAndEscapeBeforeTheDebounce`: Enter is Save, the name error with an empty form and the typed fields saved with a filled one, the search applied closed, nothing late reopens it), and D88's optional `Catalog` mirror of validation rule 9 (`CatalogExportContractTests.Frequencies`, through Core's `BandOf`: on the checked-in JSON 722 FM, 69 kHz with the highest 8500, 1 band word, 7,478 empty). The same commit makes every test wait a `Stopwatch` deadline (`TestDeadline`), after two failures seen during Phase 6 turned out to be macOS Maintenance Sleep during the run, not load (`docs/acceptance-matrix.md` §11). The resulting statuses and their evidence are in `docs/acceptance-matrix.md` §11: every CAT row is `GREEN` or, per D75, `WINDOWS-PENDING` with the missing Windows evidence named; the remaining native checks (NC-01 step 4b, NC-17 step 6b, NC-18) and the maintainer's data follow-ups of D86 and D90 are in `docs/open-items.md`. **Update (2026-09-26, Windows CI):** the branch ran on the public repository, where Actions are free. The first run at `aaa3cb1` failed one Windows check (D91); after D91, public CI [`36219966368`](https://github.com/spyroskotsakis/DialShift/actions/runs/36219966368) at `cceff38` is green on `windows-latest` and `macos-latest`, so no row is `WINDOWS-PENDING` any more: §11 reads 15 `GREEN` and 3 `NATIVE-PENDING` (CAT-03 on NC-18 and NC-01's smoke from the extracted zip; CAT-12 and CAT-14 on NC-01 step (4b) and NC-17 step (6b)). 0.4.0 shipped before those checks: published on both repositories on 2026-09-26, public Release run [`36221102328`](https://github.com/spyroskotsakis/DialShift/actions/runs/36221102328) (D92 update). **Update (2026-09-26, native checks):** NC-18 and NC-01's first step passed on the `v0.5.0` release's `DialShift-win-x64.zip` in a Windows 11 ARM64 VM, not a physical PC (D82 update), so CAT-03 is `GREEN` and §11 reads 16 `GREEN` and 2 `NATIVE-PENDING`: CAT-12 and CAT-14 still need NC-01 step (4b) and NC-17 step (6b), a person with Narrator and VoiceOver.
@@ -1550,6 +1553,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Consequence:** `SettingsPage.axaml` third card; IE-08 and IE-12.
 - **Evidence:** Phase 3 UI; IE-08 headless checks in Phase 4.
 - **Brief ref:** brief 5 §6, §11 #7.
+- **Superseded by D118:** the two buttons sit side by side (one horizontal row, each `MinWidth=264`), not stacked; the window height stays 860. D111 stays as the record of the Phase 0 default the brief §11 #7 adopted.
 
 ## D112 — Transfer feedback is message dialogs
 
@@ -1560,6 +1564,7 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Consequence:** `UiText` entries; `SettingsTransferService` dialogs; IE-10.
 - **Evidence:** IE-10 in Phase 4.
 - **Brief ref:** brief 5 §6, §11 #8.
+- **Amended by D117:** the transfer dialogs' copy lives in `Services/TransferText.cs`, not `UiText`; only the two button labels and the failure title (`UiText.UnexpectedErrorTitle`) stay in `UiText`. The message-dialog behavior this entry decided is unchanged.
 
 ## D113 — The smoke roundtrip uses explicit paths, never an OS dialog
 
@@ -1600,3 +1605,33 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 - **Consequence:** `docs/acceptance-matrix.md` §13 (IE-12 corrected); `DialShift.Tests/Program.cs` gains the 28th `TestSuite` in Phase 1.
 - **Evidence:** `DialShift.Tests/Program.cs` (27 `TestSuite` registrations); Phase 0 baseline `2750 passed, 8 skipped, 27/27 suites green`.
 - **Brief ref:** brief 5 §3, §8, §10, §12; matrix §13.
+
+## D117 — The transfer dialogs' copy lives in `Services/TransferText.cs`, not `ViewModels/UiText.cs`
+
+- **Status:** Adopted (Phase 3 UI, 2026-09-28, `feature/settings-import-export`; reads brief 5 §6's "All labels in `UiText`" as applying to the two button labels).
+- **Context:** Brief 5 §6 says "All labels in `UiText`". The transfer's user-visible strings are of two kinds: the two page buttons' labels, which bind to `Content` in `SettingsPage.axaml`, and the dialogs the service lane shows (the import question, the "Exported/Imported N stations…" messages, the provenance line and the dialog titles). The dialogs are produced only by the service lane (`SettingsTransferService` and `TransferFilePicker`), never by the view model.
+- **Decision:** The two button labels stay in `ViewModels/UiText.cs` (`ExportStationsLabel`, `ImportStationsLabel`) and bind to `Content`. The dialogs' copy lives in `Services/TransferText.cs`, next to its only consumers; a failure dialog still reuses `UiText.UnexpectedErrorTitle`.
+- **Rationale:** The wording sits with its only caller, and the service lane owns the transfer dialogs; `UiText` stays the page/view-model vocabulary. Copying the dialog strings into `UiText` would put strings there with no page consumer.
+- **Consequence:** `DialShift.App/Services/TransferText.cs` (`Exported`, `Imported`, `ImportQuestion`, `MadeBy`, the picker and dialog titles, the confirm/cancel button texts); `UiText.ExportStationsLabel`/`ImportStationsLabel`; IE-08, IE-10.
+- **Evidence:** `DialShift.App/Services/TransferText.cs`; `DialShift.App/ViewModels/UiText.cs:92,94` (the two labels) and its line 85 note; the `Transfer` and `UiViewModels` "IE-10 …" checks.
+- **Brief ref:** brief 5 §6, §11 #8; D112.
+
+## D118 — The two transfer buttons sit side by side, not stacked (overrides D111 and brief §6)
+
+- **Status:** Adopted (the user's choice, Phase 3 UI, 2026-09-28, `feature/settings-import-export`); supersedes D111 and brief 5 §6/§11 #7's "stacked vertically … `MinWidth=216`".
+- **Context:** D111 (the brief's §11 #7 default) stacked the two buttons vertically to avoid clipping a three-wide row at the 780 px minimum width. The user chose one horizontal row so the About card stays above the fold without resizing the window.
+- **Decision:** The two buttons share one horizontal row under "Open settings folder ↗" (`SettingsPage.axaml`, a `StackPanel Orientation="Horizontal"`, ~6 px spacing, `HorizontalAlignment="Left"`, each `MinWidth=264`). The window height stays **860**; nothing else about the About card changes.
+- **Rationale:** Both buttons are visible at the default 860-px window with no scroll, and the existing "Open settings folder ↗" line stays above them; two 264-px buttons fit the card at the default width. The 780 × 650 minimum still has to show no clipped text (QG-03, IE-12).
+- **Consequence:** `DialShift.App/Views/Pages/SettingsPage.axaml` (the third `Border`, lines 41–51); `docs/settings-import-export.md` §6/§10/§11 corrected; IE-08 ("the whole About card, Import button included, sits above the fold at the default 860 with no scroll").
+- **Evidence:** `DialShift.App/Views/Pages/SettingsPage.axaml:41-51`; the `HeadlessUi` "IE-08 …" checks (this session: 28/28 suites green).
+- **Brief ref:** brief 5 §6, §11 #7; D111.
+
+## D119 — The import confirmation's provenance line is "This file was made by DialShift {app_version}."
+
+- **Status:** Adopted (Phase 2 integration, 2026-09-28, `feature/settings-import-export`); implements brief 5 §5's "`app_version` is informational (shown in the import confirmation); it never blocks".
+- **Context:** The transfer file carries `app_version` (`TransferFile.AppVersion`), written by the App layer and never used as a gate (D109: `schema_version` is the only gate). Brief §5 asks for it to be shown in the import confirmation.
+- **Decision:** `SettingsTransferService.ImportAsync` appends `This file was made by DialShift {app_version}.` as the confirmation's second line, and only when `app_version` is non-empty, so a hand-edited file never renders a dangling "DialShift .". The string is `TransferText.MadeBy` (D117).
+- **Rationale:** The line tells the user which build made the file without any parse or gate on it, and guarding on an empty value keeps a hand-edited file honest.
+- **Consequence:** `DialShift.App/Services/SettingsTransferService.cs` (the `string.IsNullOrWhiteSpace(file.AppVersion)` guard); `TransferText.MadeBy`; IE-03/IE-10 (the "Transfer IE-03 IE-05 IE-10 the import confirmation matches §6 …" check).
+- **Evidence:** `DialShift.App/Services/SettingsTransferService.cs:108-112`; the `Transfer` confirmation check.
+- **Brief ref:** brief 5 §5, §6; D109, D117.

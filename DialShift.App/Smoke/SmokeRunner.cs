@@ -744,8 +744,9 @@ public sealed class SmokeRunner
 
     /// <summary>
     /// The Settings page screenshot, scrolled so the About card's three buttons ("Open settings folder ↗", Export,
-    /// Import) are all in frame (brief 5 §8: "settings.png shows all three buttons"). The Import button — the last of
-    /// the three, below the fold at 860 px — is brought into view before the capture.
+    /// Import) are all in frame (brief 5 §8: "settings.png shows all three buttons"). With the Export and Import
+    /// buttons side by side (D118) all three fit at 860 px, so the <c>BringIntoView</c> below is a defensive guard:
+    /// it keeps the capture robust if the About card ever grows and pushes the buttons down.
     /// </summary>
     private async Task<string> CaptureSettingsAsync(string file)
     {

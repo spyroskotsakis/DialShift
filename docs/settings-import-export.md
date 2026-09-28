@@ -109,22 +109,29 @@ always: no Settings.Version bump, no new NuGet packages, both platforms, determi
 
 ## 6. UX spec (non-negotiable behaviors)
 
-- The About card (third `Border` in `SettingsPage.axaml`) gains two buttons **stacked vertically
-  under** "Open settings folder ↗": first "Export stations & schedule…", then "Import stations &
-  schedule…" — same `MinWidth="216"`, `HorizontalAlignment="Left"`, ~6 px spacing (a three-wide
-  row clips at 780 px). Automation names exactly `Export stations & schedule` / `Import stations
-  & schedule`. All labels in `UiText`.
+- The About card (third `Border` in `SettingsPage.axaml`) gains two buttons **side by side in one
+  horizontal row under** "Open settings folder ↗": first "Export stations & schedule…", then
+  "Import stations & schedule…" — each `MinWidth="264"`, `HorizontalAlignment="Left"`, ~6 px
+  spacing (D118, overriding the Phase 0 stacked default of §11 #7 and D111; the window height stays
+  **860**, and the whole About card stays above the fold). Automation names exactly `Export stations
+  & schedule` / `Import stations & schedule`. The two button labels live in `UiText` (`Content`
+  bindings); the transfer dialogs' copy lives in `Services/TransferText.cs`, not `UiText` (D117).
 - **Export flow:** Save picker (suggested name `DialShift-transfer-<yyyy-MM-dd>.json`, `*.json`
   + "All files" filters) → write → success dialog: "Exported N stations and M schedule slots."
   Picker cancelled → nothing happens, no dialog.
 - **Import flow:** Open picker → read + validate (nothing mutated yet) → confirmation dialog:
   "Replace your N stations and M schedule slots with the file's X stations and Y slots?" (confirm
-  button "Import", per the §8.2.5 default-button rule) → on confirm: replace both lists, drop
-  orphan slots, restore `schedule_enabled`, null `FallbackStationId`/`LastStationId` when they no
-  longer point at an imported station, then `CommitAsync(Stations | Schedule)` → success dialog
+  button "Import", per the §8.2.5 default-button rule); when the file carries a non-empty
+  `app_version` the confirmation's second line reads "This file was made by DialShift
+  {app_version}." (D119; a hand-edited file with no `app_version` shows no such line) → on confirm:
+  replace both lists, drop orphan slots, restore `schedule_enabled`, null
+  `FallbackStationId`/`LastStationId` when they no longer point at an imported station, then
+  `CommitAsync(Stations | Schedule)` → success dialog
   with counts plus an orphan notice when any were dropped ("Z schedule slots referenced missing
   stations and were not imported."). Confirm cancelled → nothing changes, not even a save.
-- **Failure feedback:** any read/validate/write failure → `UiText` error dialog, state untouched.
+- **Failure feedback:** any read/validate/write failure → a message dialog that reuses
+  `UiText.UnexpectedErrorTitle` (D117; the rest of the transfer copy is `TransferText`), state
+  untouched.
 - **Busy state:** both buttons disabled while a transfer runs (`IsTransferBusy`).
 - **Logging:** `transfer.export` / `transfer.import` events carry counts, outcome and the
   validation reason — **never station names, URLs or other data** (redaction rule).
@@ -233,7 +240,7 @@ then confirms the merge.
 | IE-05 | Orphan schedule slots (missing `StationId`) dropped and counted in the result message | `Transfer` + `Ui` checks |
 | IE-06 | Dangling `FallbackStationId`/`LastStationId` nulled after import; valid ones kept | `Ui` checks |
 | IE-07 | `Volume`/`LaunchAtLogin`/`StartInTray` untouched; `Settings.Version` stays 1 | `Transfer` suite |
-| IE-08 | Buttons "Export stations & schedule…" / "Import stations & schedule…" under "Open settings folder ↗" (stacked, `MinWidth=216`), exact automation names, disabled while busy | headless HS checks |
+| IE-08 | Buttons "Export stations & schedule…" / "Import stations & schedule…" side by side in one horizontal row under "Open settings folder ↗" (each `MinWidth=264`; D118), exact automation names, disabled while busy | headless HS checks |
 | IE-09 | Native Save/Open pickers via `StorageProvider`, main-window owner, suggested name `DialShift-transfer-<yyyy-MM-dd>.json`; cancel = null, no side effects | `FakeTransferFilePicker` checks + native check |
 | IE-10 | Success dialogs show counts (+ orphan notice); failures via `UiText`; `transfer.import`/`transfer.export` log counts only, never URLs | `Ui` checks + redaction suite |
 | IE-11 | Import commits via `CommitAsync(Stations | Schedule)` → coordinator notified, tray and pages re-render | `Ui` journal checks |
@@ -250,7 +257,7 @@ then confirms the merge.
 | 4 | Default file name / filters | `DialShift-transfer-<yyyy-MM-dd>.json`; `*.json` + "All files" |
 | 5 | Version gating | `schema_version` only; higher → refuse with a message; `app_version` informational |
 | 6 | Orphan slots | Drop + count in the success message, never a hard failure |
-| 7 | Button layout | Stacked vertically under "Open settings folder ↗", `MinWidth=216` |
+| 7 | Button layout | Side by side in one horizontal row under "Open settings folder ↗", each `MinWidth=264` (the Phase 0 default was stacked, `MinWidth=216`; D118 overrides it and the window height stays 860) |
 | 8 | Feedback style | Message dialogs (consistent with the BHV-16 save-failure dialog) |
 | 9 | Smoke automation | Service called with explicit paths — no OS dialog in smoke |
 | 10 | `exported_utc` source | App layer passes `DateTimeOffset.UtcNow` into the pure codec |
