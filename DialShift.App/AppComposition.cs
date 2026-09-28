@@ -68,6 +68,17 @@ public static class AppComposition
         services.AddSingleton<IDialogService>(sp => sp.GetRequiredService<AvaloniaDialogService>());
         services.AddSingleton<IEditorDialogService>(sp => sp.GetRequiredService<AvaloniaDialogService>());
         services.AddSingleton<ISettingsService, SettingsService>();
+
+        // Brief 5 settings transfer (docs/settings-import-export.md §7). The service does the file I/O, validation,
+        // confirmation and the one CommitAsync path; the picker is the native Save/Open boundary over the main window,
+        // resolved lazily at pick time so tests and the smoke runner never open an OS dialog.
+        services.AddSingleton<ISettingsTransferService>(sp => new SettingsTransferService(
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IAppLog>(),
+            AppInfo.DisplayVersion(typeof(AppComposition).Assembly)));
+        services.AddSingleton<ITransferFilePicker>(_ => new TransferFilePicker(RunningMainWindow));
+
         services.AddSingleton<IAppShell>(_ => Application.Current as IAppShell
             ?? throw new InvalidOperationException("The DialShift Avalonia application is not running."));
 
