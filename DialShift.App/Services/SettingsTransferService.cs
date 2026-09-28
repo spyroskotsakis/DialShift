@@ -104,9 +104,16 @@ public sealed class SettingsTransferService(
             var keptSlots = file.Schedule.Where(entry => importedIds.Contains(entry.StationId)).ToList();
             var droppedOrphans = file.Schedule.Count - keptSlots.Count;
 
+            // The §6 question, then the §5 provenance line on its own line — but only when the file carries an
+            // app_version, so a hand-edited file never renders a dangling "DialShift .".
+            var confirmation = TransferText.ImportQuestion(
+                live.Stations.Count, live.Schedule.Count, file.Stations.Count, file.Schedule.Count);
+            if (!string.IsNullOrWhiteSpace(file.AppVersion))
+                confirmation += Environment.NewLine + TransferText.MadeBy(file.AppVersion);
+
             var confirmed = await dialogs.ConfirmAsync(
                 TransferText.ImportConfirmTitle,
-                TransferText.ImportQuestion(live.Stations.Count, live.Schedule.Count, file.Stations.Count, file.Schedule.Count),
+                confirmation,
                 TransferText.ImportConfirmButton,
                 TransferText.ImportCancelButton);
             if (!confirmed)

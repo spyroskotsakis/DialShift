@@ -35,13 +35,23 @@ internal static class TransferText
             : message;
     }
 
-    /// <summary>"Replace your N stations and M schedule slots with the file's X stations and Y slots?" (brief 5 §6).</summary>
+    /// <summary>
+    /// "Replace your N stations and M schedule slots with the file's X stations and Y slots?" (brief 5 §6). The "your"
+    /// side keeps the full "schedule slot(s)" wording; the file's side is the bare "slot(s)" (the only place that
+    /// wording is used).
+    /// </summary>
     internal static string ImportQuestion(int yourStations, int yourSlots, int fileStations, int fileSlots) =>
-        $"Replace your {Stations(yourStations)} and {Slots(yourSlots)} with the file's {Stations(fileStations)} and {Slots(fileSlots)}?";
+        $"Replace your {Stations(yourStations)} and {Slots(yourSlots)} with the file's {Stations(fileStations)} and {PlainSlots(fileSlots)}?";
+
+    /// <summary>"This file was made by DialShift {appVersion}." — the confirmation's second line (brief 5 §5).</summary>
+    internal static string MadeBy(string appVersion) => $"This file was made by DialShift {appVersion}.";
 
     private static string Stations(int count) => Count(count) + (count == 1 ? " station" : " stations");
 
     private static string Slots(int count) => Count(count) + (count == 1 ? " schedule slot" : " schedule slots");
+
+    /// <summary>The file side's bare "slot(s)", without the "schedule" qualifier (brief 5 §6).</summary>
+    private static string PlainSlots(int count) => Count(count) + (count == 1 ? " slot" : " slots");
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
 }
