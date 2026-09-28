@@ -30,7 +30,7 @@ MAX_ENTRIES = 10_000
 MAX_URL_LENGTH = 2_048
 KEYS = ('name', 'name_local', 'country', 'country_label', 'city', 'region', 'frequency_fm', 'type', 'genre',
         'language', 'internet_only', 'stream_url', 'codec', 'bitrate', 'votes', 'notes', 'logo', 'tag',
-        'timezone')
+        'timezone', 'requires_vpn', 'vpn_region')
 LANGUAGE_SEPARATOR = ', '
 
 # Collections (build_stations.build_collection) carry this country instead of a YAML code.
@@ -39,7 +39,7 @@ COLLECTION_LABEL = 'Internet (collections)'
 # The canonical CSVs' "unknown" markers; the app gets "" so a marker never becomes a filter value.
 PLACEHOLDERS = {'city': '—', 'region': '(unlisted)'}
 
-_STRING_KEYS = tuple(k for k in KEYS if k not in ('internet_only', 'bitrate', 'votes'))
+_STRING_KEYS = tuple(k for k in KEYS if k not in ('internet_only', 'requires_vpn', 'bitrate', 'votes'))
 _GENERATED_UTC = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z')
 _INTEGER = re.compile(r'-?[0-9]+')
 # A note that is only a source label ("tags:", "curated:", ...) with nothing but whitespace or
@@ -225,6 +225,8 @@ def _entry(row, country_label, language):
         'logo': s['logo'] if _http_url(s['logo']) else '',
         'tag': app_tag({'type': s['type'], 'genre': s['genre']}),
         'timezone': _text(row.get('timezone')),
+        'requires_vpn': row.get('requires_vpn') is True,
+        'vpn_region': _text(row.get('vpn_region')),
     }
 
 
@@ -321,6 +323,8 @@ def _entry_problems(i, e, mapped, band_words):
             out.append(f'{where}: {k} is not trimmed')
     if not isinstance(e['internet_only'], bool):
         out.append(f'{where}: internet_only is not a boolean')
+    if not isinstance(e['requires_vpn'], bool):
+        out.append(f'{where}: requires_vpn is not a boolean')
     for k, low in (('bitrate', 1), ('votes', 0)):
         v = e[k]
         if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < low):
@@ -353,6 +357,11 @@ def _entry_problems(i, e, mapped, band_words):
             ZoneInfo(e['timezone'])
         except Exception:
             out.append(f"{where}: timezone {e['timezone']!r} is not an IANA timezone")
+    # the VPN consistency rule: a station needs a region exactly when it needs a VPN
+    if e['requires_vpn'] and not e['vpn_region']:
+        out.append(f'{where}: requires_vpn is true but vpn_region is empty')
+    elif not e['requires_vpn'] and e['vpn_region']:
+        out.append(f"{where}: vpn_region is {e['vpn_region']!r} but requires_vpn is false")
     return out
 
 
@@ -444,7 +453,8 @@ def _row(**over):
     base = dict(country='XA', name='Fixture One', name_local='', city='Fixton', region='North',
                 frequency_fm='', type='Music', genre='Pop', language='German', political_leaning='None',
                 internet_only='No', stream_url='https://a.example.test/one', codec='MP3', bitrate=128,
-                stream_status='Working', votes=10, logo='', notes='', source='radio-browser')
+                stream_status='Working', votes=10, logo='', notes='', source='radio-browser',
+                requires_vpn=False, vpn_region='')
     base.update(over)
     return base
 
@@ -474,6 +484,9 @@ def self_test() -> int:
         _row(name='Spaced Url', stream_url='https://a.example.test/a b'),
         _row(name='Control Url', stream_url='https://a.example.test/\x07'),
         _row(name='Bad Port', stream_url='https://a.example.test:99999/x'),
+        # geo-restricted: the pair exports as it is (requires_vpn true with its region)
+        _row(name='Vpn One', requires_vpn=True, vpn_region='Fixtureland',
+             stream_url='https://a.example.test/vpn'),
         # the same station twice (spacing, case and http/https differ): the one with a frequency stays
         _row(name='Fixture Two', stream_url='http://a.example.test/two', votes=50),
         _row(name='fixture  two', stream_url='https://a.example.test/two', votes=5, frequency_fm='99.9'),
@@ -599,6 +612,11 @@ def self_test() -> int:
     check('placeholders -> ""', pad['city'] == '' and pad['region'] == '' and chill['city'] == '')
     check('internet_only Unknown/No -> false, Yes -> true', pad['internet_only'] is False
           and by_name['Fixture One'][0]['internet_only'] is False and by_name['Numbers'][0]['internet_only'] is True)
+    check('VPN: a flagged row exports requires_vpn true, its region, and the pair as the last two keys',
+          by_name['Vpn One'][0]['requires_vpn'] is True and by_name['Vpn One'][0]['vpn_region'] == 'Fixtureland'
+          and tuple(by_name['Vpn One'][0])[-2:] == ('requires_vpn', 'vpn_region'))
+    check('VPN: a station without the keys exports requires_vpn false and ""',
+          by_name['Fixture One'][0]['requires_vpn'] is False and by_name['Fixture One'][0]['vpn_region'] == '')
     num, strs = by_name['Numbers'][0], by_name['Strings'][0]
     check('bitrate: "" and 0 -> null, "192" -> 192, 128 -> 128', pad['bitrate'] is None and num['bitrate'] is None
           and strs['bitrate'] == 192 and by_name['Fixture One'][0]['bitrate'] == 128)
@@ -696,6 +714,16 @@ def self_test() -> int:
     check('rule 2: votes as a string', broken(lambda d: d['stations'][0].update(votes='12')) != [])
     check('rule 2: bitrate 0', broken(lambda d: d['stations'][0].update(bitrate=0)) != [])
     check('rule 2: internet_only as a string', broken(lambda d: d['stations'][0].update(internet_only='No')) != [])
+    check('rule 2: requires_vpn as a string', broken(lambda d: d['stations'][0].update(requires_vpn='No')) != [])
+    check('rule 2: vpn_region as a boolean', broken(lambda d: d['stations'][0].update(vpn_region=True)) != [])
+    check('VPN rule: requires_vpn true with an empty vpn_region fails',
+          any('requires_vpn is true' in p for p in broken(lambda d: d['stations'][0].update(requires_vpn=True))))
+    check('VPN rule: vpn_region set with requires_vpn false fails',
+          any('but requires_vpn is false' in p
+              for p in broken(lambda d: d['stations'][0].update(vpn_region='Fixtureland'))))
+    check('VPN rule: a consistent pair passes',
+          broken(lambda d: (d['stations'][0].update(requires_vpn=True),
+                            d['stations'][0].update(vpn_region='Fixtureland'))) == [])
     check('rule 2: city placeholder', broken(lambda d: d['stations'][0].update(city='—')) != [])
     check('rule 2: empty tag', broken(lambda d: d['stations'][0].update(tag='')) != [])
     check('rule 8: a raw radio-browser tag note fails', any('raw radio-browser tag list' in p for p in broken(

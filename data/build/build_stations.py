@@ -252,7 +252,9 @@ def build_country(cfg, force_refresh=False):
                    votes=0 if pinned else (stream or {}).get('votes', 0),
                    logo=clean_logo(entry.get('logo') or (stream or {}).get('favicon', '')),
                    notes=entry.get('notes', desc), source=source,
-                   timezone=row_timezone(ccity, entry))
+                   timezone=row_timezone(ccity, entry),
+                   requires_vpn=entry.get('requires_vpn') is True,
+                   vpn_region=entry.get('vpn_region') or '')
         # focus membership: explicit entry flag (true = first focus area, or a
         # label/city/region name), or a terrestrial row in a focus city/region
         fc = entry.get('focus')
@@ -308,7 +310,9 @@ def build_country(cfg, force_refresh=False):
                          codec='', bitrate='',
                          stream_status='Working' if nat.get('url') else 'No stream found',
                          votes=0, notes=nat.get('notes', desc), source='curated',
-                         timezone=row_timezone(nat_city, nat)))
+                         timezone=row_timezone(nat_city, nat),
+                         requires_vpn=nat.get('requires_vpn') is True,
+                         vpn_region=nat.get('vpn_region') or ''))
             continue
 
         # curated identity for a known station
@@ -410,7 +414,8 @@ def build_country(cfg, force_refresh=False):
                      stream_status='Working', votes=s.get('votes') or 0,
                      logo=clean_logo(s.get('favicon') or ''),
                      notes=f"{RB_TAGS_LABEL} {tags}", source='radio-browser',
-                     timezone=cfg['city_timezones'].get(ex_city, cfg['timezone_default'])))
+                     timezone=cfg['city_timezones'].get(ex_city, cfg['timezone_default']),
+                     requires_vpn=False, vpn_region=''))
             existing.add((n.replace(' ', ''), url_norm(url)))
             extras += 1
 
@@ -484,7 +489,8 @@ def build_collection(cfg):
                          votes=(s or {}).get('votes') or 0,
                          logo=clean_logo(e.get('logo') or (s or {}).get('favicon', '')),
                          notes=e.get('notes', ''), source='curated', focus_area='',
-                         timezone=''))
+                         timezone='', requires_vpn=e.get('requires_vpn') is True,
+                         vpn_region=e.get('vpn_region') or ''))
     rows.sort(key=lambda r: r['name'].lower())
     return rows
 

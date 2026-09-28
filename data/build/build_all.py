@@ -46,7 +46,8 @@ FAVICON_DIR = DATA_DIR / 'raw' / 'favicons'     # gitignored cache
 
 CANON_COLS = ['country', 'name', 'name_local', 'city', 'region', 'frequency_fm', 'type', 'genre',
               'language', 'political_leaning', 'internet_only', 'stream_url', 'codec', 'bitrate',
-              'stream_status', 'votes', 'logo', 'notes', 'source', 'timezone']
+              'stream_status', 'votes', 'logo', 'notes', 'source', 'timezone',
+              'requires_vpn', 'vpn_region']
 
 IMPORT_COLS = ['Station Name', 'Description / Genre', 'Stream URL', 'Country', 'City', 'Timezone',
                'Type', 'Language', 'Political Leaning', 'Internet Only', 'Frequency FM', 'Votes',
