@@ -69,6 +69,18 @@ internal static class CatalogUiFixtures
     /// <summary>Seven stations over two countries and a collection; empty search order (votes): Kosmos, Bayern, Thessaloniki, Köln, chill, Melodia, Shortwave.</summary>
     public static IReadOnlyList<StationCatalogEntry> Small { get; } = [Kosmos, Melodia, Thessaloniki, Bayern, KolnAm, Shortwave, Chill];
 
+    /// <summary>A geo-restricted station (D120): it plays only through the United Kingdom. The most-voted of
+    /// <see cref="VpnSmall"/>, so a browse opens on it and its badge leads the results.</summary>
+    public static readonly StationCatalogEntry VpnStation = new()
+    {
+        Name = "Harbour FM", Country = "GB", CountryLabel = "United Kingdom", City = "London", Region = "Greater London",
+        FrequencyFm = "97.1", Type = "Public", Genre = "News", Language = "English", StreamUrl = "https://streams.example.org/harbour",
+        Votes = 5_000, Notes = "Plays only inside the United Kingdom.", Tag = "Public · News", RequiresVpn = true, VpnRegion = "United Kingdom"
+    };
+
+    /// <summary>Two stations for the VPN badge checks (D120): a flagged one (<see cref="VpnStation"/>) and a plain one (<see cref="Melodia"/>, which plays from anywhere).</summary>
+    public static IReadOnlyList<StationCatalogEntry> VpnSmall { get; } = [VpnStation, Melodia];
+
     /// <summary>"Station 01" … "Station nn", votes descending with the number, so the empty search lists them in order.</summary>
     public static IReadOnlyList<StationCatalogEntry> Numbered(int count) =>
         [.. Enumerable.Range(1, count).Select(i => new StationCatalogEntry

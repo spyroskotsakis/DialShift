@@ -8,6 +8,7 @@ using DialShift.Core.Playback;
 using DialShift.Core.Transfer;
 using DialShift.Tests.Core;
 using static DialShift.Tests.TestHarness;
+using static DialShift.Tests.Ui.CatalogUiFixtures;
 
 namespace DialShift.Tests.Ui;
 
@@ -42,6 +43,7 @@ public static class ViewModelTests
         await SaveFailure();
         await RealCoordinatorTexts();
         await RealCoordinatorCommands();
+        await VpnBadges();
         await CatalogViewModelTests.RunAsync();
     }
 
@@ -941,5 +943,67 @@ public static class ViewModelTests
         await vm.Stations.Rows[0].EditCommand.ExecuteAsync();
         Check("HS-02 MX-09 BHV-53 deleting the playing station stops playback and clears it",
             engine.ActiveSessionId == null && !rig.Real!.Snapshot.IsActive && rig.Settings.Stations.All(s => s.Id != groove.Id) && vm.StatusText == "PAUSED");
+    }
+
+    // ─── CAT-21 (D120): the VPN badge across the view models ───
+
+    /// <summary>
+    /// The badge's one rule and wording (<see cref="UiText.VpnText"/>, D120): a station or entry with a region shows
+    /// "VPN · United Kingdom", one without shows nothing. Covers the result row, the Stations and Schedule rows, the
+    /// slot editor's picker wording and the Settings fallback picker, and now-playing. The Add dialog's pick copy and
+    /// its rendered badges are in <see cref="CatalogViewModelTests"/> (over the editor rig) and
+    /// <see cref="HeadlessUiTests"/> (the real dialog); the tray's " · VPN" suffix is in the latter too.
+    /// </summary>
+    private static async Task VpnBadges()
+    {
+        Check("CAT-21 UiText.VpnText: \"VPN · United Kingdom\" for a region, \"\" without one (the badge hidden then); the word is VpnTag",
+            UiText.VpnText("United Kingdom") == "VPN · United Kingdom" && UiText.VpnText("") == "" && UiText.VpnText(null) == ""
+            && UiText.VpnTag == "VPN");
+
+        var flagged = new CatalogResultRow(VpnStation);
+        var plain = new CatalogResultRow(Melodia);
+        Check("CAT-21 the result row's badge follows the entry: HasVpn and VpnText on a flagged one, absent on a plain one",
+            flagged.HasVpn && flagged.VpnText == "VPN · United Kingdom" && !plain.HasVpn && plain.VpnText == "");
+        Check("CAT-21 VPN-06 the slot editor's picker (its items are Stations) renders the badge through VpnConverters.Text: " +
+              "\"VPN · United Kingdom\", \"\" without a region",
+            VpnConverters.Text.Convert("United Kingdom", typeof(string), null, CultureInfo.InvariantCulture) as string == "VPN · United Kingdom"
+            && VpnConverters.Text.Convert(null, typeof(string), null, CultureInfo.InvariantCulture) as string == ""
+            && VpnConverters.Text.Convert("", typeof(string), null, CultureInfo.InvariantCulture) as string == "");
+
+        var harbour = new Station { Name = "Harbour FM", Url = "https://streams.example.org/harbour", Tag = "Public · News", VpnRegion = "United Kingdom" };
+        var anywhere = new Station { Name = "Melodia 99.2", Url = "https://streams.example.org/melodia", Tag = "Commercial · Pop" };
+        await using var rig = UiRig.CreateViewModels(seed: s =>
+        {
+            s.Stations = [harbour, anywhere];
+            s.Schedule =
+            [
+                new ScheduleEntry { StationId = harbour.Id, Time = "09:00", Days = [DayOfWeek.Monday] },
+                new ScheduleEntry { StationId = anywhere.Id, Time = "10:00", Days = [DayOfWeek.Monday] }
+            ];
+        });
+        var vm = rig.ViewModel;
+
+        Check("CAT-21 VPN-04 the Stations row badge follows the stored region: HasVpn/VpnText on the flagged station, absent on the plain one",
+            vm.Stations.Rows[0].HasVpn && vm.Stations.Rows[0].VpnText == "VPN · United Kingdom"
+            && !vm.Stations.Rows[1].HasVpn && vm.Stations.Rows[1].VpnText == "");
+
+        vm.Schedule.SelectDay(DayOfWeek.Monday);
+        Check("CAT-21 fixture: Monday lists both slots (09:00 flagged, 10:00 plain)",
+            vm.Schedule.Slots.Select(r => r.StationName).SequenceEqual(["Harbour FM", "Melodia 99.2"]));
+        Check("CAT-21 VPN-05 the Schedule row badge follows the slot's station: HasVpn/VpnText on the flagged slot, absent on the plain one",
+            vm.Schedule.Slots[0].HasVpn && vm.Schedule.Slots[0].VpnText == "VPN · United Kingdom"
+            && !vm.Schedule.Slots[1].HasVpn && vm.Schedule.Slots[1].VpnText == "");
+
+        var vpnOption = vm.Settings.FallbackOptions.Single(o => o.Id == harbour.Id);
+        var plainOption = vm.Settings.FallbackOptions.Single(o => o.Id == anywhere.Id);
+        Check("CAT-21 VPN-07 the Settings fallback option carries the badge for the flagged station only",
+            vpnOption.HasVpn && vpnOption.VpnText == "VPN · United Kingdom" && !plainOption.HasVpn && plainOption.VpnText == ""
+            && vm.Settings.FallbackOptions[0].VpnText == "");
+
+        Check("CAT-21 VPN-09 nothing plays: no now-playing badge", !vm.HasVpn && vm.VpnText == "");
+        rig.Fake!.Publish(new PlaybackSnapshot(PlaybackStatus.Playing, null, null, harbour.Id, harbour.Name, true, true, false, "Live broadcast", "", null, null, null, 60));
+        Check("CAT-21 VPN-09 now-playing shows the station on air's badge: HasVpn and \"VPN · United Kingdom\"", vm.HasVpn && vm.VpnText == "VPN · United Kingdom");
+        rig.Fake.Publish(new PlaybackSnapshot(PlaybackStatus.Playing, null, null, anywhere.Id, anywhere.Name, true, true, false, "Live broadcast", "", null, null, null, 60));
+        Check("CAT-21 VPN-09 a station without a region clears it", !vm.HasVpn && vm.VpnText == "");
     }
 }

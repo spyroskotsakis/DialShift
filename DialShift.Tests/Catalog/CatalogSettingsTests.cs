@@ -7,8 +7,9 @@ using static DialShift.Tests.TestHarness;
 namespace DialShift.Tests.Catalog;
 
 /// <summary>
-/// CAT-15: <see cref="Station.Notes"/> is optional and version-safe (docs/catalog-contracts.md §6, D61, the QA-N3 recipe).
-/// Everything goes through the real <see cref="SettingsStore"/> in a <see cref="TempDirectory"/>.
+/// CAT-15 and CAT-20: <see cref="Station.Notes"/> and <see cref="Station.VpnRegion"/> are optional and version-safe
+/// (docs/catalog-contracts.md §6, D61, D120, the QA-N3 recipe). Everything goes through the real
+/// <see cref="SettingsStore"/> in a <see cref="TempDirectory"/>.
 /// </summary>
 internal static class CatalogSettingsTests
 {
@@ -74,6 +75,9 @@ internal static class CatalogSettingsTests
 
     private const string NotesText = "Line one\nΓραμμή δύο — \"quoted\" & <b>tags</b>\ttab";
 
+    /// <summary>The value a pick from the catalog writes (Station.VpnRegion, D120).</summary>
+    private const string VpnRegionText = "United Kingdom";
+
     public static void Run()
     {
         using var temp = new TempDirectory("catalog-settings");
@@ -81,6 +85,9 @@ internal static class CatalogSettingsTests
         NotesRoundTrip(temp.Combine("notes"));
         NotesEdgeValues(temp.Combine("edges"));
         NumericNotesHazard(temp.Combine("hazard"));
+        VpnRegionRoundTrip(temp.Combine("vpn"));
+        VpnRegionEdgeValues(temp.Combine("vpn-edges"));
+        NumericVpnRegionHazard(temp.Combine("vpn-hazard"));
     }
 
     private static SettingsStore StoreWith(string directory, byte[] content)
@@ -173,6 +180,90 @@ internal static class CatalogSettingsTests
         var loaded = store.Load();
         var backups = Backups(directory);
         Check("CAT-15 [hazard] \"Notes\": 123 resets to defaults with a .unreadable-* copy (D61, like CT-SET-11; pinned, not fixed)",
+            backups.Length == 1 && File.ReadAllBytes(backups[0]).AsSpan().SequenceEqual(original) && loaded.Stations.Count == 3
+            && loaded.Stations[0].Name == "Groove Salad" && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
+    }
+
+    // ─── CAT-20: the persisted VPN region (D120, the Notes recipe) ───
+
+    /// <summary>
+    /// CAT-20: <see cref="Station.VpnRegion"/> is optional and version-safe exactly like <see cref="Station.Notes"/> —
+    /// an old file with no such field loads and saves unchanged, a set one round-trips (after <c>Notes</c> in declaration
+    /// order), clearing it restores the old bytes, and <see cref="Settings.Version"/> stays 1 throughout.
+    /// </summary>
+    private static void VpnRegionRoundTrip(string directory)
+    {
+        var store = StoreWith(directory, PreBrief);
+        var loaded = store.Load();
+        Check("CAT-20 an old settings file (no VpnRegion) loads every VpnRegion null, no warning, no .unreadable-*, Version 1",
+            store.Warning is null && Backups(directory).Length == 0 && loaded.Version == 1 && loaded.Stations.All(s => s.VpnRegion is null));
+        store.Save(loaded);
+        Check("CAT-20 saving it back with VpnRegion null writes nothing (byte-for-byte identical)",
+            File.ReadAllBytes(store.FilePath).AsSpan().SequenceEqual(PreBrief));
+
+        store = StoreWith(directory, PreBrief);
+        var settings = store.Load();
+        settings.Stations[0].VpnRegion = VpnRegionText;
+        settings.Stations[1].Notes = NotesText;
+        settings.Stations[1].VpnRegion = VpnRegionText;
+        store.Save(settings);
+        var json = JsonNode.Parse(File.ReadAllText(store.FilePath))!.AsObject();
+        var stations = json["Stations"]!.AsArray();
+        Check("CAT-20 a set VpnRegion is written after Tag, and after Notes when both are set (declaration order), as exactly the string",
+            stations[0]!.AsObject().Select(p => p.Key).SequenceEqual(["Id", "Name", "Url", "Tag", "VpnRegion"])
+            && stations[0]!["VpnRegion"]!.GetValue<string>() == VpnRegionText
+            && stations[1]!.AsObject().Select(p => p.Key).SequenceEqual(["Id", "Name", "Url", "Tag", "Notes", "VpnRegion"])
+            && stations[1]!["VpnRegion"]!.GetValue<string>() == VpnRegionText);
+        Check("CAT-20 Settings.Version stays 1 on disk when VpnRegion is saved", json["Version"]!.GetValue<int>() == 1);
+        var roundTrip = store.Load();
+        Check("CAT-20 VpnRegion round-trips through SettingsStore (string kept, Version 1 in memory, no warning, no backup)",
+            store.Warning is null && Backups(directory).Length == 0 && roundTrip.Version == 1
+            && roundTrip.Stations.Select(s => s.VpnRegion).SequenceEqual([VpnRegionText, VpnRegionText]));
+        roundTrip.Stations[0].VpnRegion = null;
+        roundTrip.Stations[1].VpnRegion = null;
+        roundTrip.Stations[1].Notes = null;
+        store.Save(roundTrip);
+        Check("CAT-20 clearing VpnRegion back to null restores the pre-brief bytes exactly",
+            File.ReadAllBytes(store.FilePath).AsSpan().SequenceEqual(PreBrief));
+    }
+
+    /// <summary>Values the UI never writes but a hand-edited or future file may hold: SettingsStore validates only name and URL.</summary>
+    private static void VpnRegionEdgeValues(string directory)
+    {
+        var store = StoreWith(directory, PreBrief);
+        var settings = store.Load();
+        var longRegion = string.Join(" · ", Enumerable.Repeat("Region", 1_000));
+        settings.Stations[0].VpnRegion = "";
+        settings.Stations[1].VpnRegion = longRegion;
+        store.Save(settings);
+        var json = JsonNode.Parse(File.ReadAllText(store.FilePath))!.AsObject();
+        var loaded = store.Load();
+        Check("CAT-20 an empty-string VpnRegion is written (only null is omitted) and loads back as \"\", not null",
+            json["Stations"]![0]!["VpnRegion"]!.GetValue<string>() == "" && loaded.Stations[0].VpnRegion == "" && store.Warning is null);
+        Check($"CAT-20 a long VpnRegion ({longRegion.Length} characters) loads unchanged (no length validation)", loaded.Stations[1].VpnRegion == longRegion);
+
+        var explicitNull = JsonNode.Parse(Encoding.UTF8.GetString(PreBrief))!.AsObject();
+        explicitNull["Stations"]![0]!["VpnRegion"] = null;
+        File.WriteAllText(store.FilePath, explicitNull.ToJsonString());
+        var withNull = store.Load();
+        store.Save(withNull);
+        Check("CAT-20 an explicit \"VpnRegion\": null loads as null with no warning, and the next save omits it (pre-brief bytes)",
+            withNull.Stations[0].VpnRegion is null && store.Warning is null && Backups(directory).Length == 0
+            && File.ReadAllBytes(store.FilePath).AsSpan().SequenceEqual(PreBrief));
+
+        var model = JsonSerializer.Serialize(new Station { Id = Guid.Empty, Name = "n", Url = "https://example.org/" });
+        Check("CAT-20 a Station serialized directly has no VpnRegion key when VpnRegion is null", !model.Contains("VpnRegion", StringComparison.Ordinal));
+    }
+
+    private static void NumericVpnRegionHazard(string directory)
+    {
+        var document = JsonNode.Parse(Encoding.UTF8.GetString(PreBrief))!.AsObject();
+        document["Stations"]![0]!["VpnRegion"] = 123;
+        var store = StoreWith(directory, Encoding.UTF8.GetBytes(document.ToJsonString()));
+        var original = File.ReadAllBytes(store.FilePath);
+        var loaded = store.Load();
+        var backups = Backups(directory);
+        Check("CAT-20 [hazard] \"VpnRegion\": 123 resets to defaults with a .unreadable-* copy (D120, like CT-SET-11/\"Notes\": 123; pinned, not fixed)",
             backups.Length == 1 && File.ReadAllBytes(backups[0]).AsSpan().SequenceEqual(original) && loaded.Stations.Count == 3
             && loaded.Stations[0].Name == "Groove Salad" && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
     }

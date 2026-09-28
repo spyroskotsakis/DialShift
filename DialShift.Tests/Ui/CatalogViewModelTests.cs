@@ -33,6 +33,7 @@ internal static class CatalogViewModelTests
         await HighlightRules();
         await PickAndDetail();
         await NotesOnSave();
+        await VpnPickAndBadge();
         await EditModeUnchanged();
         await DetailPlaceholders();
         await RealCatalog();
@@ -577,6 +578,62 @@ internal static class CatalogViewModelTests
             await Task.Delay(1);
         }
         return true;
+    }
+
+    // ─── CAT-21 (D120): the VPN badge and the pick copy in the Add dialog ───
+
+    /// <summary>
+    /// CAT-21's editor half: the result row and the detail pane carry the badge for a flagged entry and not for a plain
+    /// one, a picked entry's <c>VpnRegion</c> reaches the saved <see cref="Station"/> under the same "picked and URL
+    /// unchanged" rule as Notes, and a plain, URL-changed or hand-typed station leaves it null (D120, mirrors CAT-10 D73).
+    /// </summary>
+    private static async Task VpnPickAndBadge()
+    {
+        var rig = new EditorRig(Loaded(VpnSmall));
+        await rig.Settled();
+        var vm = rig.Vm;
+        var flagged = vm.Results.Single(r => r.Entry == VpnStation);
+        var plain = vm.Results.Single(r => r.Entry == Melodia);
+        Check("CAT-21 the result row carries the badge for the flagged entry and not the plain one (HasVpn, VpnText)",
+            flagged.HasVpn && flagged.VpnText == "VPN · United Kingdom" && !plain.HasVpn && plain.VpnText == "");
+        vm.HighlightedResult = flagged;
+        Check("CAT-21 VPN-03 the detail pane follows the highlight: the flagged row's badge is shown",
+            vm.DetailRow == flagged && vm.DetailRow!.HasVpn && vm.DetailRow.VpnText == "VPN · United Kingdom");
+        vm.HighlightedResult = plain;
+        Check("CAT-21 VPN-03 highlighting the plain row: the detail pane has no badge",
+            vm.DetailRow == plain && !vm.DetailRow!.HasVpn && vm.DetailRow.VpnText == "");
+        Pick(vm, VpnStation);
+        Check("CAT-21 VPN-03 after the pick the detail pane keeps the flagged entry's badge", vm.SelectedEntry == VpnStation && vm.DetailRow!.HasVpn);
+        vm.SaveCommand.Execute(null);
+        Check("CAT-21 VPN-03 VPN-02 a flagged pick saves the entry's VpnRegion on the Station (URL unchanged, like Notes)",
+            vm.Result == EditorResult.Saved && rig.Settings.Stations.Single() is
+                { Name: "Harbour FM", Url: "https://streams.example.org/harbour", Notes: "Plays only inside the United Kingdom.", VpnRegion: "United Kingdom" });
+
+        var plainRig = new EditorRig(Loaded(VpnSmall));
+        await plainRig.Settled();
+        Pick(plainRig.Vm, Melodia);
+        plainRig.Vm.SaveCommand.Execute(null);
+        Check("CAT-21 VPN-03 a plain pick saves VpnRegion = null (not \"\")",
+            plainRig.Vm.Result == EditorResult.Saved && plainRig.Settings.Stations.Single() is { Name: "Melodia 99.2", VpnRegion: null });
+
+        var changed = new EditorRig(Loaded(VpnSmall));
+        await changed.Settled();
+        Pick(changed.Vm, VpnStation);
+        changed.Vm.Url = "https://streams.example.org/harbour-hq";
+        changed.Vm.SaveCommand.Execute(null);
+        Check("CAT-21 VPN-03 the URL changed after a flagged pick: no VpnRegion (and no notes)",
+            changed.Settings.Stations.Single() is { Url: "https://streams.example.org/harbour-hq", Notes: null, VpnRegion: null });
+
+        var byHand = new EditorRig(Loaded(VpnSmall));
+        await byHand.Settled();
+        byHand.Vm.Name = "By hand";
+        byHand.Vm.Url = VpnStation.StreamUrl;
+        byHand.Vm.SaveCommand.Execute(null);
+        Check("CAT-21 VPN-03 a station entered by hand gets no VpnRegion, even with the entry's URL",
+            byHand.Settings.Stations.Single() is { Name: "By hand", Url: "https://streams.example.org/harbour", VpnRegion: null });
+
+        Check("CAT-21 no errors were reported while picking",
+            rig.Errors.Count == 0 && plainRig.Errors.Count == 0 && changed.Errors.Count == 0 && byHand.Errors.Count == 0);
     }
 
     // ─── CAT-11: Edit mode is the plain form ───

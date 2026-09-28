@@ -42,6 +42,7 @@ public static class HeadlessUiTests
         await Headless.RunAsync(TrayMenuItemsAndRouting);
         await Headless.RunAsync(SettingsPageControls);
         await Headless.RunAsync(SettingsTransferControls);
+        await Headless.RunAsync(VpnBadges);
         await AppLifecycleTests.RunAsync();
         await PlaybackLoopTests.RunAsync();
         await Headless.RunAsync(LongStationNameInPickers);
@@ -736,6 +737,42 @@ public static class HeadlessUiTests
 
         tray.Dispose();
         Check("HS-04 BHV-11 disposing the tray hides the icon", !tray.TrayIcon.IsVisible);
+    }
+
+    // ─── CAT-21 (D120): the VPN badge on the Stations page and the tray suffix ───
+
+    /// <summary>
+    /// The Stations page draws the badge on a flagged row only, and the tray names a flagged station "Name · VPN"
+    /// (<see cref="UiText.VpnTag"/>), with the region kept in the app; <c>VpnRegion</c> is part of the tray's rebuild
+    /// signature, so clearing it rebuilds the menu and drops the suffix. The Add dialog's badges are in
+    /// <see cref="CatalogHeadlessTests"/>.
+    /// </summary>
+    private static async Task VpnBadges()
+    {
+        var harbour = new Station { Name = "Harbour FM", Url = "https://streams.example.org/harbour", Tag = "Public · News", VpnRegion = "United Kingdom" };
+        var anywhere = new Station { Name = "Melodia 99.2", Url = "https://streams.example.org/melodia", Tag = "Commercial · Pop" };
+        await using var rig = await UiRig.CreateHeadlessAsync(tray: true, seed: s => s.Stations = [harbour, anywhere]);
+        var window = rig.Window!;
+
+        Check("CAT-21 VPN-04 the Stations page renders the badge on the flagged row only",
+            Shows(window, "VPN · United Kingdom") && Find<Border>(window).Count(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible) == 1);
+        Console.WriteLine("  PNG: " + Screenshot(window, "stations-vpn-badge"));
+
+        var tray = rig.Tray!;
+        List<string?> StationItems() => [.. tray.RootMenu.Items.OfType<NativeMenuItem>().Single(i => i.Header == "Stations")
+            .Menu!.Items.OfType<NativeMenuItem>().Select(i => i.Header)];
+        Check("CAT-21 VPN-08 the tray station item gets the \" · VPN\" suffix (the region stays in the app); the plain one keeps its name",
+            StationItems().SequenceEqual(["Harbour FM · VPN", "Melodia 99.2"]));
+
+        var rebuilds = tray.RebuildCount;
+        harbour.VpnRegion = null;
+        await rig.SettingsService.CommitAsync(SettingsChange.Stations);
+        await PumpAsync();
+        Layout(window);
+        Check("CAT-21 VPN-08 VpnRegion is part of the tray rebuild signature: clearing it rebuilds the menu and drops the suffix",
+            tray.RebuildCount == rebuilds + 1 && StationItems().SequenceEqual(["Harbour FM", "Melodia 99.2"]));
+        Check("CAT-21 VPN-04 clearing the region drops the Stations page badge too, in place",
+            !Shows(window, "VPN · United Kingdom") && !Find<Border>(window).Any(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible));
     }
 
     // ─── Settings page controls (BHV-59 inline diagnostic, BHV-60, BHV-61) ───
