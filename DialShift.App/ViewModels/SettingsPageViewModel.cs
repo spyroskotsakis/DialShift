@@ -156,6 +156,8 @@ public sealed class SettingsPageViewModel : PageViewModel
     }
 
     public string LaunchAtLoginLabel => OperatingSystem.IsWindows() ? WindowsLaunchAtLoginLabel : MacLaunchAtLoginLabel;
+    public string ExportStationsLabel => UiText.ExportStationsLabel;
+    public string ImportStationsLabel => UiText.ImportStationsLabel;
     public string StartInTrayLabel => "Start in the tray when opened normally";
     public string StartupHelp => "Closing the window keeps your radio running. Choose Quit DialShift in the tray to exit.";
     public string FallbackHelp => "Retry a failed stream, then use this station as a fallback. Try the original again every 2 minutes.";

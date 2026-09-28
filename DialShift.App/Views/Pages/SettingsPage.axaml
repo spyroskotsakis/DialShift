@@ -38,13 +38,13 @@
       <StackPanel>
         <TextBlock Text="{Binding VersionText}" FontSize="16" FontWeight="SemiBold" />
         <TextBlock Classes="secondary" FontSize="13" Text="{Binding Tagline}" Margin="0,6,0,14" />
-        <Button MinWidth="216" Content="Open settings folder ↗" Command="{Binding OpenSettingsFolderCommand}" HorizontalAlignment="Left" />
-        <Button MinWidth="216" Margin="0,6,0,0" HorizontalAlignment="Left"
-                Content="Export stations &amp; schedule…" Command="{Binding ExportStationsCommand}"
+        <Button MinWidth="264" Content="Open settings folder ↗" Command="{Binding OpenSettingsFolderCommand}" HorizontalAlignment="Left" />
+        <Button MinWidth="264" Margin="0,6,0,0" HorizontalAlignment="Left"
+                Content="{Binding ExportStationsLabel}" Command="{Binding ExportStationsCommand}"
                 IsEnabled="{Binding IsTransferEnabled}"
                 AutomationProperties.Name="Export stations &amp; schedule" />
-        <Button MinWidth="216" Margin="0,6,0,0" HorizontalAlignment="Left"
-                Content="Import stations &amp; schedule…" Command="{Binding ImportStationsCommand}"
+        <Button MinWidth="264" Margin="0,6,0,0" HorizontalAlignment="Left"
+                Content="{Binding ImportStationsLabel}" Command="{Binding ImportStationsCommand}"
                 IsEnabled="{Binding IsTransferEnabled}"
                 AutomationProperties.Name="Import stations &amp; schedule" />
       </StackPanel>

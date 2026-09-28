@@ -83,7 +83,15 @@ public static class UiText
 
     // ─── Settings transfer (brief 5 §6, D108) ───
     // The transfer dialogs' wording lives in the service lane (Services/TransferText.cs), which shows them; the page only
-    // names the file the Save picker suggests.
+    // names the file the Save picker suggests and the two buttons' captions.
+
+    /// <summary>
+    /// The About card's two transfer button captions (brief 5 §6, spec §6 "all labels in UiText"). The ellipsis is the
+    /// single U+2026 character; the matching automation names are these without it (SettingsPage.axaml).
+    /// </summary>
+    public const string ExportStationsLabel = "Export stations & schedule…";
+    /// <summary>The Import button's caption; see <see cref="ExportStationsLabel"/>.</summary>
+    public const string ImportStationsLabel = "Import stations & schedule…";
 
     /// <summary>
     /// The Save dialog's suggested name (D108): "DialShift-transfer-2026-09-28.json". The day is the computer's local
