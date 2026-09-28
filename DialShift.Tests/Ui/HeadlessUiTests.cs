@@ -41,6 +41,7 @@ public static class HeadlessUiTests
         await Headless.RunAsync(ScheduleEditorFlow);
         await Headless.RunAsync(TrayMenuItemsAndRouting);
         await Headless.RunAsync(SettingsPageControls);
+        await Headless.RunAsync(SettingsTransferControls);
         await AppLifecycleTests.RunAsync();
         await PlaybackLoopTests.RunAsync();
         await Headless.RunAsync(LongStationNameInPickers);
@@ -167,11 +168,12 @@ public static class HeadlessUiTests
         Console.WriteLine("  PNG: " + Screenshot(window, "schedule"));
 
         await ShowPage(rig, "Settings");
-        Check("HS-01 BHV-59 BHV-60 BHV-61 BHV-62 Settings page: both checkboxes, fallback picker, About version, \"Open settings folder ↗\"",
+        Check("HS-01 IE-08 BHV-59 BHV-60 BHV-61 BHV-62 Settings page: both checkboxes, fallback picker, About version, \"Open settings folder ↗\" and the two transfer buttons",
             Shows(window, "Set it. Forget it.") && Find<CheckBox>(window).Any(c => c.Content as string == LaunchAtLoginLabel)
             && Find<CheckBox>(window).Any(c => c.Content as string == "Start in the tray when opened normally")
             && ByName<ComboBox>(window, "Fallback station").SelectedItem is FallbackOption { Id: null }
-            && Shows(window, "DialShift  /  " + UiRig.Version) && Shows(window, "Open settings folder ↗"));
+            && Shows(window, "DialShift  /  " + UiRig.Version) && Shows(window, "Open settings folder ↗")
+            && Shows(window, "Export stations & schedule…") && Shows(window, "Import stations & schedule…"));
         Console.WriteLine("  PNG: " + Screenshot(window, "settings"));
 
         var mark = rig.Journal.Count;
@@ -779,5 +781,46 @@ public static class HeadlessUiTests
         await ShowPage(rig, "Stations");
         Check("HS-02 BHV-61 picking a fallback in the combo persists it and marks the row \" · Fallback\"",
             rig.OnDisk().FallbackStationId == rig.Settings.Stations[2].Id && Shows(window, "SomaFM · Cinematic grooves · Fallback"));
+    }
+
+    // ─── IE-08: the transfer buttons and the busy state, on the real Settings page ───
+
+    private static async Task SettingsTransferControls()
+    {
+        await using var rig = await UiRig.CreateHeadlessAsync();
+        var window = rig.Window!;
+        await ShowPage(rig, "Settings");
+
+        var open = ButtonWithText(window, "Open settings folder ↗");
+        var export = ByName<Button>(window, "Export stations & schedule");
+        var import = ByName<Button>(window, "Import stations & schedule");
+
+        Check("IE-08 the two buttons carry the exact automation names and their visible labels end in an ellipsis",
+            export.Content as string == "Export stations & schedule…" && import.Content as string == "Import stations & schedule…");
+
+        var openTop = open.TranslatePoint(default, window)!.Value.Y;
+        var exportTop = export.TranslatePoint(default, window)!.Value.Y;
+        var importTop = import.TranslatePoint(default, window)!.Value.Y;
+        Check("IE-08 Export then Import are stacked under \"Open settings folder ↗\" (MinWidth 216, left aligned)",
+            exportTop >= openTop + open.Bounds.Height - 0.5 && importTop >= exportTop + export.Bounds.Height - 0.5
+            && export.MinWidth == 216 && import.MinWidth == 216
+            && export.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left
+            && import.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left);
+
+        Check("IE-08 both transfer buttons are enabled when idle", export.IsEffectivelyEnabled && import.IsEffectivelyEnabled);
+
+        rig.TransferPicker.Hold = new TaskCompletionSource();
+        var running = rig.ViewModel.Settings.ExportStationsCommand.ExecuteAsync();
+        await WaitAsync(() => rig.TransferPicker.SaveRequests.Count == 1);
+        Layout(window);
+        Check("IE-08 while a transfer runs IsTransferBusy is true and both buttons are disabled",
+            rig.ViewModel.Settings.IsTransferBusy && !export.IsEffectivelyEnabled && !import.IsEffectivelyEnabled);
+
+        rig.TransferPicker.Hold.SetResult();
+        await WaitAsync(() => !rig.ViewModel.Settings.IsTransferBusy);
+        Layout(window);
+        Check("IE-08 when the transfer ends both buttons are enabled again", export.IsEffectivelyEnabled && import.IsEffectivelyEnabled);
+        await running;
+        rig.TransferPicker.Hold = null;
     }
 }

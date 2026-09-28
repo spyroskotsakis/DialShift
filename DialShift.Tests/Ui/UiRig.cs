@@ -73,6 +73,13 @@ public sealed class UiRig : IAsyncDisposable
 
     public FakeStartupRegistration Startup { get; } = new();
     public FakeFileReveal Reveal { get; } = new();
+
+    /// <summary>The native Save/Open picker double (brief 5 §7): the boundary the transfer checks drive instead of an OS dialog.</summary>
+    public FakeTransferFilePicker TransferPicker { get; } = new();
+
+    /// <summary>The real transfer service over this rig's journaling settings, recording/real dialogs and log (brief 5 §7).</summary>
+    public ISettingsTransferService Transfer { get; private set; } = null!;
+
     public FakeShell Shell => shell ??= new FakeShell(Journal);
     private FakeShell? shell;
 
@@ -126,8 +133,11 @@ public sealed class UiRig : IAsyncDisposable
     {
         SettingsService = new JournalingSettingsService(new SettingsService(Settings, Store, Coordinator, dialogs, Log), Journal);
         Services = new ViewModelServices(Coordinator, SettingsService, dialogs, editors, Log, Catalog, Logos, dispatcher);
-        ViewModel = new MainWindowViewModel(Coordinator, SettingsService, dialogs, editors, Startup, Reveal, dispatcher, Shell, Log, Clock, Zone,
-            new AppInfo(Version, Paths.DataDirectory), Catalog, Logos);
+        // The real transfer service over the rig's journaling settings and its dialog service (recording in view-model mode,
+        // the real Avalonia dialogs headless), so service-level dialogs/journal/commit assertions see the production behavior.
+        Transfer = new SettingsTransferService(SettingsService, dialogs, Log, Version);
+        ViewModel = new MainWindowViewModel(Coordinator, SettingsService, dialogs, editors, Startup, Reveal, Transfer, TransferPicker,
+            dispatcher, Shell, Log, Clock, Zone, new AppInfo(Version, Paths.DataDirectory), Catalog, Logos);
     }
 
     /// <summary>The settings as they are on disk now (a fresh store load).</summary>

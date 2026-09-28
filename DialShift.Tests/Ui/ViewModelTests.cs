@@ -5,6 +5,7 @@ using DialShift.App.Platform;
 using DialShift.App.ViewModels;
 using DialShift.Core;
 using DialShift.Core.Playback;
+using DialShift.Core.Transfer;
 using DialShift.Tests.Core;
 using static DialShift.Tests.TestHarness;
 
@@ -35,6 +36,7 @@ public static class ViewModelTests
         await SlotTimeWithDottedInput();
         await SlotTimeUnderDotCultures();
         await SettingsPage();
+        await SettingsTransferFlow();
         await LaunchAtLogin();
         await RecoveryNotice();
         await SaveFailure();
@@ -617,6 +619,137 @@ public static class ViewModelTests
             SettingsPageViewModel.WindowsLaunchAtLoginLabel == "Launch DialShift in the tray when I sign in"
             && SettingsPageViewModel.MacLaunchAtLoginLabel == "Launch DialShift in the tray when I log in"
             && page.LaunchAtLoginLabel == (OperatingSystem.IsWindows() ? SettingsPageViewModel.WindowsLaunchAtLoginLabel : SettingsPageViewModel.MacLaunchAtLoginLabel));
+    }
+
+    // ─── Settings transfer through the view-model commands and the fake picker (IE-03, IE-04, IE-05, IE-09, IE-10, IE-11) ───
+
+    private static async Task SettingsTransferFlow()
+    {
+        // Export through the Save picker: the collected path writes a parseable file and shows the counts dialog.
+        using (var dir = new TempDirectory("transfer-vm-export"))
+        await using (var rig = UiRig.CreateViewModels(seed: s =>
+            s.Schedule.Add(new ScheduleEntry { StationId = s.Stations[0].Id, Time = "09:00", Days = [DayOfWeek.Monday] })))
+        {
+            var path = dir.Combine("export.json");
+            rig.TransferPicker.SavePath = path;
+            await rig.ViewModel.Settings.ExportStationsCommand.ExecuteAsync();
+
+            var suggested = rig.TransferPicker.SaveRequests.Single();
+            Check("IE-09 export asks the Save picker once with the date-stamped suggested name",
+                suggested.Length == "DialShift-transfer-2026-09-28.json".Length
+                && suggested.StartsWith("DialShift-transfer-", StringComparison.Ordinal) && suggested.EndsWith(".json", StringComparison.Ordinal));
+            Check("IE-09 IE-10 export writes a parseable transfer file and shows the counts dialog",
+                File.Exists(path) && TransferCodec.Validate(File.ReadAllText(path)).Count == 0
+                && TransferCodec.Parse(File.ReadAllText(path)).Stations.Count == 3
+                && rig.Recorder!.Messages.Count == 1 && rig.Recorder.Messages[0].Message == "Exported 3 stations and 1 schedule slot.");
+        }
+
+        // A cancelled Save picker: no file, no dialog, no mutation.
+        using (var dir = new TempDirectory("transfer-vm-export-cancel"))
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var before = JsonSerializer.Serialize(rig.Settings);
+            rig.TransferPicker.SavePath = null;
+            await rig.ViewModel.Settings.ExportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder!;
+
+            Check("IE-09 a cancelled Save picker writes no file, shows no dialog and mutates nothing",
+                rig.TransferPicker.SaveRequests.Count == 1 && Directory.GetFiles(dir.Path).Length == 0
+                && recorder.Messages.Count == 0 && JsonSerializer.Serialize(rig.Settings) == before);
+        }
+
+        // Import through the Open picker: replaces both lists, drops the orphan, clears the dangling id, commits.
+        var keptId = Guid.NewGuid();
+        var imported = new TransferFile
+        {
+            SchemaVersion = TransferCodec.SchemaVersion,
+            AppVersion = "0.5.0",
+            ExportedUtc = "2026-09-28T10:00:00Z",
+            ScheduleEnabled = true,
+            Stations =
+            [
+                new Station { Id = keptId, Name = "Imported one", Url = "https://ice5.somafm.com/groovesalad-128-aac" },
+                new Station { Name = "Imported two", Url = "https://ice5.somafm.com/dronezone-128-aac" }
+            ],
+            Schedule =
+            [
+                new ScheduleEntry { StationId = keptId, Time = "07:00", Days = [DayOfWeek.Monday] },
+                new ScheduleEntry { StationId = Guid.NewGuid(), Time = "08:00", Days = [DayOfWeek.Tuesday] }
+            ]
+        };
+        using var importDir = new TempDirectory("transfer-vm-import");
+        var importPath = importDir.Combine("import.json");
+        File.WriteAllText(importPath, TransferCodec.Serialize(imported));
+
+        await using (var rig = UiRig.CreateViewModels(seed: s =>
+        {
+            s.Stations = [new Station { Name = "Old", Url = "https://ice5.somafm.com/old" }];
+            s.Schedule = [new ScheduleEntry { StationId = s.Stations[0].Id, Time = "05:00", Days = [DayOfWeek.Monday] }];
+            s.FallbackStationId = Guid.NewGuid();   // not among the imported stations → cleared
+            s.LastStationId = keptId;               // among the imported stations → kept
+        }))
+        {
+            rig.TransferPicker.OpenPath = importPath;
+            rig.Recorder!.ConfirmAnswers.Enqueue(true);
+            var mark = rig.Journal.Count;
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder;
+
+            Check("IE-03 IE-05 IE-11 import through the Open picker replaces both lists, drops the orphan, clears the dangling id and commits",
+                rig.TransferPicker.OpenRequests == 1
+                && rig.Settings.Stations.Select(s => s.Id).SequenceEqual(imported.Stations.Select(s => s.Id))
+                && rig.Settings.Schedule.Count == 1 && rig.Settings.Schedule[0].StationId == keptId
+                && rig.Settings.FallbackStationId == null && rig.Settings.LastStationId == keptId
+                && rig.Journal.Since(mark).Contains("settings.commit:" + (SettingsChange.Stations | SettingsChange.Schedule)));
+            Check("IE-10 the import shows the confirmation and the counts/orphan success dialog",
+                recorder.Confirmations.Count == 1 && recorder.Messages.Count == 1
+                && recorder.Messages[0].Message.Contains("1 schedule slot referenced missing stations", StringComparison.Ordinal));
+        }
+
+        // A cancelled confirmation: no mutation, no commit, no success dialog.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var before = JsonSerializer.Serialize(rig.Settings);
+            var mark = rig.Journal.Count;
+            rig.TransferPicker.OpenPath = importPath;
+            rig.Recorder!.ConfirmAnswers.Enqueue(false);
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder;
+
+            Check("IE-03 a cancelled import confirmation changes nothing and commits nothing",
+                JsonSerializer.Serialize(rig.Settings) == before && rig.Since(mark) == ""
+                && recorder.Messages.Count == 0 && recorder.Confirmations.Count == 1);
+        }
+
+        // A cancelled Open picker: no dialog, no mutation.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var before = JsonSerializer.Serialize(rig.Settings);
+            rig.TransferPicker.OpenPath = null;
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder!;
+
+            Check("IE-09 a cancelled Open picker shows no dialog and mutates nothing",
+                recorder.Messages.Count == 0 && recorder.Confirmations.Count == 0 && JsonSerializer.Serialize(rig.Settings) == before);
+        }
+
+        // A malformed file: error dialog, zero mutation.
+        using (var dir = new TempDirectory("transfer-vm-bad"))
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var badPath = dir.Combine("bad.json");
+            File.WriteAllText(badPath, "{ \"schema_version\": 1, ");
+            var before = JsonSerializer.Serialize(rig.Settings);
+            var mark = rig.Journal.Count;
+            rig.TransferPicker.OpenPath = badPath;
+            rig.Recorder!.ConfirmAnswers.Enqueue(true);
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder;
+
+            Check("IE-04 a malformed file shows the error dialog and mutates nothing",
+                recorder.Messages.Count == 1 && recorder.Messages[0].Title == UiText.UnexpectedErrorTitle
+                && JsonSerializer.Serialize(rig.Settings) == before && rig.Since(mark) == "");
+        }
     }
 
     private static async Task LaunchAtLogin()

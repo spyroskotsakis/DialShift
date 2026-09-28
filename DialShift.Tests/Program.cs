@@ -4,6 +4,7 @@ using DialShift.Tests.Catalog;
 using DialShift.Tests.Core;
 using DialShift.Tests.Fakes;
 using DialShift.Tests.Platform;
+using DialShift.Tests.Transfer;
 
 // Child-process modes used by the process-level single-instance (CT-SI-03) and cross-process log (LOG-D1) checks;
 // never part of a normal run.
@@ -40,4 +41,5 @@ return await TestHarness.RunAsync(args,
     new TestSuite("LibVlcEngine", LibVlcEngineTests.RunAsync),
     new TestSuite("TrustWarmup", TrustWarmupTests.RunAsync),
     new TestSuite("CatalogPerf", CatalogPerfTests.RunAsync),
-    new TestSuite("Catalog", CatalogTests.Run));
+    new TestSuite("Catalog", CatalogTests.Run),
+    new TestSuite("Transfer", TransferTests.RunAsync));
