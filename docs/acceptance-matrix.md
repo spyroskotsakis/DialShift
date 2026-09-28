@@ -49,6 +49,7 @@
 10. [Open questions](#10-open-questions-recommended-defaults)
 11. [Add-station catalog search (brief 3)](#11-add-station-catalog-search-brief-3)
 12. [Windows installer (brief 4)](#12-windows-installer-brief-4)
+13. [Settings import & export (brief 5)](#13-settings-import--export-brief-5)
 - [Appendix A: Instruction-file updates (applied)](#appendix-a-instruction-file-updates-applied)
 
 ---
@@ -1199,6 +1200,44 @@ Brief: `docs/windows-installer.md` (§ numbers below are the brief's). Decisions
 | 2 | test | INS-04's fixtures on the Mac, mutation-proven; the §8.1 step and the `setup-crossbuild` job written against the brief (their evidence needs phase 3) |
 | 3 | release, test (maintainer push) | a green public CI run on the branch: INS-02, INS-03 (cross-build), INS-04, INS-05 on Windows, INS-06..INS-14 (cases (s1)–(s9)); every other suite and step still green |
 | 4 | docs, qa, design | INS-19 docs review; QG-03 review of the wizard (INS-16); every row `GREEN`, `WINDOWS-PENDING` or `NATIVE-PENDING` with evidence; INS-17 and INS-18 at the next release (done: `v0.5.0`, both `GREEN`) |
+
+---
+
+## 13. Settings import & export (brief 5)
+
+Brief: `docs/settings-import-export.md` (§ numbers below are the brief's). Decisions: D105–D115 (the brief's §11 defaults) and D116 (the 27-vs-28 suite-count correction). Rows IE-01..IE-13 are the brief's §10 acceptance matrix. Frozen contracts (Phase 0, this change): `DialShift.Core/Transfer/TransferFile.cs`, `TransferCodec.cs` and `TransferResult.cs`; `DialShift.App/Services/ISettingsTransferService.cs` and `ITransferFilePicker.cs`.
+
+**Status (2026-09-28, Phase 0 — contracts frozen, nothing implemented): 0 GREEN, 0 WINDOWS-PENDING, 0 NATIVE-PENDING, 13 TODO.** The five contract files compile (`dotnet build DialShift.slnx -warnaserror` clean) and the 27-suite baseline is green. Every row is `TODO` until its behavior is implemented (Phases 1–3) and verified (Phase 4); IE-13's native half runs on this Mac and in the user's Windows 11 ARM64 Parallels VM (Phase 5). Per D116, "suites" counts **28** once the new `Transfer` suite is registered — the repo has 27 suites today.
+
+### 13.1 IE rows
+
+| ID | Behavior | Evidence | Owner lane | Checks | Windows evidence | Status |
+|---|---|---|---|---|---|---|
+| IE-01 | Export writes a `schema_version=1` transfer file: the snake_case envelope plus verbatim `Station`/`ScheduleEntry` JSON; `Notes`/`TimeZone` are omitted when null | `Transfer` suite (byte-level) | core, test | `Transfer` suite: `TransferCodec.Serialize` over a fixture with set and null `Notes`/`TimeZone`, asserting exact keys, casing and the omitted null fields | — (the same check runs on both CI OSes) | TODO |
+| IE-02 | Roundtrip: export → import reproduces the stations, the schedule and `schedule_enabled` exactly, ids preserved | `Transfer` suite | core, integration, test | `Transfer` suite: `Serialize` → `Parse` byte-stable, and a service roundtrip on real files | — | TODO |
+| IE-03 | Import replaces the current lists after confirmation; a cancelled confirmation leaves everything untouched (no mutation, no save) | `Transfer` + `Ui` checks | integration, ui, test | `Transfer` suite; `UiViewModels`/`HeadlessUi`: confirm → lists replaced, confirm-cancel → journal shows no commit | — | TODO |
+| IE-04 | Validation runs fully before any mutation: malformed JSON, wrong shape, `schema_version` 0/2, a blank `Name`, an invalid `Url`, a duplicated station `Id` each refuse with the reason and change nothing | `Transfer` suite | core, test | `Transfer` suite: `TransferCodec.Validate` one case per §5 refusal, each asserting the reason and zero mutation | — | TODO |
+| IE-05 | Orphan schedule slots (a `StationId` not among the file's stations) are dropped and counted in the result message | `Transfer` + `Ui` checks | integration, ui, test | `Transfer` suite orphan drop + `DroppedOrphanCount`; `UiViewModels` success-message text | — | TODO |
+| IE-06 | Dangling `FallbackStationId`/`LastStationId` are nulled after import; values that still point at an imported station are kept | `Ui` checks | integration, ui, test | `UiViewModels`/`HeadlessUi` import check over both ids (dangling cleared, valid kept) | — | TODO |
+| IE-07 | `Volume`/`LaunchAtLogin`/`StartInTray` are untouched; `Settings.Version` stays 1 | `Transfer` suite | integration, test | `Transfer` suite: settings-discipline check after import; a pre-brief settings file still loads | — | TODO |
+| IE-08 | Buttons "Export stations & schedule…" / "Import stations & schedule…" under "Open settings folder ↗" (stacked, `MinWidth=216`), exact automation names, disabled while busy | headless HS checks | ui, test | `HeadlessUi`: both buttons visible with the exact automation names, stacked in the About card, disabled while `IsTransferBusy` | — | TODO |
+| IE-09 | Native Save/Open pickers via `StorageProvider`, main-window owner, suggested name `DialShift-transfer-<yyyy-MM-dd>.json`; cancel = null, no side effects | `FakeTransferFilePicker` checks + native check | integration, ui, test | `FakeTransferFilePicker` checks (path returned, cancel → null, no dialog/no file); the picker itself by hand in IE-13 | IE-13 (Windows 11 ARM64 VM) | TODO |
+| IE-10 | Success dialogs show the counts (plus the orphan notice); failures use `UiText`; `transfer.import`/`transfer.export` log counts only, never URLs | `Ui` checks + redaction suite | integration, ui, test | `UiViewModels`/`HeadlessUi` dialog texts; `Redaction` suite over the transfer log events (counts only) | — | TODO |
+| IE-11 | Import commits via `CommitAsync(Stations \| Schedule)` → the coordinator is notified and the tray and pages re-render | `Ui` journal checks | integration, ui, test | `HeadlessUi`/`UiViewModels` journal check asserting `Stations \| Schedule` and the refresh | — | TODO |
+| IE-12 | QG-03 polish (theme, visible focus, no clipped text at 780×650, natural Tab order); docs current in the same change (README, matrix, decisions D105+, native-check wording, HS-01); **28 suites green** on both CI OSes; the smoke roundtrip passes in the bundle | design review + CI + smoke | ui, design, docs, test, release | `design-reviewer` report; green CI on `windows-latest` and `macos-latest` (28/28 suites); bundle smoke with the transfer roundtrip; `HeadlessUi` 780×650 checks | the `windows-latest` CI job and the Windows native smoke | TODO |
+| IE-13 | **Native regression (both OSes):** macOS — build + full suites + smoke + a by-hand export → change a station → import back on this Mac. Windows — in the user's Windows 11 ARM64 Parallels VM (24H2, x64 under emulation): uninstall the existing DialShift, install the fresh build, run `--smoke-test --recovery-test` from the installed package, then by-hand export → import roundtrip and a regression (tray, playback, Settings page) | native check, recorded in the report | release, test (run by the user) | the native-check kit steps for macOS and Windows; the recorded run in the report | the Windows 11 ARM64 Parallels VM | TODO |
+
+### 13.2 Phase gates
+
+| Phase | Lane | Gate (pasted real output) |
+|---|---|---|
+| 0 | spec | the five contract files, this section, D105–D116; `dotnet build DialShift.slnx -warnaserror` clean and the 27/27-suite baseline green (this change) |
+| 1 | core (+ test) | `dotnet build DialShift.slnx -warnaserror`; `TransferCodec` green; all 27 existing suites still green |
+| 2 | integration (+ test) | the build; `SettingsTransferService` + `TransferFilePicker` + `AppComposition` registrations; a service roundtrip on real files in the `Transfer` suite |
+| 3 | ui (+ test) | the build; HS-01 updated; the new HS checks green |
+| 4 | test, qa, design | every suite green; IE-01..IE-12 `GREEN` with evidence; QG-03 audit; dead-code grep; `Settings.Version` audit (stays 1); redaction grep (no URL logging) |
+| 5 | release, test | IE-13: the native regression on macOS and in the Windows 11 ARM64 Parallels VM, shown in the report |
+| 6 | docs, release | docs current in the same change; the final report lists the IE-13 evidence from both OSes, the remaining native checks and the decisions; the branch stays unmerged |
 
 ---
 

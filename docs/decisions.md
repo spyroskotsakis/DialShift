@@ -108,6 +108,18 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
 | D102 | 2026-09-26 | CAT-16 timings measured at the JIT's steady state, retried only on a busy machine: budgets unchanged; before anything is gated, 3 rounds of 20 loads of each file, a search per query and calibration passes, each round then a 250 ms pause, so attempts 1, 2 and 3 agree whatever the suite order (the gated real load is about 13 ms instead of 26 ms standalone, 14–15 ms in a full run); a calibration workload that runs none of the code under test is timed around each attempt: over budget on a quiet machine (within 1.2× of the fastest calibration) fails at once, over budget on a busy one is retried after 10 s, then 30 s (up to 3 attempts, each gate on its best), busy in all three fails as inconclusive. Found by the public v0.4.1 Release run `36232921118`, attempt 1 (`FAIL: CAT-16 load median (synthetic 10000) 67.1 ms < 50 ms` on a slow hosted runner; its re-run passed and published 0.4.1). The first implementation (`ca2b676`, retries in the same process or in a fresh one) was rejected by QA for depending on the suite order. Proofs: a 45 ms load regression fails fast on a quiet machine; contention in attempt 1 only is retried and passes; contention in every attempt fails as inconclusive (amends D69, D80) | brief 3 §5.2, §9, §10; D69, D80 |
 | D103 | 2026-09-26 | Log lock: a waiter keeps waiting while the lock's holder makes progress (the log file's size or write time changes) and gives up only after 250 ms without progress or 2 s in total. Before, it gave up 250 ms after its first refused attempt, even on a busy holder: on Windows, where `Thread.Sleep(1)` lasts 15.6 ms, it could miss every gap between another writer's holds, then appended without the lock and overwrote a line (LOG-D2; public CI `36240070619`, `windows-latest`, LOG-D1 rotation). A deterministic check fails 10 of 10 runs before the fix (amends D25) | brief 1 §7.9, §11 DoD; D25 |
 | D104 | 2026-09-26 | The setup's Welcome and Finish image is DialShift's own: the app icon's clock mark on its dark background, drawn deterministically by `scripts/windows-setup/wizard-image.py` at 100–300 % during the build, the drawing nearest the image control's width shown at run time (extracted once, the 100 % one if it fails to load), each checked by `verify-win-setup.sh`, replacing the Modern UI's stock art; seen at 200 % in NC-19; slightly out of round at some scales (known limitation) | brief 4 §5.10; NC-19; D98, D101 |
+| D105 | 2026-09-28 | Import **replaces** the stations and the schedule after an explicit confirmation; no merge or dedupe (brief 5 §11 #1) | brief 5 §2, §6, §11 #1 |
+| D106 | 2026-09-28 | The transfer file carries the stations, the schedule and `schedule_enabled` only — exactly what the two buttons say | brief 5 §2, §5, §11 #2 |
+| D107 | 2026-09-28 | `stations`/`schedule` entries serialize as verbatim `Station`/`ScheduleEntry` JSON — same property names, casing and null-omission rules as `settings.json`; no mapping layer | brief 5 §5, §11 #3 |
+| D108 | 2026-09-28 | The Save dialog suggests `DialShift-transfer-<yyyy-MM-dd>.json`, with `*.json` and "All files" filters | brief 5 §6, §11 #4 |
+| D109 | 2026-09-28 | `schema_version` is the only version gate: import accepts 1 and refuses a higher value with "This transfer file was made by a newer DialShift."; `app_version` is informational and never blocks | brief 5 §5, §9, §11 #5 |
+| D110 | 2026-09-28 | Schedule slots whose `StationId` is not among the file's stations are dropped and counted in the success message, never a hard failure | brief 5 §5, §6, §11 #6 |
+| D111 | 2026-09-28 | The two buttons stack vertically under "Open settings folder ↗" with `MinWidth=216`, not a three-wide row (a three-wide row clips at 780 px) | brief 5 §6, §11 #7 |
+| D112 | 2026-09-28 | Transfer feedback uses message dialogs (the BHV-16 save-failure style): success with counts, failures via `UiText` | brief 5 §6, §11 #8 |
+| D113 | 2026-09-28 | The smoke roundtrip calls `ISettingsTransferService` with explicit paths; the OS picker never runs in smoke or tests | brief 5 §6, §8, §11 #9 |
+| D114 | 2026-09-28 | `exported_utc` is supplied by the App layer (`DateTimeOffset.UtcNow`) and passed into the pure codec, which never reads a clock | brief 5 §5, §7, §11 #10 |
+| D115 | 2026-09-28 | The import confirmation's default (confirm) button is "Import", per the §8.2.5 confirm-button rule | brief 5 §6, §11 #11; matrix §8.2.5 |
+| D116 | 2026-09-28 | Suite count corrected: the repo has **27** existing test suites (`DialShift.Tests/Program.cs`), so the new `Transfer` suite is the 28th and IE-12 reads "28 suites green", not 29; the brief's §3/§8/§10 wording is superseded | brief 5 §3, §8, §10, §12; matrix §13 |
 
 
 **Brief 3 closure (Phase 6, 2026-09-26).** The D59–D90 entries below say, in their consequences, that the CAT rows they touch stay `TODO` "until the Phase 5 verdict" or name checks still to come from the test lane. That verdict has been given (QA: ACCEPT for the code; design review: QG-03 PASS). The test lane's checks for those entries have landed, the last being the D89 and D90 checks in `37c92b8` (merged at `0409c25`) and `56a9b20` (merged at `11114fb`), with the D89 follow-up `155027a` (merged at `c50db51`). The last two planned checks landed in `f45aeeb` (merged at `8836ec3`): contracts §8's CAT-12 case "Escape while a typed search is in flight, then Enter at once: not handled" (D89 item 1; `CatalogHeadlessTests.EnterAndEscapeBeforeTheDebounce`: Enter is Save, the name error with an empty form and the typed fields saved with a filled one, the search applied closed, nothing late reopens it), and D88's optional `Catalog` mirror of validation rule 9 (`CatalogExportContractTests.Frequencies`, through Core's `BandOf`: on the checked-in JSON 722 FM, 69 kHz with the highest 8500, 1 band word, 7,478 empty). The same commit makes every test wait a `Stopwatch` deadline (`TestDeadline`), after two failures seen during Phase 6 turned out to be macOS Maintenance Sleep during the run, not load (`docs/acceptance-matrix.md` §11). The resulting statuses and their evidence are in `docs/acceptance-matrix.md` §11: every CAT row is `GREEN` or, per D75, `WINDOWS-PENDING` with the missing Windows evidence named; the remaining native checks (NC-01 step 4b, NC-17 step 6b, NC-18) and the maintainer's data follow-ups of D86 and D90 are in `docs/open-items.md`. **Update (2026-09-26, Windows CI):** the branch ran on the public repository, where Actions are free. The first run at `aaa3cb1` failed one Windows check (D91); after D91, public CI [`36219966368`](https://github.com/spyroskotsakis/DialShift/actions/runs/36219966368) at `cceff38` is green on `windows-latest` and `macos-latest`, so no row is `WINDOWS-PENDING` any more: §11 reads 15 `GREEN` and 3 `NATIVE-PENDING` (CAT-03 on NC-18 and NC-01's smoke from the extracted zip; CAT-12 and CAT-14 on NC-01 step (4b) and NC-17 step (6b)). 0.4.0 shipped before those checks: published on both repositories on 2026-09-26, public Release run [`36221102328`](https://github.com/spyroskotsakis/DialShift/actions/runs/36221102328) (D92 update). **Update (2026-09-26, native checks):** NC-18 and NC-01's first step passed on the `v0.5.0` release's `DialShift-win-x64.zip` in a Windows 11 ARM64 VM, not a physical PC (D82 update), so CAT-03 is `GREEN` and §11 reads 16 `GREEN` and 2 `NATIVE-PENDING`: CAT-12 and CAT-14 still need NC-01 step (4b) and NC-17 step (6b), a person with Narrator and VoiceOver.
@@ -1466,3 +1478,125 @@ ADR-lite record of the decisions taken to execute `docs/single-codebase-refactor
   - **The Mac, at `41a19de`:** `makensis -WX` builds clean; from the orchestrator's 0.5.0 package the build reproduced the VM's setup byte for byte (`SHA-256: 05d0e7c2…477766`); the 6 verifier fixtures pass; under Wine the setup installs and uninstalls silently.
   - **The Mac, the follow-ups (the fallback, the single extraction, `verifyloadimage`, the verifier's image check):** `makensis -WX` builds clean; two builds of the same package, the second from a copy with every file time set to 2030-01-01, both `SHA-256: c6ce7a0fe958d8ec…a1a9005b24`; `verify-win-setup.sh --require-contents` with 7-Zip 25.01 passes it (`the Welcome/Finish image at 7 scales equal to wizard-image.py's`) and refuses a setup whose image differs (`$PLUGINSDIR/modern-wizard.bmp is not wizard-image.py's drawing at 100 % (D104).`); a drawing that is not a bitmap fails the build (`warning 5040: Unsupported format …dialshift-wizard-150.bmp`); under Wine the setup still upgrades, uninstalls through the relaunch and reinstalls silently. The fallback itself cannot be triggered from outside and was not exercised.
 - **Brief ref:** brief 4 §5.10; NC-19; D98 (determinism), D101.
+
+---
+
+## D105 — Import replaces the stations and the schedule, after a confirmation
+
+- **Status:** Adopted (Phase 0 spec lane, 2026-09-28, branch `feature/settings-import-export`; brief 5 §11 #1, adopted default). Frozen contract: `ISettingsTransferService.ImportAsync`.
+- **Context:** A transfer file is a full snapshot of stations and schedule. A merge or dedupe would need its own conflict and identity rules and could never be idempotent, and the buttons promise a move of the whole set, not a union.
+- **Decision:** Import replaces both lists after an explicit confirmation ("Replace your N stations and M schedule slots with the file's X stations and Y slots?", confirm button "Import"). It never merges, renames or dedupes; idempotent.
+- **Rationale:** Replacement is predictable, restorable and idempotent (importing the same file twice equals importing it once); a merge is a future ask.
+- **Consequence:** `SettingsTransferService.ImportAsync` and the confirmation dialog; the `Transfer` and `Ui` checks; IE-03.
+- **Evidence:** Phase 0 only: the contract exists; verified by IE-03 in Phase 4.
+- **Brief ref:** brief 5 §2, §6, §11 #1.
+
+## D106 — The transfer file carries stations, schedule and `schedule_enabled` only
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #2, adopted default).
+- **Context:** `settings.json` also holds `Volume`, `LaunchAtLogin`, `StartInTray`, `FallbackStationId`, `LastStationId`. Those are machine- or app-local preferences, not the listening content the two buttons name.
+- **Decision:** The file contains exactly `stations`, `schedule` and `schedule_enabled`. Import never touches `Volume`, `LaunchAtLogin`, `StartInTray`, the station catalog or `Settings.Version`.
+- **Rationale:** Exactly what the buttons say; preferences such as launch at login and volume are per-machine and should not be moved silently.
+- **Consequence:** `TransferFile` has these members and no others; `SettingsTransferService` leaves the other settings alone; IE-07 guards it.
+- **Evidence:** `DialShift.Core/Transfer/TransferFile.cs` (Phase 0); IE-07 in Phase 4.
+- **Brief ref:** brief 5 §2, §5, §11 #2.
+
+## D107 — Entry JSON is verbatim `Station`/`ScheduleEntry` JSON
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #3, adopted default).
+- **Context:** A translation layer between the transfer file and `settings.json` would need its own versioning and could silently drift from the model.
+- **Decision:** `stations` and `schedule` entries serialize with the real `Station`/`ScheduleEntry` models and their existing attributes, so property names, casing (PascalCase, the default) and the null-omission rules (`Notes` and `TimeZone` are omitted when null) match `settings.json` exactly. Only the envelope keys are snake_case, pinned with `[JsonPropertyName]`.
+- **Rationale:** Byte-stable roundtrip with zero mapping code; the file stays human-readable and diffable.
+- **Consequence:** `TransferFile` holds `List<Station>`/`List<ScheduleEntry>`; the codec serializes with default options; IE-01/IE-02.
+- **Evidence:** `DialShift.Core/Transfer/TransferFile.cs` (Phase 0); IE-01, IE-02 in Phase 4.
+- **Brief ref:** brief 5 §5, §11 #3.
+
+## D108 — Default file name and picker filters
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #4, adopted default).
+- **Context:** The native Save dialog needs a suggested name and file-type filters.
+- **Decision:** Suggest `DialShift-transfer-<yyyy-MM-dd>.json` (the day the App layer builds the name), with `*.json` and "All files" filters in the Open and Save dialogs.
+- **Rationale:** Names the app and the day, so several exports sort naturally; the date is a convenience, not a data guarantee.
+- **Consequence:** `ITransferFilePicker` / `TransferFilePicker`; the view model builds the name; IE-09.
+- **Evidence:** `DialShift.App/Services/ITransferFilePicker.cs` (Phase 0); IE-09 in Phase 4.
+- **Brief ref:** brief 5 §6, §11 #4.
+
+## D109 — `schema_version` is the only version gate
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #5, adopted default).
+- **Context:** The format needs a forward-compatibility gate, and `settings.json`'s own `Settings.Version` must not be used for it (it is never bumped).
+- **Decision:** Import accepts `schema_version == 1` and refuses a higher value with the exact text "This transfer file was made by a newer DialShift."; `app_version` is informational (shown in the confirmation) and never blocks. `Settings.Version` stays 1.
+- **Rationale:** One gate, owned by the file's format; a newer file may carry fields this build cannot understand.
+- **Consequence:** `TransferCodec.SchemaVersion` and `Validate`; `TransferFile.AppVersion`; IE-04; D116 (Settings.Version untouched).
+- **Evidence:** `DialShift.Core/Transfer/TransferCodec.cs` (Phase 0); IE-04 in Phase 4.
+- **Brief ref:** brief 5 §5, §9, §11 #5.
+
+## D110 — Orphan schedule slots are dropped and counted, never fatal
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #6, adopted default).
+- **Context:** A hand-edited or filtered file can reference a station it does not contain. The rest of the file is still usable.
+- **Decision:** A schedule slot whose `StationId` is not among the file's stations is dropped and counted in the success message ("Z schedule slots referenced missing stations and were not imported."), never a hard failure. It is not a validation error (`TransferCodec.Validate` ignores it).
+- **Rationale:** An orphan is recoverable data, not corruption; a hard failure would strand an otherwise usable file.
+- **Consequence:** `TransferResult.DroppedOrphanCount`; the import drops orphans before `CommitAsync`; IE-05.
+- **Evidence:** `DialShift.Core/Transfer/TransferResult.cs` (Phase 0); IE-05 in Phase 4.
+- **Brief ref:** brief 5 §5, §6, §11 #6.
+
+## D111 — The two buttons stack vertically in the About card
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #7, adopted default).
+- **Context:** The About card's third `Border` already holds "Open settings folder ↗"; a three-wide row clips at the 780 px minimum width.
+- **Decision:** The two buttons stack vertically under "Open settings folder ↗", with the same `MinWidth=216`, `HorizontalAlignment=Left` and about 6 px spacing. Automation names are exactly "Export stations & schedule" and "Import stations & schedule".
+- **Rationale:** No clipping at 780 × 650 and a natural Tab order; consistent with the existing button.
+- **Consequence:** `SettingsPage.axaml` third card; IE-08 and IE-12.
+- **Evidence:** Phase 3 UI; IE-08 headless checks in Phase 4.
+- **Brief ref:** brief 5 §6, §11 #7.
+
+## D112 — Transfer feedback is message dialogs
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #8, adopted default).
+- **Context:** The Settings page already reports failures through `IDialogService.ShowMessageAsync` (BHV-16).
+- **Decision:** Success shows a message dialog with counts (plus the orphan notice); failures show the §5 reason in a message dialog. All strings live in `UiText`.
+- **Rationale:** Consistency with the existing save-failure dialog; no new feedback surface.
+- **Consequence:** `UiText` entries; `SettingsTransferService` dialogs; IE-10.
+- **Evidence:** IE-10 in Phase 4.
+- **Brief ref:** brief 5 §6, §11 #8.
+
+## D113 — The smoke roundtrip uses explicit paths, never an OS dialog
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #9, adopted default).
+- **Context:** A native Save/Open dialog would block an unattended smoke run (the same hazard `IFileRevealService` solved with a fake).
+- **Decision:** The smoke runner and every test call `ISettingsTransferService` with explicit paths; `ITransferFilePicker` is used only by the real UI. A `FakeTransferFilePicker` mirrors `FakeFileReveal`.
+- **Rationale:** Deterministic, dialog-free automation; the picker stays a thin, testable boundary.
+- **Consequence:** `ITransferFilePicker`, `FakeTransferFilePicker`, the `SmokeRunner` transfer step; IE-09 and IE-12.
+- **Evidence:** `DialShift.App/Services/ITransferFilePicker.cs` (Phase 0); IE-09, IE-12 in Phase 4.
+- **Brief ref:** brief 5 §6, §8, §11 #9.
+
+## D114 — `exported_utc` comes from the App layer
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #10, adopted default).
+- **Context:** Core is pure and may not read a clock or the environment.
+- **Decision:** The App layer passes `DateTimeOffset.UtcNow` as `exported_utc` into `TransferFile`; `TransferCodec` never reads a clock.
+- **Rationale:** Keeps the codec deterministic and testable (tests inject a fixed string); honors the Core purity rule.
+- **Consequence:** `TransferFile.ExportedUtc`; `SettingsTransferService.ExportAsync` fills it; IE-01.
+- **Evidence:** `DialShift.Core/Transfer/TransferFile.cs` (Phase 0); IE-01 in Phase 4.
+- **Brief ref:** brief 5 §5, §7, §11 #10.
+
+## D115 — The import confirmation's default button is "Import"
+
+- **Status:** Adopted (Phase 0; brief 5 §11 #11, adopted default).
+- **Context:** The matrix §8.2.5 dialog rule makes the confirm button the dialog default and the cancel button the cancel.
+- **Decision:** The import confirmation calls `IDialogService.ConfirmAsync(title, message, confirmText: "Import", cancelText: "Cancel")`, so "Import" is the default button.
+- **Rationale:** One rule for every confirmation in the app.
+- **Consequence:** `SettingsTransferService`; IE-03.
+- **Evidence:** IE-03 in Phase 4.
+- **Brief ref:** brief 5 §6, §11 #11; matrix §8.2.5.
+
+## D116 — The suite count is 27, so the new `Transfer` suite is the 28th
+
+- **Status:** Adopted (Phase 0, 2026-09-28; corrects brief 5 §3, §8 and IE-12). Supersedes the "28 existing / the 29th / 29 suites" wording of the brief.
+- **Context:** Brief 5 §3 says "28 deterministic test suites", §8 says the new suite is "the 29th", and IE-12 says "29 suites green". The repo registers **27** `TestSuite` entries in `DialShift.Tests/Program.cs` (lines 17–43); the brief added one to a wrong base.
+- **Decision:** The repo has 27 existing suites; the new `Transfer` suite is the **28th**; IE-12 reads "**28** suites green on both CI OSes". The brief's §3, §8 and §10 wording is superseded (the brief itself is not edited; this decision records the correction).
+- **Rationale:** The count is verifiable from `Program.cs`; the definition of done must state the real number.
+- **Consequence:** `docs/acceptance-matrix.md` §13 (IE-12 corrected); `DialShift.Tests/Program.cs` gains the 28th `TestSuite` in Phase 1.
+- **Evidence:** `DialShift.Tests/Program.cs` (27 `TestSuite` registrations); Phase 0 baseline `2750 passed, 8 skipped, 27/27 suites green`.
+- **Brief ref:** brief 5 §3, §8, §10, §12; matrix §13.
