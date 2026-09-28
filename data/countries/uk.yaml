@@ -1,0 +1,433 @@
+code: GB
+name: United Kingdom
+language_default: English
+# A curated-only country (like usa.yaml): ONLY the entries below ship. Streams that are
+# geo-restricted outside the UK or not on public directories carry `no_auto_stream: true`
+# or resolve from radio-browser — never an invented URL.
+curated_only: true
+timezone_default: Europe/London
+curated:
+# ---------------------------------------------------------------- BBC national networks
+- match:
+  - bbc radio 1
+  name: BBC Radio 1
+  city: London
+  region: UK national
+  type: Public
+  genre: Pop / Dance
+  leaning: State
+  freq: '98.8'
+  url: http://as-hls-ww-live.akamaized.net/pool_01505109/live/ww/bbc_radio_one/bbc_radio_one.isml/bbc_radio_one-audio%3d128000.norewind.m3u8
+  notes: BBC's flagship new-music station
+- match:
+  - bbc radio 2
+  name: BBC Radio 2
+  city: London
+  region: UK national
+  type: Public
+  genre: Adult contemporary
+  leaning: State
+  freq: '89.1'
+  url: http://as-hls-ww-live.akamaized.net/pool_74208725/live/ww/bbc_radio_two/bbc_radio_two.isml/bbc_radio_two-audio%3d128000.norewind.m3u8
+  notes: The UK's biggest individual radio station (12.4M weekly listeners Q2 2026)
+- match:
+  - bbc radio 3
+  name: BBC Radio 3
+  city: London
+  region: UK national
+  type: Public
+  genre: Classical / Jazz / Arts
+  leaning: State
+  freq: '91.3'
+  url: http://as-hls-ww-live.akamaized.net/pool_23461179/live/ww/bbc_radio_three/bbc_radio_three.isml/bbc_radio_three-audio%3d128000.norewind.m3u8
+  notes: BBC network for classical music, jazz, arts and performance
+- match:
+  - bbc radio 4
+  name: BBC Radio 4
+  city: London
+  region: UK national
+  type: Public
+  genre: News / Culture / Talk
+  leaning: State
+  freq: '93.5'
+  url: http://as-hls-ww-live.akamaized.net/pool_55057080/live/ww/bbc_radio_fourfm/bbc_radio_fourfm.isml/bbc_radio_fourfm-audio%3d128000.norewind.m3u8
+  notes: Major public-service speech network; news with drama, comedy and cultural programmes
+- match:
+  - bbc radio 5 live
+  - bbc 5 live
+  name: BBC Radio 5 Live
+  city: London
+  region: UK national
+  type: Public
+  genre: News / Talk / Sports
+  leaning: State
+  freq: '909'
+  url: http://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d128000.norewind.m3u8
+  notes: Major live breaking-news and sports conversation service
+- match:
+  - bbc radio 6 music
+  - bbc 6music
+  name: BBC Radio 6 Music
+  city: London
+  region: UK national
+  type: Public
+  genre: Alternative / Indie
+  leaning: State
+  url: http://as-hls-ww-live.akamaized.net/pool_81827798/live/ww/bbc_6music/bbc_6music.isml/bbc_6music-audio%3d320000.norewind.m3u8
+  notes: The UK's leading digital-only music station (2.6M weekly listeners Q2 2025)
+- match:
+  - bbc radio 1xtra
+  name: BBC Radio 1Xtra
+  city: London
+  region: UK national
+  type: Public
+  genre: Hip-hop / R&B / Dancehall
+  leaning: State
+  url: http://as-hls-ww-live.akamaized.net/pool_92079267/live/ww/bbc_1xtra/bbc_1xtra.isml/bbc_1xtra-audio%3d128000.norewind.m3u8
+  notes: BBC network amplifying Black music and culture
+- match:
+  - bbc world service
+  name: BBC World Service
+  city: London
+  region: UK / global
+  type: Public
+  genre: World news
+  leaning: State
+  url: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service
+  notes: Britain's best-known international radio news service
+# ---------------------------------------------------------------- BBC nations + London
+- match:
+  - bbc radio scotland
+  name: BBC Radio Scotland
+  city: Glasgow
+  region: Scotland
+  type: Public
+  genre: News / Culture / Music
+  leaning: State
+  freq: '92.7'
+  url: http://as-hls-ww-live.akamaized.net/pool_43322914/live/ww/bbc_radio_scotland_fm/bbc_radio_scotland_fm.isml/bbc_radio_scotland_fm-audio%3d128000.norewind.m3u8
+  notes: Scotland's main BBC national radio service
+- match:
+  - bbc radio wales
+  name: BBC Radio Wales
+  city: Cardiff
+  region: Wales
+  type: Public
+  genre: News / Music / Culture
+  leaning: State
+  freq: '93.9'
+  url: http://as-hls-ww-live.akamaized.net/pool_97517794/live/ww/bbc_radio_wales_fm/bbc_radio_wales_fm.isml/bbc_radio_wales_fm-audio%3d128000.norewind.m3u8
+  notes: Wales's main English-language BBC radio network
+- match:
+  - bbc radio ulster
+  name: BBC Radio Ulster
+  city: Belfast
+  region: Northern Ireland
+  type: Public
+  genre: News / Music / Culture
+  leaning: State
+  freq: '94.5'
+  url: https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/audio_syndication_low_sbr_v1/aks/bbc_radio_ulster.m3u8
+  notes: Northern Ireland's main BBC radio service
+- match:
+  - bbc radio london
+  name: BBC Radio London
+  city: London
+  region: London
+  type: Public
+  genre: Local news / Talk
+  leaning: State
+  freq: '94.9'
+  no_auto_stream: true
+  notes: BBC's flagship local London service. Stream not on public directories.
+# ---------------------------------------------------------------- commercial music brands
+- match:
+  - heart london
+  - heart uk
+  name: Heart
+  city: London
+  region: UK national
+  type: Music
+  genre: Adult contemporary pop
+  leaning: None
+  url: https://media-ssl.musicradio.com/HeartLondonMP3
+  notes: The UK's biggest overall radio brand (12.4M weekly listeners Q2 2026; Global)
+- match:
+  - capital fm london
+  - capital fm
+  name: Capital
+  city: London
+  region: UK national
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  freq: '95.8'
+  url: https://media-ssl.musicradio.com/CapitalMP3
+  notes: The UK's leading hit-music brand, 9.2M weekly listeners (Global)
+- match:
+  - lbc radio
+  name: LBC
+  city: London
+  region: UK national
+  type: News & Talk
+  genre: Phone-in / Opinion talk
+  leaning: None
+  freq: '97.3'
+  url: https://media-ssl.musicradio.com/LBCLondonMP3
+  notes: One of Britain's most recognizable talk-radio brands (Global)
+- match:
+  - lbc news
+  name: LBC News
+  city: London
+  region: UK national
+  type: News & Talk
+  genre: Rolling news
+  leaning: None
+  url: https://media-ssl.musicradio.com/LBCNewsUKMP3
+  notes: Continuous news service from the LBC brand (Global)
+- match:
+  - classic fm uk
+  - classic fm
+  name: Classic FM
+  city: London
+  region: UK national
+  type: Music
+  genre: Classical
+  leaning: None
+  freq: '100.9'
+  url: http://ice-the.musicradio.com/ClassicFMMP3
+  notes: The UK's leading commercial classical station (Global)
+- match:
+  - smooth radio
+  name: Smooth Radio
+  city: London
+  region: UK national
+  type: Music
+  genre: Easy listening / Soft pop
+  leaning: None
+  url: https://media-ssl.musicradio.com/SmoothLondonMP3
+  notes: Major national easy-listening brand (Global)
+- match:
+  - kiss uk
+  - kiss 100
+  name: Kiss
+  city: London
+  region: UK national
+  type: Music
+  genre: Dance / Pop / R&B
+  leaning: None
+  freq: '100.0'
+  url: https://live-kiss.sharp-stream.com/kiss100.mp3
+  notes: Major youth-oriented commercial brand (Bauer)
+- match:
+  - magic radio uk
+  name: Magic Radio
+  city: London
+  region: UK national
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  notes: Large, established commercial music brand (Bauer). Stream geo-restricted outside the UK.
+- match:
+  - greatest hits radio
+  name: Greatest Hits Radio
+  city: Manchester
+  region: UK national
+  type: Music
+  genre: Classic hits
+  leaning: None
+  notes: National Bauer nostalgia and classic-hits network (70s-00s). Stream geo-restricted outside the UK.
+- match:
+  - absolute radio
+  name: Absolute Radio
+  city: London
+  region: UK national
+  type: Music
+  genre: Rock / Indie
+  leaning: None
+  notes: Major UK rock and entertainment brand (Bauer). Stream geo-restricted outside the UK.
+- match:
+  - hits radio
+  name: Hits Radio
+  city: Manchester
+  region: UK national
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  no_auto_stream: true
+  notes: Major Bauer national pop network. Stream geo-restricted outside the UK.
+- match:
+  - jazz fm
+  name: Jazz FM
+  city: London
+  region: UK national
+  type: Music
+  genre: Jazz / Soul / Blues
+  leaning: None
+  no_auto_stream: true
+  notes: The UK's leading jazz-oriented commercial brand (Bauer). Stream geo-restricted outside the UK.
+# ---------------------------------------------------------------- news / sports talk
+- match:
+  - talksport
+  name: talkSPORT
+  city: London
+  region: UK national
+  type: Sports
+  genre: Sports talk
+  leaning: None
+  freq: '1089'
+  no_auto_stream: true
+  notes: Leading UK sports-radio brand. Stream not on public directories.
+- match:
+  - times radio
+  name: Times Radio
+  city: London
+  region: UK national
+  type: News & Talk
+  genre: News / Politics
+  leaning: None
+  no_auto_stream: true
+  notes: National speech station linked to The Times and The Sunday Times. Stream not on public directories.
+- match:
+  - gb news
+  name: GB News Radio
+  city: London
+  region: UK national
+  type: News & Talk
+  genre: News / Opinion
+  leaning: None
+  url: http://listen-gbnews.sharp-stream.com/gbnews.mp3
+  notes: Prominent newer news/opinion radio outlet
+# ---------------------------------------------------------------- arts / drama
+- match:
+  - bbc radio 4 extra
+  name: BBC Radio 4 Extra
+  city: London
+  region: UK national
+  type: Public
+  genre: Archive drama / Comedy
+  leaning: State
+  url: http://as-hls-ww-live.akamaized.net/pool_26173715/live/ww/bbc_radio_four_extra/bbc_radio_four_extra.isml/bbc_radio_four_extra-audio%3d128000.norewind.m3u8
+  notes: Archive radio plays, literary adaptations and classic BBC drama and comedy
+- match:
+  - resonance fm 104.4 london
+  - resonance fm
+  name: Resonance 104.4 FM
+  city: London
+  region: London
+  type: Public
+  genre: Arts / Experimental
+  leaning: None
+  freq: '104.4'
+  url: http://stream.resonance.fm:8000/resonance
+  notes: London's independent arts radio - theatre, poetry, sound art, radio plays and live performance
+- match:
+  - resonance extra
+  name: Resonance Extra
+  city: London
+  region: UK digital
+  type: Public
+  genre: Experimental music / Arts
+  leaning: None
+  url: http://stream.resonance.fm:8000/resonance-extra
+  notes: Companion service for arts, experimental sound and independent cultural programming
+# ---------------------------------------------------------------- more national brands
+- match:
+  - radio x
+  name: Radio X
+  city: London
+  region: UK national
+  type: Music
+  genre: Rock / Indie
+  leaning: None
+  freq: '104.9'
+  url: http://media-the.musicradio.com/RadioXUK
+  notes: Major UK rock and alternative brand (Global)
+- match:
+  - capital xtra
+  name: Capital XTRA
+  city: London
+  region: UK national
+  type: Music
+  genre: Hip-hop / R&B
+  leaning: None
+  url: http://media-the.musicradio.com/CapitalXTRALondonMP3
+  notes: Global's urban music network
+- match:
+  - gold radio uk
+  name: Gold Radio
+  city: London
+  region: UK national
+  type: Music
+  genre: Oldies / 50s-70s
+  leaning: None
+  url: https://media-ice.musicradio.com/GoldMP3
+  notes: Global's 50s-70s oldies network
+- match:
+  - heart dance
+  name: Heart Dance
+  city: London
+  region: UK national
+  type: Music
+  genre: Dance
+  leaning: None
+  url: https://media-ssl.musicradio.com/HeartDanceMP3
+  notes: Global's dance spin-off of Heart
+- match:
+  - capital dance
+  name: Capital Dance
+  city: London
+  region: UK national
+  type: Music
+  genre: Dance / Electronic
+  leaning: None
+  url: https://icecast.thisisdax.com/CapitalDanceMP3
+  notes: Global's dance spin-off of Capital
+- match:
+  - bbc asian network
+  name: BBC Asian Network
+  city: Birmingham
+  region: UK national
+  type: Public
+  genre: Asian music / Culture
+  leaning: State
+  url: http://as-hls-ww-live.akamaized.net/pool_22108647/live/ww/bbc_asian_network/bbc_asian_network.isml/bbc_asian_network-audio%3d128000.norewind.m3u8
+  notes: BBC service for British Asian music, news and culture
+- match:
+  - bbc radio cymru
+  name: BBC Radio Cymru
+  city: Cardiff
+  region: Wales
+  type: Public
+  genre: News / Music / Culture
+  leaning: State
+  freq: '93.7'
+  url: http://as-hls-ww-live.akamaized.net/pool_24792333/live/ww/bbc_radio_cymru/bbc_radio_cymru.isml/bbc_radio_cymru-audio%3d128000.norewind.m3u8
+  notes: BBC's Welsh-language national radio service
+- match:
+  - planet rock where rock lives
+  name: Planet Rock
+  city: London
+  region: UK national
+  type: Music
+  genre: Rock
+  leaning: None
+  notes: Bauer's national rock network. Stream geo-restricted outside the UK.
+- match:
+  - kisstory
+  name: KISSTORY
+  city: London
+  region: UK national
+  type: Music
+  genre: Old skool / Anthems
+  leaning: None
+  notes: Kiss spin-off for old-skool and anthems (Bauer). Stream geo-restricted outside the UK.
+- match:
+  - kerrang radio
+  name: Kerrang! Radio
+  city: London
+  region: UK national
+  type: Music
+  genre: Rock / Metal
+  leaning: None
+  notes: Bauer's rock/metal brand. Stream geo-restricted outside the UK.

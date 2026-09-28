@@ -1,6 +1,7 @@
 code: DE
 name: Germany
 language_default: German
+timezone_default: Europe/Berlin
 city_aliases:
   munchen: Munich
   muenchen: Munich
@@ -337,6 +338,17 @@ curated:
   genre: News & Pop
   leaning: State
 - match:
+  - wdr 4
+  - wdr4
+  name: WDR 4
+  name_local: WDR 4
+  city: Cologne
+  region: North Rhine-Westphalia
+  type: Public
+  genre: Schlager / Oldies
+  leaning: State
+  url: https://wdr-wdr4-live.icecastssl.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3
+- match:
   - ndr 2
   name_local: NDR 2
   city: Hamburg
@@ -537,5 +549,102 @@ curated:
   notes: Local digital music offering (DAB+ 11C)
   no_auto_stream: true
   logo: https://megaradiomix.de/favicon.ico
+# ---------------------------------------------------------------- English-language services
+- match:
+  - afn 360 bavaria
+  name: AFN Bavaria
+  city: Grafenwöhr
+  region: Bavaria
+  type: Military
+  genre: News, Music & Community
+  language: English
+  leaning: None
+  freq: '98.5'
+  url: http://27913.live.streamtheworld.com:3690/AFNE_BAV_SC
+  notes: U.S. forces radio for Bavaria (Amberg 89.9, Ansbach 107.3, Garmisch 90.3, Grafenwoehr 98.5, Hohenfels 93.5, Illesheim 98.5, Vilseck 107.7 FM)
+- match:
+  - afn 360 kaiserslautern
+  name: AFN Kaiserslautern
+  city: Kaiserslautern
+  region: Rhineland-Palatinate
+  type: Military
+  genre: News, Music & Community
+  language: English
+  leaning: None
+  freq: '105.1'
+  url: http://25583.live.streamtheworld.com/AFNE_KTN_SC
+  notes: U.S. forces radio for the Kaiserslautern Military Community (105.1 FM; Baumholder 106.1 FM)
+- match:
+  - afn 360 spangdahlem
+  name: AFN Spangdahlem
+  city: Spangdahlem
+  region: Rhineland-Palatinate
+  type: Military
+  genre: News, Music & Community
+  language: English
+  leaning: None
+  freq: '105.1'
+  url: http://22183.live.streamtheworld.com/AFNE_SPG_SC
+  notes: U.S. forces radio for the Spangdahlem / Eifel area
+- match:
+  - afn 360 stuttgart
+  name: AFN Stuttgart
+  city: Stuttgart
+  region: Baden-Württemberg
+  type: Military
+  genre: News, Music & Community
+  language: English
+  leaning: None
+  freq: '102.3'
+  url: http://29053.live.streamtheworld.com/AFNE_STU_SC
+  notes: U.S. forces radio for the Stuttgart region
+- match:
+  - afn 360 wiesbaden
+  name: AFN Wiesbaden
+  city: Wiesbaden
+  region: Hessen
+  type: Military
+  genre: News, Music & Community
+  language: English
+  leaning: None
+  freq: '103.7'
+  url: http://25553.live.streamtheworld.com/AFNE_WBN_SC
+  notes: U.S. forces radio for Wiesbaden / Rhine-Main
+- match:
+  - bfbs radio germany
+  - bfbs germany
+  name: BFBS Germany
+  city: Herford
+  region: North Rhine-Westphalia
+  type: Military
+  genre: News, Music & Community
+  language: English
+  leaning: None
+  freq: '101.6'
+  url: https://listen-ssvcbfbs.sharp-stream.com/ssvcbfbs5.aac
+  notes: British Forces Broadcasting for Germany (Friedrichsdorf 91.7, Herford 101.6, Porta Westfalica 96.6, Sennelager 105.0 FM)
+- match:
+  - bfbs radio 2
+  name: BFBS Radio 2
+  city: Porta Westfalica
+  region: North Rhine-Westphalia
+  type: Military
+  genre: Music
+  language: English
+  leaning: None
+  freq: '89.6'
+  url: https://listen-ssvcbfbs.sharp-stream.com/ssvcbfbs2.aac
+  notes: BFBS music service for the British forces communities (Porta Westfalica 89.6, Sennelager 91.2 FM)
+- match:
+  - bbc world service
+  name: BBC World Service
+  city: International
+  region: International (online)
+  type: Public
+  genre: World news
+  language: English
+  leaning: None
+  url: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service
+  notes: Global English news and current affairs; in Germany online, via apps, satellite and smart speakers
 notes: 'Munich focus: the `focus` list above + city aliases build the Munich tab. Curated identities only;
   streams resolve dynamically at build time.'

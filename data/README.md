@@ -107,7 +107,7 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
   example
-  `app-catalog: working=8277 url_excluded=7 duplicates_removed=0 exported=8270 -> data/output/app-catalog.json`
+  `app-catalog: working=8391 url_excluded=7 duplicates_removed=0 exported=8384 -> data/output/app-catalog.json`
   and `app-catalog: languages=42 unknown=0`.
 - **Language table (`languages.yaml`):** `languages` (canonical names: a language's usual English
   name), `aliases` (key → one name or a list: spellings, typos, native names, and dialects or
