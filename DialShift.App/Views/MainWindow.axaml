@@ -5,7 +5,7 @@
         x:Class="DialShift.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="DialShift"
-        Width="1050" Height="980" MinWidth="780" MinHeight="650"
+        Width="1050" Height="860" MinWidth="780" MinHeight="650"
         WindowStartupLocation="CenterScreen">
 
   <Window.DataTemplates>

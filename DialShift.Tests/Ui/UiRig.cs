@@ -112,7 +112,7 @@ public sealed class UiRig : IAsyncDisposable
     /// <paramref name="width"/>×<paramref name="height"/> unless <paramref name="show"/> is false.
     /// </summary>
     public static async Task<UiRig> CreateHeadlessAsync(string? settingsJson = null, Action<Settings>? seed = null, bool realCoordinator = false,
-        bool tray = false, bool show = true, double width = 1050, double height = 980, DateTimeOffset? now = null, TimeZoneInfo? zone = null)
+        bool tray = false, bool show = true, double width = 1050, double height = 860, DateTimeOffset? now = null, TimeZoneInfo? zone = null)
     {
         var rig = new UiRig(settingsJson, seed, realCoordinator, now, zone);
         var dialogs = new AvaloniaDialogService(() => rig.Window);

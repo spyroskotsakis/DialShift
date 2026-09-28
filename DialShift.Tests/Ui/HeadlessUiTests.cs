@@ -130,8 +130,8 @@ public static class HeadlessUiTests
     {
         await using var rig = await UiRig.CreateHeadlessAsync(realCoordinator: true);
         var window = rig.Window!;
-        Check("HS-01 BHV-24 window: title \"DialShift\", 1050×980, minimum 780×650, centered",
-            window.Title == "DialShift" && window.Width == 1050 && window.Height == 980 && window.MinWidth == 780 && window.MinHeight == 650
+        Check("HS-01 BHV-24 window: title \"DialShift\", 1050×860, minimum 780×650, centered",
+            window.Title == "DialShift" && window.Width == 1050 && window.Height == 860 && window.MinWidth == 780 && window.MinHeight == 650
             && window.WindowStartupLocation == WindowStartupLocation.CenterScreen);
         Check("HS-01 BHV-24 D1 dark Fluent theme with the DialShift palette (#10191B window, #C2F278 accent)",
             Application.Current!.ActualThemeVariant == ThemeVariant.Dark && window.Background is ISolidColorBrush { Color: var bg } && bg == Color.Parse("#10191B")
@@ -801,19 +801,30 @@ public static class HeadlessUiTests
         var openTop = open.TranslatePoint(default, window)!.Value.Y;
         var exportTop = export.TranslatePoint(default, window)!.Value.Y;
         var importTop = import.TranslatePoint(default, window)!.Value.Y;
-        Check("IE-08 Export then Import are stacked under \"Open settings folder ↗\" (MinWidth 264, left aligned)",
-            exportTop >= openTop + open.Bounds.Height - 0.5 && importTop >= exportTop + export.Bounds.Height - 0.5
+        var exportLeft = export.TranslatePoint(default, window)!.Value.X;
+        var importLeft = import.TranslatePoint(default, window)!.Value.X;
+
+        // "Open settings folder ↗" keeps its own row; Export and Import share one row below it, side by side. Both carry
+        // the same 264 px MinWidth: the widest label ("Export stations & schedule…", 229 px natural in the rig) gets
+        // 15.3% headroom, and equal widths keep the pair balanced (brief 5, D44; measured, not guessed).
+        Check("IE-08 \"Open settings folder ↗\" keeps its own row and Export/Import sit side by side below it (MinWidth 264, equal width, left aligned)",
+            exportTop >= openTop + open.Bounds.Height - 0.5 && Math.Abs(exportTop - importTop) < 0.5
+            && importLeft >= exportLeft + export.Bounds.Width - 0.5
             && export.MinWidth == 264 && import.MinWidth == 264
+            && Math.Abs(export.Bounds.Width - import.Bounds.Width) < 0.5
             && export.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left
             && import.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left);
 
-        // The two transfer buttons grew the About card; the window default is tall enough that all three buttons sit
-        // above the fold with breathing room and the page needs no scrolling at the default size (brief 5, D44).
+        // The two transfer buttons grew the About card; at the default 860 the whole card (Import button included) ends
+        // above the fold with breathing room and the page needs no scroll (brief 5, D44; measured in the headless rig).
         var viewport = window.GetVisualDescendants().OfType<ScrollViewer>().Single();
-        var viewportBottom = viewport.TranslatePoint(new Point(viewport.Bounds.Width, viewport.Bounds.Height), window)!.Value.Y;
-        var importBottom = import.TranslatePoint(new Point(0, import.Bounds.Height), window)!.Value.Y;
-        Check("IE-08 the About card's buttons sit above the fold at the default window size, with no scroll needed",
-            viewport.Offset.Y == 0 && importBottom < viewportBottom && open.MinWidth == 264);
+        var viewportBottom = viewport.TranslatePoint(new Point(0, viewport.Bounds.Height), window)!.Value.Y;
+        var contentRoot = (Visual)((StackPanel)viewport.Content!).Children.Last();
+        var aboutCard = ((ContentControl)contentRoot).GetVisualDescendants().OfType<StackPanel>().First().Children.OfType<Border>().Last();
+        var aboutBottom = aboutCard.TranslatePoint(new Point(0, aboutCard.Bounds.Height), window)!.Value.Y;
+        Check("IE-08 the whole About card, Import button included, sits above the fold at the default 860 with no scroll",
+            viewport.Offset.Y == 0 && aboutBottom < viewportBottom
+            && importTop + import.Bounds.Height < viewportBottom);
 
         Check("IE-08 both transfer buttons are enabled when idle", export.IsEffectivelyEnabled && import.IsEffectivelyEnabled);
 
