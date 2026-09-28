@@ -47,6 +47,7 @@ Native menu-bar/tray internet-radio app with a weekly listening schedule. Window
 - **Honest labeling:** the only macOS build is "native osx-arm64 (AVPlayer)", artifact label `native-avplayer` (D36). It is ad-hoc signed, not notarized and not clean-machine tested until NC-07/NC-09 pass, and the README says so. No `osx-x64` artifact is produced (D13); the last Intel/Rosetta build is only at tag `legacy-last-known-good`.
 - **Timezone ids:** store IANA only; canonicalize at the boundary via `TryConvertWindowsIdToIanaId`; never compare `entry.TimeZone == TimeZoneInfo.Local.Id`.
 - **Playback policy** (retry/fallback/schedule/wake/cancellation) lives in `PlaybackCoordinator` — never in engine adapters. `IPlaybackEngine` is lowest-common-denominator; no ObjC/AppKit types across it.
+- **Script & harness path hygiene:** verification, native-check, smoke and one-off scripts resolve paths portably — `[System.IO.Path]::GetTempPath()`, `mktemp -d`/`$TMPDIR`, or `Environment.GetFolderPath` for temp sandboxes and canonical dirs, and repo-relative paths for build outputs. Never hardcode a specific user's home directory (`/Users/<name>`, `C:\Users\<name>`) or a machine-specific mount (a Parallels `Z:\…` shared-folder alias). VM-driver scripts that must reference a `Z:\…` mapping live only under gitignored `artifacts/`, never in tracked `scripts/`. Generated artifacts (`data/output/*.json`, health reports) must not embed absolute build paths — record repo-relative paths instead.
 
 ## Quality gates (apply to EVERY task, non-negotiable)
 
