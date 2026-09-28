@@ -8,7 +8,3 @@ Full project instructions live in **AGENTS.md** (auto-loaded alongside this file
 - **Project skills:** `/radio-catalog-pipeline` (station catalog edits), `/release-packaging` (macOS `.app` + Windows packaging).
 - **Path-scoped rules:** `.claude/rules/core-purity.md` (`DialShift.Core/**`), `.claude/rules/data-catalog-only.md` (`data/**`).
 - **Enforcement:** `.claude/settings.json` has a PreToolUse hook that blocks `git push` to `origin`/`upstream` — pushes go to the `private` remote only.
-
-## Execution goal
-
-The complete two-brief execution plan — orchestrator role, 7 agent lanes, parallel fan-out, sequencing gates, quality gates — is in `docs/claude-goal-execution.md`. Pipe it as the session goal when executing the briefs.
