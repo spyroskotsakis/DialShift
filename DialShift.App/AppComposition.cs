@@ -99,6 +99,8 @@ public static class AppComposition
             sp.GetRequiredService<IEditorDialogService>(),
             sp.GetRequiredService<IStartupRegistration>(),
             sp.GetRequiredService<IFileRevealService>(),
+            sp.GetRequiredService<ISettingsTransferService>(),
+            sp.GetRequiredService<ITransferFilePicker>(),
             sp.GetRequiredService<IUiDispatcher>(),
             sp.GetRequiredService<IAppShell>(),
             sp.GetRequiredService<IAppLog>(),

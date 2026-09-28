@@ -81,6 +81,17 @@ public static class UiText
     /// <summary>Startup-failure dialog (BHV-04, HS-08), the legacy Windows app's wording.</summary>
     public static string StartupFailed(string reason, string logFile) => $"DialShift couldn't start. {reason}\n\nDetails: {logFile}";
 
+    // ─── Settings transfer (brief 5 §6, D108) ───
+    // The transfer dialogs' wording lives in the service lane (Services/TransferText.cs), which shows them; the page only
+    // names the file the Save picker suggests.
+
+    /// <summary>
+    /// The Save dialog's suggested name (D108): "DialShift-transfer-2026-09-28.json". The day is the computer's local
+    /// one, formatted invariantly, so the name reads the same whatever the culture.
+    /// </summary>
+    public static string TransferFileName(DateTimeOffset when) =>
+        $"DialShift-transfer-{when.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}.json";
+
     /// <summary>
     /// The monogram of a station tile and of a catalog result without a logo: the first character, upper-case invariant
     /// ("?" for an empty name). A character outside the Basic Multilingual Plane (a surrogate pair) is kept whole.

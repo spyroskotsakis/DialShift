@@ -48,6 +48,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         IEditorDialogService editors,
         IStartupRegistration startup,
         IFileRevealService reveal,
+        ISettingsTransferService transfer,
+        ITransferFilePicker transferPicker,
         IUiDispatcher dispatcher,
         IAppShell shell,
         IAppLog log,
@@ -66,7 +68,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         Stations = new StationsPageViewModel(services);
         Schedule = new SchedulePageViewModel(services, clock, localZone);
-        Settings = new SettingsPageViewModel(services, startup, reveal, info);
+        Settings = new SettingsPageViewModel(services, startup, reveal, info, transfer, transferPicker);
 
         TogglePlayCommand = new AsyncRelayCommand(async () => { await coordinator.ToggleAsync(); await settings.SaveAsync(); }, services.ReportError);
         NextStationCommand = new AsyncRelayCommand(async () => { await coordinator.NextStationAsync(); await settings.SaveAsync(); }, services.ReportError);
