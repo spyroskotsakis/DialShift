@@ -22,6 +22,13 @@ public sealed class StationRowViewModel : ObservableObject
     public Station Station { get; }
     public string Name { get; }
     public string Initial { get; }
+
+    /// <summary>The station needs a VPN: its stored <see cref="Station.VpnRegion"/> is non-empty (the badge's one rule).</summary>
+    public bool HasVpn => Station.VpnRegion is { Length: > 0 };
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty without a region.</summary>
+    public string VpnText => UiText.VpnText(Station.VpnRegion);
+
     public string Subtitle { get; }
     public string ListenAutomationName => "Listen to " + Name;
     public string EditAutomationName => "Edit " + Name;

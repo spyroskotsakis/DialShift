@@ -61,6 +61,13 @@ public sealed class CatalogResultRow : ObservableObject
     /// <summary>The full notes; the view wraps them.</summary>
     public string Notes { get; }
 
+    /// <summary>The picked stream needs a VPN; the row and detail pane show the badge when it does. The pipeline guarantees
+    /// <see cref="StationCatalogEntry.VpnRegion"/> is non-empty exactly then, so this reads the one that always has text.</summary>
+    public bool HasVpn => Entry.VpnRegion.Length > 0;
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty without a region.</summary>
+    public string VpnText => UiText.VpnText(Entry.VpnRegion);
+
     public string AutomationName { get; }
 
     /// <summary>The remote logo once loaded; null shows <see cref="Monogram"/>.</summary>

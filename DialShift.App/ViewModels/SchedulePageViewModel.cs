@@ -28,10 +28,12 @@ public sealed class SlotRowViewModel : ObservableObject
     private readonly string? zoneName;
     private string nextStartText = "";
 
-    public SlotRowViewModel(ScheduleEntry entry, string? stationName, Func<ScheduleEntry, Task> edit, Action<Exception> onError)
+    public SlotRowViewModel(ScheduleEntry entry, Station? station, Func<ScheduleEntry, Task> edit, Action<Exception> onError)
     {
         Entry = entry;
-        StationName = stationName ?? "Missing station";
+        StationName = station?.Name ?? "Missing station";
+        HasVpn = station?.VpnRegion is { Length: > 0 };
+        VpnText = UiText.VpnText(station?.VpnRegion);
         zoneName = UiText.ZoneName(entry.TimeZone);
         ZoneResolution = Scheduler.TryResolveZone(entry.TimeZone, out _);
         EditCommand = new(() => edit(entry), onError);
@@ -41,6 +43,12 @@ public sealed class SlotRowViewModel : ObservableObject
     public string Time => Entry.Time;
     public bool IsEnabled => Entry.Enabled;
     public string StationName { get; }
+
+    /// <summary>The slot's station needs a VPN, so the row carries the badge beside its name.</summary>
+    public bool HasVpn { get; }
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty without a region.</summary>
+    public string VpnText { get; }
     public string Subtitle => (Entry.Enabled ? string.IsNullOrWhiteSpace(Entry.Label) ? "Scheduled switch" : Entry.Label : "Disabled") + " · " + UiText.Days(Entry.Days);
     public string EditAutomationName => zoneName is null ? $"Edit the {Time} slot" : $"Edit the {Time} {zoneName} slot";
     public AsyncRelayCommand EditCommand { get; }
@@ -140,7 +148,7 @@ public sealed class SchedulePageViewModel : PageViewModel
         // By start time, so a legacy "08.30" sorts with "08:30" (its text as stored breaks ties and orders unparsable ones last).
         foreach (var entry in settings.Schedule.Where(e => e.Days.Contains(selectedDay))
                      .OrderBy(e => Scheduler.TryTime(e.Time, out var t) ? t.Ticks : long.MaxValue).ThenBy(e => e.Time, StringComparer.Ordinal))
-            Slots.Add(new SlotRowViewModel(entry, settings.Stations.FirstOrDefault(s => s.Id == entry.StationId)?.Name, EditAsync, Services.ReportError));
+            Slots.Add(new SlotRowViewModel(entry, settings.Stations.FirstOrDefault(s => s.Id == entry.StationId), EditAsync, Services.ReportError));
         UpdateNextStarts();
         IsEmpty = Slots.Count == 0;
         EmptyText = "No switches on " + selectedDay + ". Add a time slot to tune in automatically.";

@@ -52,8 +52,13 @@
                        Text="{Binding StatusText}" TextTrimming="CharacterEllipsis"
                        Margin="0,0,12,0" VerticalAlignment="Center" />
           </DockPanel>
-          <TextBlock Text="{Binding StationTitle}" FontSize="30" FontWeight="SemiBold"
-                     Margin="0,10,12,6" TextTrimming="CharacterEllipsis" />
+          <!-- The VPN badge sits before the title, on the same line, so the card keeps its height. -->
+          <DockPanel Margin="0,10,12,6">
+            <Border DockPanel.Dock="Left" Classes="vpnBadge" Margin="0,0,10,0" IsVisible="{Binding HasVpn}">
+              <TextBlock Text="{Binding VpnText}" />
+            </Border>
+            <TextBlock Text="{Binding StationTitle}" FontSize="30" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
           <TextBlock Text="{Binding TrackText}" FontSize="14" Foreground="{StaticResource DsMutedBrush}"
                      TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,20,0,0">

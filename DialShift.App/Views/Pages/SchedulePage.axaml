@@ -64,7 +64,13 @@
                       AutomationProperties.Name="{Binding EditAutomationName}" />
               <TextBlock DockPanel.Dock="Left" Classes="slotTime" Classes.on="{Binding IsEnabled}" Text="{Binding Time}" />
               <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                <TextBlock Classes="rowTitle" Text="{Binding StationName}" />
+                <!-- The VPN badge sits before the station name on the same line, so the row keeps its height. -->
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="vpnBadge" Margin="0,0,8,0" IsVisible="{Binding HasVpn}">
+                    <TextBlock Text="{Binding VpnText}" />
+                  </Border>
+                  <TextBlock Classes="rowTitle" Text="{Binding StationName}" />
+                </DockPanel>
                 <TextBlock Classes="secondary" Text="{Binding Subtitle}" Margin="0,4,0,0" />
                 <!-- QA-N6: the zone and the next start on this computer, which can fall on another day than the tab. -->
                 <WrapPanel IsVisible="{Binding HasZone}" Margin="0,6,0,0">

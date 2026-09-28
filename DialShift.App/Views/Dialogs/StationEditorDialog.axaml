@@ -153,8 +153,14 @@
           <!-- The Runs sit on one line with no whitespace between them: a line break between inline elements would add a
                " " run on each side of the dot ("Name  ·  Place"). -->
           <TextBlock Classes="resultTitle"><Run Text="{Binding Name}" FontWeight="SemiBold" /><Run Text=" · " Foreground="{StaticResource DsMutedBrush}" /><Run Text="{Binding Place}" FontSize="12" Foreground="{StaticResource DsSecondaryBrush}" /></TextBlock>
-          <TextBlock Classes="resultKind" Text="{Binding Kind}"
-                     IsVisible="{Binding Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <!-- The VPN badge shares line 2 with the kind, so a flagged row stays two lines tall like the rest. -->
+          <DockPanel>
+            <Border DockPanel.Dock="Right" Classes="vpnBadge" Margin="8,2,0,0" IsVisible="{Binding HasVpn}">
+              <TextBlock Text="{Binding VpnText}" />
+            </Border>
+            <TextBlock Classes="resultKind" Text="{Binding Kind}"
+                       IsVisible="{Binding Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </DockPanel>
         </StackPanel>
       </DockPanel>
     </DataTemplate>
@@ -285,6 +291,10 @@
                 </StackPanel>
               </DockPanel>
               <WrapPanel Margin="0,0,0,4">
+                <!-- The VPN badge leads the chips, so a geo-restricted stream is the first thing the detail pane says. -->
+                <Border Classes="vpnBadge" Margin="0,0,6,6" IsVisible="{Binding DetailRow.HasVpn}">
+                  <TextBlock Text="{Binding DetailRow.VpnText}" />
+                </Border>
                 <Border Classes="chip" IsVisible="{Binding DetailRow.FrequencyText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                   <TextBlock Text="{Binding DetailRow.FrequencyText}" />
                 </Border>

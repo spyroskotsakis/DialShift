@@ -307,10 +307,11 @@ public sealed class StationEditorViewModel : EditorViewModel
         station.Url = urlText;
         if (Original == null)
         {
-            // D73: the notes describe the picked stream, so they stay only while the saved URL is still that stream.
-            station.Notes = SelectedEntry is { Notes.Length: > 0 } entry && string.Equals(urlText, entry.StreamUrl, StringComparison.Ordinal)
-                ? entry.Notes
-                : null;
+            // D73: the notes and the VPN region describe the picked stream, so they stay only while the saved URL is still
+            // that stream; a hand-typed URL inherits neither.
+            var picked = SelectedEntry is { } entry && string.Equals(urlText, entry.StreamUrl, StringComparison.Ordinal) ? entry : null;
+            station.Notes = picked is { Notes.Length: > 0 } ? picked.Notes : null;
+            station.VpnRegion = picked is { VpnRegion.Length: > 0 } ? picked.VpnRegion : null;
             settings.Stations.Add(station);
         }
         Error = null;

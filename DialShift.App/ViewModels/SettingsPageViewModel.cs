@@ -5,8 +5,14 @@ using DialShift.App.Services;
 namespace DialShift.App.ViewModels;
 
 /// <summary>An entry of the fallback picker; <see cref="Id"/> null is "No fallback · keep retrying".</summary>
-public sealed record FallbackOption(Guid? Id, string Name)
+public sealed record FallbackOption(Guid? Id, string Name, string VpnRegion = "")
 {
+    /// <summary>The station needs a VPN; the picker shows the badge when its region is non-empty.</summary>
+    public bool HasVpn => VpnRegion.Length > 0;
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty without a region.</summary>
+    public string VpnText => UiText.VpnText(VpnRegion);
+
     public override string ToString() => Name;
 }
 
@@ -192,7 +198,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         {
             var settings = Services.Settings.Settings;
             var options = new List<FallbackOption> { new(null, NoFallbackName) };
-            options.AddRange(settings.Stations.Select(s => new FallbackOption(s.Id, s.Name)));
+            options.AddRange(settings.Stations.Select(s => new FallbackOption(s.Id, s.Name, s.VpnRegion ?? "")));
             if (!options.SequenceEqual(fallbackOptions)) FallbackOptions = options;
             SelectedFallback = FallbackOptions.FirstOrDefault(o => o.Id == settings.FallbackStationId) ?? FallbackOptions[0];
             OnPropertyChanged(nameof(StartInTray));

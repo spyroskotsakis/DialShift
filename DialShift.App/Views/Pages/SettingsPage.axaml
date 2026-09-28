@@ -27,7 +27,12 @@
                   AutomationProperties.Name="Fallback station">
           <ComboBox.ItemTemplate>
             <DataTemplate x:DataType="vm:FallbackOption">
-              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+              <DockPanel>
+                <Border DockPanel.Dock="Right" Classes="vpnBadge" Margin="8,0,0,0" IsVisible="{Binding HasVpn}">
+                  <TextBlock Text="{Binding VpnText}" />
+                </Border>
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+              </DockPanel>
             </DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>

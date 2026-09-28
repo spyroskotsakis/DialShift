@@ -172,6 +172,18 @@ public static class UiText
             _ => frequencyFm
         };
 
+    // ─── VPN badge (requires_vpn / vpn_region) ───
+
+    /// <summary>The badge's word, shared by the badge text and the tray's native menu label.</summary>
+    public const string VpnTag = "VPN";
+
+    /// <summary>
+    /// A station's VPN badge, the one place the badge's text is built: "VPN · United Kingdom" for the region the pipeline
+    /// recorded, "" when the station plays from anywhere. <paramref name="region"/> is the human-readable label (never a
+    /// zone id); the persisted <see cref="Station.VpnRegion"/> is null or "" when there is no VPN.
+    /// </summary>
+    public static string VpnText(string? region) => string.IsNullOrEmpty(region) ? "" : VpnTag + " · " + region;
+
     public static string DeleteStationQuestion(Station station, int slotCount) =>
         $"Delete {station.Name}" + (slotCount > 0 ? $" and its {slotCount} schedule slot(s)?" : "?");
 
