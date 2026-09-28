@@ -71,12 +71,14 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
 `docs/catalog-contracts.md` §2 (decisions D59, D69, D71, D84).
 
 - **Shape:** `{"schema_version":1,"generated_utc":"yyyy-MM-ddTHH:mm:ssZ","stations":[…]}`, UTF-8,
-  one station per line (readable diffs). Each station has exactly these 18 keys, in this order:
+  one station per line (readable diffs). Each station has exactly these 21 keys, in this order:
   `name · name_local · country · country_label · city · region · frequency_fm · type · genre ·
-  language · internet_only · stream_url · codec · bitrate · votes · notes · logo · tag`.
+  language · internet_only · stream_url · codec · bitrate · votes · notes · logo · tag · timezone ·
+  requires_vpn · vpn_region`.
   `country` is the YAML `code` and `country_label` its `name`; collections are
   `Internet` / `Internet (collections)`. `tag` is the Description/Genre text (`app_tag()` in
-  `build/common.py`, the same text as the XLSX), so the app never recomputes it.
+  `build/common.py`, the same text as the XLSX), so the app never recomputes it. `requires_vpn` /
+  `vpn_region` are the geo-restriction signal (below).
 - **Inclusion:** `stream_status == Working` and a stream URL the app accepts (http/https, a host,
   no whitespace, at most 2,048 characters). Deduped per country with the pipeline's final key
   (name, city, stream URL). Ordered by country, votes (highest first), name, stream URL.
@@ -91,17 +93,20 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   punctuation; a `+` right after the last letter (`dab+`) and a bracket or quote that pairs with one
   inside (`halle (saale)`) stay; a tag with no letter or digit left is dropped, repeats are dropped
   ignoring case, first spelling kept); every other note is kept as it is. The CSVs and the XLSX
-  keep the pipeline's raw note; logos that are not http(s) become `""`.
+  keep the pipeline's raw note; logos that are not http(s) become `""`. `requires_vpn` is `true`
+  only for a row whose YAML entry says so; `vpn_region` is trimmed. The two are consistent by
+  construction and checked: `requires_vpn` is `true` exactly when `vpn_region` is non-empty.
 - **Language (D84):** a list of single language names joined with `", "` (`English, German, Low
   German`), or `""`. The raw value is split on `,` and `;` only (never on `-`, `/` or `.`), and each
   token is looked up in `languages.yaml` (below) in any case: a canonical name stays itself, an alias
   becomes its name or names, a drop key disappears; names are kept once, first seen first. Only the
   JSON is normalized: the CSVs and the XLSX keep the raw value.
-- **Validation (hard failure, same run):** schema version, the 18 keys and their types, non-empty
+- **Validation (hard failure, same run):** schema version, the 21 keys and their types, non-empty
   name and country, valid stream URL, no duplicate `(name, country, stream_url)`, the count equals
   the Working rows that pass the URL rule, 1–10,000 entries, every `language` a clean list
   (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key), no note
-  still in the raw `tags:` form, and every `frequency_fm` empty, an FM value with a `.` (64–108),
+  still in the raw `tags:` form, the `requires_vpn` / `vpn_region` consistency rule above, and
+  every `frequency_fm` empty, an FM value with a `.` (64–108),
   a kHz integer (150 to 30,000, the top of shortwave) or one of the band words of
   `frequency-bands.yaml`, so free text never reaches the app's frequency column. On any problem
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
@@ -135,11 +140,11 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   example this repo's `data/output/app-catalog.json` right after a pipeline run, without
   rebuilding. A relative path is refused (the catalog is then unavailable, no fallback).
 
-## Canonical schema (19 frozen columns)
+## Canonical schema (21 frozen columns)
 
 `country · name · name_local · city · region · frequency_fm · type · genre · language ·
 political_leaning · internet_only · stream_url · codec · bitrate · stream_status · votes ·
-notes · source · timezone`
+notes · source · timezone · requires_vpn · vpn_region`
 
 - `type` — Music · News & Talk · Political · Sports · Religious · Municipal · Military ·
   Public · Other
@@ -153,11 +158,20 @@ notes · source · timezone`
   row gets one: a curated entry's own `timezone`, else its canonical city's
   `city_timezones` value, else the country's `timezone_default` (all three live in the
   country YAML; the app-catalog export validates every id).
+- `requires_vpn` / `vpn_region` — the geo-restriction signal, a per-station fact that lives ONLY
+  in the entry's `countries/*.yaml` or `collections/*.yaml` (both keys default to `false` / `""`
+  when the YAML does not set them). `requires_vpn: true` marks a station whose stream plays only
+  from inside a region (a `no_auto_stream: true` station that does have a public, verified stream
+  gets a pinned `url:` and these two keys instead). `vpn_region` names that region in plain
+  English (`United Kingdom`, `United States`). The pair must be consistent — `requires_vpn: true`
+  exactly when `vpn_region` is non-empty — or the run fails. A station that is simply not on
+  public directories (no stream to play) keeps `no_auto_stream: true` and is not flagged.
 
 ## How it works (single source of truth, no double-maintained data)
 
 1. **`countries/<name>.yaml`** holds the only hand-maintained data: curated station facts
-   (name, city, type, genre, political leaning, optional pinned stream URL), national-programme
+   (name, city, type, genre, political leaning, optional pinned stream URL, optional
+   `requires_vpn` / `vpn_region` geo-restriction pair), national-programme
    consolidation rules (the ERT network), city aliases, the language defaults, and an optional
    Wikipedia list URL. **`languages.yaml`** holds the app catalog's language table and
    **`frequency-bands.yaml`** its frequency band words. Station, language and band data never live
