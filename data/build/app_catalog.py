@@ -21,15 +21,16 @@ import unicodedata
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from common import (MAX_BAND_WORD_LENGTH, RB_TAGS_LABEL, app_tag, city_aliases, frequency_band_words,
                     language_key, language_table, norm, norm_city, row_score, url_norm)
-
 SCHEMA_VERSION = 1
 MAX_ENTRIES = 10_000
 MAX_URL_LENGTH = 2_048
 KEYS = ('name', 'name_local', 'country', 'country_label', 'city', 'region', 'frequency_fm', 'type', 'genre',
-        'language', 'internet_only', 'stream_url', 'codec', 'bitrate', 'votes', 'notes', 'logo', 'tag')
+        'language', 'internet_only', 'stream_url', 'codec', 'bitrate', 'votes', 'notes', 'logo', 'tag',
+        'timezone')
 LANGUAGE_SEPARATOR = ', '
 
 # Collections (build_stations.build_collection) carry this country instead of a YAML code.
@@ -223,6 +224,7 @@ def _entry(row, country_label, language):
         'votes': votes if votes is not None and votes >= 0 else None, 'notes': _notes(row.get('notes')),
         'logo': s['logo'] if _http_url(s['logo']) else '',
         'tag': app_tag({'type': s['type'], 'genre': s['genre']}),
+        'timezone': _text(row.get('timezone')),
     }
 
 
@@ -346,6 +348,11 @@ def _entry_problems(i, e, mapped, band_words):
     frequency = _frequency_problem(e['frequency_fm'], band_words)
     if frequency:
         out.append(f"{where}: frequency_fm {e['frequency_fm'][:120]!r} {frequency}")
+    if e['timezone']:
+        try:
+            ZoneInfo(e['timezone'])
+        except Exception:
+            out.append(f"{where}: timezone {e['timezone']!r} is not an IANA timezone")
     return out
 
 

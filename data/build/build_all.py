@@ -46,11 +46,11 @@ FAVICON_DIR = DATA_DIR / 'raw' / 'favicons'     # gitignored cache
 
 CANON_COLS = ['country', 'name', 'name_local', 'city', 'region', 'frequency_fm', 'type', 'genre',
               'language', 'political_leaning', 'internet_only', 'stream_url', 'codec', 'bitrate',
-              'stream_status', 'votes', 'logo', 'notes', 'source']
+              'stream_status', 'votes', 'logo', 'notes', 'source', 'timezone']
 
-IMPORT_COLS = ['Station Name', 'Description / Genre', 'Stream URL', 'Country', 'City', 'Type',
-               'Language', 'Political Leaning', 'Internet Only', 'Frequency FM', 'Votes', 'Notes',
-               'Logo URL']
+IMPORT_COLS = ['Station Name', 'Description / Genre', 'Stream URL', 'Country', 'City', 'Timezone',
+               'Type', 'Language', 'Political Leaning', 'Internet Only', 'Frequency FM', 'Votes',
+               'Notes', 'Logo URL']
 
 HEADER_FILL = PatternFill('solid', fgColor='2F5B8C')
 HEADER_FONT = Font(bold=True, color='FFFFFF')
@@ -342,25 +342,26 @@ def main():
     for r in sorted(working, key=lambda x: (x['country'], -(x['votes'] or 0))):
         imp.append([r['name'], app_tag(r), r['stream_url'],
                     country_names.get(r['country'], r['country']),
-                    r['city'], r['type'], r['language'], r['political_leaning'],
+                    r['city'], r.get('timezone', ''), r['type'], r['language'], r['political_leaning'],
                     r['internet_only'], r['frequency_fm'], r['votes'] or '', r['notes'][:180],
                     r.get('logo', '')])
     write_sheet(wb, 'Import Ready', IMPORT_COLS, imp,
-                widths=[34, 30, 58, 10, 20, 14, 12, 16, 12, 10, 9, 40, 40], tab_color='90EE90')
+                widths=[34, 30, 58, 10, 20, 16, 14, 12, 16, 12, 10, 9, 40, 40], tab_color='90EE90')
 
     # ---- per-country tabs ----
-    XLS_COLS = ['Name', 'Name (local)', 'City', 'Region', 'Frequency FM', 'Type', 'Genre', 'Language',
-                'Political Leaning', 'Internet Only', 'Stream URL', 'Codec', 'Bitrate', 'Stream Status',
-                'Votes', 'Notes', 'Source', 'Logo URL']
+    XLS_COLS = ['Name', 'Name (local)', 'City', 'Timezone', 'Region', 'Frequency FM', 'Type',
+                'Genre', 'Language', 'Political Leaning', 'Internet Only', 'Stream URL', 'Codec',
+                'Bitrate', 'Stream Status', 'Votes', 'Notes', 'Source', 'Logo URL']
     for cfg in countries:
         rows = per_country[cfg['code']]
-        data = [[r['name'], r['name_local'], r['city'], r['region'], r['frequency_fm'], r['type'],
+        data = [[r['name'], r['name_local'], r['city'], r.get('timezone', ''), r['region'],
+                 r['frequency_fm'], r['type'],
                  r['genre'], r['language'], r['political_leaning'], r['internet_only'], r['stream_url'],
                  r['codec'], r['bitrate'], r['stream_status'], r['votes'] or '', r['notes'][:200],
                  r['source'], r.get('logo', '')]
                 for r in rows]
         write_sheet(wb, cfg['name'], XLS_COLS, data,
-                    widths=[32, 24, 20, 16, 10, 13, 20, 11, 16, 11, 55, 7, 8, 13, 8, 40, 16, 40],
+                    widths=[32, 24, 20, 16, 16, 10, 13, 20, 11, 16, 11, 55, 7, 8, 13, 8, 40, 16, 40],
                     tab_color='9DC3E6')
 
     # ---- focus tabs (Munich, Paris, Toulouse, Aude, …) ----
