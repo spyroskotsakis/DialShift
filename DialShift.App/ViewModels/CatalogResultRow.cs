@@ -30,7 +30,7 @@ public sealed class CatalogResultRow : ObservableObject
             { } votes => UiText.Count(votes) + " votes"
         };
         Notes = entry.Notes;
-        AutomationName = $"{Name}, {Subtitle}";
+        AutomationName = $"{Name}, {Subtitle}" + (HasVpn ? $", {VpnText}" : "");
     }
 
     public StationCatalogEntry Entry { get; }

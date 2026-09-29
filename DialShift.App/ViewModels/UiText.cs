@@ -182,7 +182,7 @@ public static class UiText
     /// recorded, "" when the station plays from anywhere. <paramref name="region"/> is the human-readable label (never a
     /// zone id); the persisted <see cref="Station.VpnRegion"/> is null or "" when there is no VPN.
     /// </summary>
-    public static string VpnText(string? region) => string.IsNullOrEmpty(region) ? "" : VpnTag + " · " + region;
+    public static string VpnText(string? region) => string.IsNullOrWhiteSpace(region) ? "" : VpnTag + " · " + region;
 
     public static string DeleteStationQuestion(Station station, int slotCount) =>
         $"Delete {station.Name}" + (slotCount > 0 ? $" and its {slotCount} schedule slot(s)?" : "?");
