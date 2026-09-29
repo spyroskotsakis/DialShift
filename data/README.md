@@ -10,6 +10,7 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 | artifact | where | what it is |
 |---|---|---|
 | **App catalog** | `output/app-catalog.json` | the station list the app's Add-station search reads; generated, validated, checked in |
+| **Starter stations** | `output/starter-stations.json` | the first-run default stations (collection entries marked `starter: true`); the app seeds a fresh install from it |
 | **Multi-tab XLSX** | `output/dialshift-radio-catalog.xlsx` | the human-readable deliverable. Opens nicely in macOS Numbers |
 | **Per-country CSVs** | `canonical/<country>-stations.csv` | clean, one row per station |
 | **Country data files** | `countries/<name>.yaml` | THE source of truth for curated station facts |
@@ -112,7 +113,7 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
   example
-  `app-catalog: working=8391 url_excluded=7 duplicates_removed=0 exported=8384 -> data/output/app-catalog.json`
+  `app-catalog: working=8394 url_excluded=7 duplicates_removed=0 exported=8387 -> data/output/app-catalog.json`
   and `app-catalog: languages=42 unknown=0`.
 - **Language table (`languages.yaml`):** `languages` (canonical names: a language's usual English
   name), `aliases` (key → one name or a list: spellings, typos, native names, and dialects or
@@ -163,7 +164,7 @@ notes · source · timezone · requires_vpn · vpn_region`
   when the YAML does not set them). `requires_vpn: true` marks a station whose stream plays only
   from inside a region (a `no_auto_stream: true` station that does have a public, verified stream
   gets a pinned `url:` and these two keys instead). `vpn_region` names that region in plain
-  English (`United Kingdom`, `United States`). The pair must be consistent — `requires_vpn: true`
+  English (`United States` for the two stations flagged today, WBAP 820 and WLS 890 AM). The pair must be consistent — `requires_vpn: true`
   exactly when `vpn_region` is non-empty — or the run fails. A station that is simply not on
   public directories (no stream to play) keeps `no_auto_stream: true` and is not flagged.
 
@@ -250,6 +251,14 @@ that defaults to `Music`), optional pinned `url`,
 `language` (else the collection's `language_default`), `notes`. Unpinned entries resolve their
 stream from radio-browser at build time.
 Collections become their own tab + `canonical/collection-<code>.csv`.
+
+An entry may also carry `starter: true` — it marks a **first-run default station**.
+`build_all.py` writes every `starter: true` entry with a stream URL to
+`output/starter-stations.json` as `{name, stream_url, tag}`, in the YAML's own order (not
+alphabetical), and the app seeds a fresh install from that file when no `settings.json` exists
+yet; with a settings file already present nothing is seeded. The three DialShift defaults
+(Groove Salad, Drone Zone, Secret Agent) are the `starter: true` entries of
+`collections/ambient-chill.yaml`, so the starter list is data, not code.
 
 ## Refreshing the data
 
