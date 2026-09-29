@@ -959,6 +959,7 @@ public static class HeadlessUiTests
         var contentRoot = (Visual)((StackPanel)viewport.Content!).Children.Last();
         var aboutCard = ((ContentControl)contentRoot).GetVisualDescendants().OfType<StackPanel>().First().Children.OfType<Border>().Last();
         var aboutBottom = aboutCard.TranslatePoint(new Point(0, aboutCard.Bounds.Height), window)!.Value.Y;
+        Console.WriteLine($"  IE-08 DIAG windowH={window.Height:F1} viewportBottom={viewportBottom:F1} aboutBottom={aboutBottom:F1} gap={viewportBottom - aboutBottom:F1} importTop={importTop:F1} importBottom={importTop + import.Bounds.Height:F1} offsetY={viewport.Offset.Y:F1}");
         Check("IE-08 the whole About card, Import button included, sits above the fold at the default 860 with no scroll",
             viewport.Offset.Y == 0 && aboutBottom < viewportBottom
             && importTop + import.Bounds.Height < viewportBottom);
