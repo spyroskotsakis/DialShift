@@ -142,7 +142,7 @@ public static class TimeZoneUiTests
 
     private static void PickerListAndSearch()
     {
-        var editor = Editor(Settings.Defaults());
+        var editor = Editor(StarterSettings());
         var zones = editor.TimeZones;
         Check("§4.5 the picker lists \"Local time\" first, then the system zones by current offset (Pacific/… before Europe/…)",
             zones[0].Id == null && zones.Count > 100 && zones.Skip(1).All(z => z.Id != null && z.Resolution == ZoneResolution.Resolved)

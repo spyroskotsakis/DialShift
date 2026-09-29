@@ -69,6 +69,13 @@ public interface IPlaybackCoordinator : IAsyncDisposable
     /// <summary>UserPlay for a station by id (manual selection; sets <c>Settings.LastStationId</c>). Unknown ids are ignored.</summary>
     Task PlayAsync(Guid stationId);
 
+    /// <summary>Plays a transient stream for the Add-station dialog's "quick listen" preview. The URL is
+    /// played directly: it is never added to <see cref="Settings"/>, never writes <see cref="Settings.LastStationId"/>,
+    /// never falls back to <see cref="Settings.FallbackStationId"/>, and is superseded by a later
+    /// <see cref="PlayAsync"/>, <see cref="StopAsync"/>, schedule change, or another preview. Retry re-attempts this
+    /// same URL. Stopping a preview clears it fully (idle state), unlike a normal pause.</summary>
+    Task PlayPreviewAsync(string url, string displayName);
+
     /// <summary>UserStop when active; otherwise UserPlay of the desired station, else the last station, else the first station.</summary>
     Task ToggleAsync();
 

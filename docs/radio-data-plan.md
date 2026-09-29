@@ -67,7 +67,7 @@ add a `focus:` block in the country YAML. No Python changes, ever.
 | `notes` | Bavaria's biggest private station | wiki description or curated note |
 | `source` | wiki+radio-browser | where the row came from |
 
-The 18 columns are frozen across countries — no per-country special columns.
+The 21 columns are frozen across countries — no per-country special columns (the plan's original 18, plus `timezone`, `requires_vpn` and `vpn_region` added after the plan; see `catalog-contracts.md` §2.1).
 
 ## XLSX tab design (Numbers-compatible: plain openpyxl, freeze panes, auto-filter, column widths)
 

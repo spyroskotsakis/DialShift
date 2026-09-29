@@ -68,7 +68,7 @@ public sealed class TrayMenuController : IDisposable
         var onAir = snapshot.IsActive ? snapshot.CurrentStationId ?? snapshot.DesiredStationId : null;
         var signature = string.Join('|',
             snapshot.IsActive, onAir, settings.ScheduleEnabled,
-            string.Join(',', settings.Stations.Select(s => s.Id + "=" + s.Name)));
+            string.Join(',', settings.Stations.Select(s => s.Id + "=" + s.Name + "=" + s.VpnRegion)));
         if (!force && signature == renderedSignature) return;
         renderedSignature = signature;
         RebuildCount++;
@@ -91,7 +91,9 @@ public sealed class TrayMenuController : IDisposable
         foreach (var station in settings.Stations)
         {
             var id = station.Id;
-            var item = Item(station.Name, async () =>
+            // Native menus are text-only, so the VPN shows as a suffix (UiText.VpnTag, the badge's word); the region stays in the app.
+            var label = station.VpnRegion is { Length: > 0 } ? station.Name + " · " + UiText.VpnTag : station.Name;
+            var item = Item(label, async () =>
             {
                 await services.Coordinator.PlayAsync(id);
                 await services.Settings.SaveAsync();

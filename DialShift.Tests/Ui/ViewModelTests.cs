@@ -5,8 +5,10 @@ using DialShift.App.Platform;
 using DialShift.App.ViewModels;
 using DialShift.Core;
 using DialShift.Core.Playback;
+using DialShift.Core.Transfer;
 using DialShift.Tests.Core;
 using static DialShift.Tests.TestHarness;
+using static DialShift.Tests.Ui.CatalogUiFixtures;
 
 namespace DialShift.Tests.Ui;
 
@@ -28,6 +30,7 @@ public static class ViewModelTests
         await CommandRouting();
         await VolumeRules();
         await StationEditorValidation();
+        await StationEditorQuickPlay();
         await StationDeleteFlow();
         await SlotEditorValidation();
         await SlotConflictAndEdit();
@@ -35,11 +38,13 @@ public static class ViewModelTests
         await SlotTimeWithDottedInput();
         await SlotTimeUnderDotCultures();
         await SettingsPage();
+        await SettingsTransferFlow();
         await LaunchAtLogin();
         await RecoveryNotice();
         await SaveFailure();
         await RealCoordinatorTexts();
         await RealCoordinatorCommands();
+        await VpnBadges();
         await CatalogViewModelTests.RunAsync();
     }
 
@@ -314,8 +319,9 @@ public static class ViewModelTests
         var added = rig.Settings.Stations[^1];
         Check("HS-02 BHV-52 save trims values and defaults the description to \"Internet radio\"",
             added is { Name: "Kosmos", Tag: "Internet radio", Url: "http://radio.example.org/kosmos" });
-        Check("HS-02 BHV-52 MX-01 add commits Stations (coordinator told), saves, and the page shows it",
-            rig.Since(mark) == "settings.commit:Stations > coordinator.NotifySettingsChangedAsync"
+        Check("HS-02 BHV-52 MX-01 add commits Stations (coordinator told), starts it, saves, and the page shows it",
+            // Adding a station starts playing it: the coordinator is handed the new id, then the settings are saved again.
+            rig.Since(mark) == $"settings.commit:Stations > coordinator.NotifySettingsChangedAsync > coordinator.PlayAsync:{added.Id} > settings.save"
             && rig.OnDisk().Stations.Any(s => s.Id == added.Id && s.Name == "Kosmos") && page.Rows[^1].Name == "Kosmos" && page.CountText == "04  SAVED FREQUENCIES");
 
         rec.StationScripts.Enqueue(editor =>
@@ -331,6 +337,115 @@ public static class ViewModelTests
             rig.Settings.Stations[^1].Id == added.Id && rig.OnDisk().Stations.Single(s => s.Id == added.Id).Name == "Kosmos 93.6" && page.Rows[^1].Name == "Kosmos 93.6");
         Check("HS-02 BHV-52 field limits: name 100, description 160, URL 2048",
             StationEditorViewModel.NameMaxLength == 100 && StationEditorViewModel.TagMaxLength == 160 && StationEditorViewModel.UrlMaxLength == 2048);
+    }
+
+    // ─── HS-02 / QM: the Add dialog's quick-play preview and what Add does with it ───
+
+    /// <summary>
+    /// The Add dialog's quick-play preview end to end through the Stations page (spec Feature 2; acceptance-matrix §15
+    /// QM-04..06): the editor plays a catalog stream through the coordinator and never its own engine; Cancel stops the
+    /// preview (nothing added, nothing saved); Save leaves it playing, so the caller's <c>PlayAsync(added.Id)</c> adopts the
+    /// very same stream without a restart (the real coordinator's seamless promote) and Add with no preview at all still
+    /// auto-starts the added station. Edit mode plays nothing.
+    /// </summary>
+    private static async Task StationEditorQuickPlay()
+    {
+        // Add with no preview: the editor starts nothing itself; the page commits the station, tells the coordinator, starts it and saves.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rec.StationScripts.Enqueue(editor =>
+            {
+                editor.Name = "Kosmos";
+                editor.Url = "https://streams.example.org/kosmos";
+                editor.SaveCommand.Execute(null);
+                return Task.CompletedTask;
+            });
+            var mark = rig.Journal.Count;
+            await page.AddCommand.ExecuteAsync();
+            var added = rig.Settings.Stations[^1];
+            Check("QM-05 Add with no preview starts the added station: the editor plays nothing, then commit(Stations), notify, PlayAsync(added.Id), save",
+                rig.Since(mark) == $"settings.commit:Stations > coordinator.NotifySettingsChangedAsync > coordinator.PlayAsync:{added.Id} > settings.save"
+                && added is { Name: "Kosmos", Url: "https://streams.example.org/kosmos" }
+                && rig.OnDisk().Stations.Any(s => s.Id == added.Id && s.Name == "Kosmos") && page.Rows[^1].Name == "Kosmos");
+
+            // Edit mode is the plain form: saving it plays nothing (AddedStation is null).
+            rec.StationScripts.Enqueue(editor =>
+            {
+                Check("QM-05 fixture: Edit mode has no AddedStation", editor.AddedStation == null && !editor.IsAddMode);
+                editor.Name = "Kosmos 93.6";
+                editor.SaveCommand.Execute(null);
+                return Task.CompletedTask;
+            });
+            mark = rig.Journal.Count;
+            await page.Rows[^1].EditCommand.ExecuteAsync();
+            Check("QM-05 editing a station plays nothing: one commit(Stations) and the notify, no PlayAsync and no save",
+                rig.Since(mark) == "settings.commit:Stations > coordinator.NotifySettingsChangedAsync" && page.Rows[^1].Name == "Kosmos 93.6");
+        }
+
+        // Cancel while a preview plays: the CloseRequested wiring stops it; nothing is added and nothing is committed.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rig.Catalog.Result = Loaded(Small);
+            rec.StationScripts.Enqueue(async editor =>
+            {
+                if (!await Wait.Until(() => editor.PendingSearch.IsCompleted)) throw new TimeoutException("The catalog search did not settle.");
+                await editor.Results.Single(r => r.Entry == Kosmos).PreviewCommand.ExecuteAsync();
+                Check("QM-06 fixture: the preview is on and the dialog knows the URL",
+                    editor.IsPreviewing && editor.PreviewingUrl == Kosmos.StreamUrl);
+                editor.CancelCommand.Execute(null);
+            });
+            var mark = rig.Journal.Count;
+            await page.AddCommand.ExecuteAsync();
+            Check("QM-06 Cancel while previewing stops the preview (PlayPreviewAsync then StopAsync) and adds nothing at all",
+                rig.Since(mark) == $"coordinator.PlayPreviewAsync:Kosmos 93.6:{Kosmos.StreamUrl} > coordinator.StopAsync"
+                && rig.Settings.Stations.Count == 3 && !rig.SavedToDisk && rig.Settings.Stations.All(s => s.Url != Kosmos.StreamUrl));
+        }
+
+        // Save while a preview plays, over the REAL coordinator: the stream keeps playing and the caller adopts it (one session).
+        await using (var rig = UiRig.CreateViewModels(realCoordinator: true))
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rig.Catalog.Result = Loaded(Small);
+            rec.StationScripts.Enqueue(async editor =>
+            {
+                if (!await Wait.Until(() => editor.PendingSearch.IsCompleted)) throw new TimeoutException("The catalog search did not settle.");
+                var row = editor.Results.Single(r => r.Entry == Kosmos);
+                editor.HighlightedResult = row;
+                editor.SelectEntryCommand.Execute(null); // the pick: the entry's name/tag/URL into the form
+                await row.PreviewCommand.ExecuteAsync(); // the quick listen on that same stream
+                Check("QM-04 fixture: the pick filled the form from the catalog entry and the preview is on its stream",
+                    editor.Name == Kosmos.Name && editor.Url == Kosmos.StreamUrl && editor.IsPreviewing && editor.PreviewingUrl == Kosmos.StreamUrl);
+                editor.SaveCommand.Execute(null);
+            });
+            await page.AddCommand.ExecuteAsync();
+            var added = rig.Settings.Stations[^1];
+            var engine = rig.Engine!;
+            var snapshot = rig.Real!.Snapshot;
+            Check("QM-04 Save while previewing leaves the stream playing (the editor never stops it: no Stop call, still session 1)",
+                engine.Starts.Count == 1 && engine.StopCount == 0 && engine.ActiveSessionId == 1 && engine.CallLog.SequenceEqual(["start:1"]));
+            Check("QM-04 Adding what is previewing adopts the station in place: the same session's snapshot is now the saved station and LastStationId reaches disk",
+                snapshot.CurrentStationId == added.Id && snapshot.DesiredStationId == added.Id
+                && rig.Settings.LastStationId == added.Id && rig.OnDisk().LastStationId == added.Id && added.Url == Kosmos.StreamUrl);
+            Check("QM-04 the adopted stream was never restarted (one engine start in the whole scenario) and nothing was reported",
+                engine.Starts.Count == 1 && engine.Starts[^1].Source.Url == new Uri(Kosmos.StreamUrl) && rig.Log.Entries.All(e => e.EventName != "playback.failed"));
+        }
+
+        // Cancel with no preview at all: no coordinator call whatsoever.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rec.StationScripts.Enqueue(editor => { editor.CancelCommand.Execute(null); return Task.CompletedTask; });
+            var mark = rig.Journal.Count;
+            await page.AddCommand.ExecuteAsync();
+            Check("QM-06 Cancel with nothing previewing makes no coordinator call and commits nothing",
+                rig.Journal.Count == mark && rig.Settings.Stations.Count == 3 && !rig.SavedToDisk);
+        }
     }
 
     private static async Task StationDeleteFlow()
@@ -619,6 +734,137 @@ public static class ViewModelTests
             && page.LaunchAtLoginLabel == (OperatingSystem.IsWindows() ? SettingsPageViewModel.WindowsLaunchAtLoginLabel : SettingsPageViewModel.MacLaunchAtLoginLabel));
     }
 
+    // ─── Settings transfer through the view-model commands and the fake picker (IE-03, IE-04, IE-05, IE-09, IE-10, IE-11) ───
+
+    private static async Task SettingsTransferFlow()
+    {
+        // Export through the Save picker: the collected path writes a parseable file and shows the counts dialog.
+        using (var dir = new TempDirectory("transfer-vm-export"))
+        await using (var rig = UiRig.CreateViewModels(seed: s =>
+            s.Schedule.Add(new ScheduleEntry { StationId = s.Stations[0].Id, Time = "09:00", Days = [DayOfWeek.Monday] })))
+        {
+            var path = dir.Combine("export.json");
+            rig.TransferPicker.SavePath = path;
+            await rig.ViewModel.Settings.ExportStationsCommand.ExecuteAsync();
+
+            var suggested = rig.TransferPicker.SaveRequests.Single();
+            Check("IE-09 export asks the Save picker once with the date-stamped suggested name",
+                suggested.Length == "DialShift-transfer-2026-09-28.json".Length
+                && suggested.StartsWith("DialShift-transfer-", StringComparison.Ordinal) && suggested.EndsWith(".json", StringComparison.Ordinal));
+            Check("IE-09 IE-10 export writes a parseable transfer file and shows the counts dialog",
+                File.Exists(path) && TransferCodec.Validate(File.ReadAllText(path)).Count == 0
+                && TransferCodec.Parse(File.ReadAllText(path)).Stations.Count == 3
+                && rig.Recorder!.Messages.Count == 1 && rig.Recorder.Messages[0].Message == "Exported 3 stations and 1 schedule slot.");
+        }
+
+        // A cancelled Save picker: no file, no dialog, no mutation.
+        using (var dir = new TempDirectory("transfer-vm-export-cancel"))
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var before = JsonSerializer.Serialize(rig.Settings);
+            rig.TransferPicker.SavePath = null;
+            await rig.ViewModel.Settings.ExportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder!;
+
+            Check("IE-09 a cancelled Save picker writes no file, shows no dialog and mutates nothing",
+                rig.TransferPicker.SaveRequests.Count == 1 && Directory.GetFiles(dir.Path).Length == 0
+                && recorder.Messages.Count == 0 && JsonSerializer.Serialize(rig.Settings) == before);
+        }
+
+        // Import through the Open picker: replaces both lists, drops the orphan, clears the dangling id, commits.
+        var keptId = Guid.NewGuid();
+        var imported = new TransferFile
+        {
+            SchemaVersion = TransferCodec.SchemaVersion,
+            AppVersion = "0.5.0",
+            ExportedUtc = "2026-09-28T10:00:00Z",
+            ScheduleEnabled = true,
+            Stations =
+            [
+                new Station { Id = keptId, Name = "Imported one", Url = "https://ice5.somafm.com/groovesalad-128-aac" },
+                new Station { Name = "Imported two", Url = "https://ice5.somafm.com/dronezone-128-aac" }
+            ],
+            Schedule =
+            [
+                new ScheduleEntry { StationId = keptId, Time = "07:00", Days = [DayOfWeek.Monday] },
+                new ScheduleEntry { StationId = Guid.NewGuid(), Time = "08:00", Days = [DayOfWeek.Tuesday] }
+            ]
+        };
+        using var importDir = new TempDirectory("transfer-vm-import");
+        var importPath = importDir.Combine("import.json");
+        File.WriteAllText(importPath, TransferCodec.Serialize(imported));
+
+        await using (var rig = UiRig.CreateViewModels(seed: s =>
+        {
+            s.Stations = [new Station { Name = "Old", Url = "https://ice5.somafm.com/old" }];
+            s.Schedule = [new ScheduleEntry { StationId = s.Stations[0].Id, Time = "05:00", Days = [DayOfWeek.Monday] }];
+            s.FallbackStationId = Guid.NewGuid();   // not among the imported stations → cleared
+            s.LastStationId = keptId;               // among the imported stations → kept
+        }))
+        {
+            rig.TransferPicker.OpenPath = importPath;
+            rig.Recorder!.ConfirmAnswers.Enqueue(true);
+            var mark = rig.Journal.Count;
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder;
+
+            Check("IE-03 IE-05 IE-11 import through the Open picker replaces both lists, drops the orphan, clears the dangling id and commits",
+                rig.TransferPicker.OpenRequests == 1
+                && rig.Settings.Stations.Select(s => s.Id).SequenceEqual(imported.Stations.Select(s => s.Id))
+                && rig.Settings.Schedule.Count == 1 && rig.Settings.Schedule[0].StationId == keptId
+                && rig.Settings.FallbackStationId == null && rig.Settings.LastStationId == keptId
+                && rig.Journal.Since(mark).Contains("settings.commit:" + (SettingsChange.Stations | SettingsChange.Schedule)));
+            Check("IE-10 the import shows the confirmation and the counts/orphan success dialog",
+                recorder.Confirmations.Count == 1 && recorder.Messages.Count == 1
+                && recorder.Messages[0].Message.Contains("1 schedule slot referenced missing stations", StringComparison.Ordinal));
+        }
+
+        // A cancelled confirmation: no mutation, no commit, no success dialog.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var before = JsonSerializer.Serialize(rig.Settings);
+            var mark = rig.Journal.Count;
+            rig.TransferPicker.OpenPath = importPath;
+            rig.Recorder!.ConfirmAnswers.Enqueue(false);
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder;
+
+            Check("IE-03 a cancelled import confirmation changes nothing and commits nothing",
+                JsonSerializer.Serialize(rig.Settings) == before && rig.Since(mark) == ""
+                && recorder.Messages.Count == 0 && recorder.Confirmations.Count == 1);
+        }
+
+        // A cancelled Open picker: no dialog, no mutation.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var before = JsonSerializer.Serialize(rig.Settings);
+            rig.TransferPicker.OpenPath = null;
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder!;
+
+            Check("IE-09 a cancelled Open picker shows no dialog and mutates nothing",
+                recorder.Messages.Count == 0 && recorder.Confirmations.Count == 0 && JsonSerializer.Serialize(rig.Settings) == before);
+        }
+
+        // A malformed file: error dialog, zero mutation.
+        using (var dir = new TempDirectory("transfer-vm-bad"))
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var badPath = dir.Combine("bad.json");
+            File.WriteAllText(badPath, "{ \"schema_version\": 1, ");
+            var before = JsonSerializer.Serialize(rig.Settings);
+            var mark = rig.Journal.Count;
+            rig.TransferPicker.OpenPath = badPath;
+            rig.Recorder!.ConfirmAnswers.Enqueue(true);
+            await rig.ViewModel.Settings.ImportStationsCommand.ExecuteAsync();
+            var recorder = rig.Recorder;
+
+            Check("IE-04 a malformed file shows the error dialog and mutates nothing",
+                recorder.Messages.Count == 1 && recorder.Messages[0].Title == UiText.UnexpectedErrorTitle
+                && JsonSerializer.Serialize(rig.Settings) == before && rig.Since(mark) == "");
+        }
+    }
+
     private static async Task LaunchAtLogin()
     {
         await using (var rig = UiRig.CreateViewModels(seed: s => s.LaunchAtLogin = true))
@@ -694,7 +940,7 @@ public static class ViewModelTests
         await using var rig = UiRig.CreateViewModels(settingsJson: "{ this is not json");
         var backups = Directory.GetFiles(rig.Paths.DataDirectory, "settings.json.unreadable-*");
         Check("HS-07 BHV-03 a corrupt settings.json is backed up as settings.json.unreadable-* and defaults load",
-            backups.Length == 1 && rig.Store.Warning != null && rig.Settings.Stations.Count == 3 && File.ReadAllText(backups[0]) == "{ this is not json");
+            backups.Length == 1 && rig.Store.Warning != null && rig.Settings.Stations.Count == 0 && File.ReadAllText(backups[0]) == "{ this is not json");
         await rig.ViewModel.ShowSettingsRecoveredAsync(rig.Store.Warning);
         await rig.ViewModel.ShowSettingsRecoveredAsync(rig.Store.Warning);
         Check("HS-07 BHV-03 the \"DialShift · Settings recovered\" notice is shown once, naming the backup",
@@ -808,5 +1054,67 @@ public static class ViewModelTests
         await vm.Stations.Rows[0].EditCommand.ExecuteAsync();
         Check("HS-02 MX-09 BHV-53 deleting the playing station stops playback and clears it",
             engine.ActiveSessionId == null && !rig.Real!.Snapshot.IsActive && rig.Settings.Stations.All(s => s.Id != groove.Id) && vm.StatusText == "PAUSED");
+    }
+
+    // ─── CAT-21 (D120): the VPN badge across the view models ───
+
+    /// <summary>
+    /// The badge's one rule and wording (<see cref="UiText.VpnText"/>, D120): a station or entry with a region shows
+    /// "VPN · United Kingdom", one without shows nothing. Covers the result row, the Stations and Schedule rows, the
+    /// slot editor's picker wording and the Settings fallback picker, and now-playing. The Add dialog's pick copy and
+    /// its rendered badges are in <see cref="CatalogViewModelTests"/> (over the editor rig) and
+    /// <see cref="HeadlessUiTests"/> (the real dialog); the tray's " · VPN" suffix is in the latter too.
+    /// </summary>
+    private static async Task VpnBadges()
+    {
+        Check("CAT-21 UiText.VpnText: \"VPN · United Kingdom\" for a region, \"\" without one (the badge hidden then); the word is VpnTag",
+            UiText.VpnText("United Kingdom") == "VPN · United Kingdom" && UiText.VpnText("") == "" && UiText.VpnText(null) == ""
+            && UiText.VpnTag == "VPN");
+
+        var flagged = new CatalogResultRow(VpnStation);
+        var plain = new CatalogResultRow(Melodia);
+        Check("CAT-21 the result row's badge follows the entry: HasVpn and VpnText on a flagged one, absent on a plain one",
+            flagged.HasVpn && flagged.VpnText == "VPN · United Kingdom" && !plain.HasVpn && plain.VpnText == "");
+        Check("CAT-21 VPN-06 the slot editor's picker (its items are Stations) renders the badge through VpnConverters.Text: " +
+              "\"VPN · United Kingdom\", \"\" without a region",
+            VpnConverters.Text.Convert("United Kingdom", typeof(string), null, CultureInfo.InvariantCulture) as string == "VPN · United Kingdom"
+            && VpnConverters.Text.Convert(null, typeof(string), null, CultureInfo.InvariantCulture) as string == ""
+            && VpnConverters.Text.Convert("", typeof(string), null, CultureInfo.InvariantCulture) as string == "");
+
+        var harbour = new Station { Name = "Harbour FM", Url = "https://streams.example.org/harbour", Tag = "Public · News", VpnRegion = "United Kingdom" };
+        var anywhere = new Station { Name = "Melodia 99.2", Url = "https://streams.example.org/melodia", Tag = "Commercial · Pop" };
+        await using var rig = UiRig.CreateViewModels(seed: s =>
+        {
+            s.Stations = [harbour, anywhere];
+            s.Schedule =
+            [
+                new ScheduleEntry { StationId = harbour.Id, Time = "09:00", Days = [DayOfWeek.Monday] },
+                new ScheduleEntry { StationId = anywhere.Id, Time = "10:00", Days = [DayOfWeek.Monday] }
+            ];
+        });
+        var vm = rig.ViewModel;
+
+        Check("CAT-21 VPN-04 the Stations row badge follows the stored region: HasVpn/VpnText on the flagged station, absent on the plain one",
+            vm.Stations.Rows[0].HasVpn && vm.Stations.Rows[0].VpnText == "VPN · United Kingdom"
+            && !vm.Stations.Rows[1].HasVpn && vm.Stations.Rows[1].VpnText == "");
+
+        vm.Schedule.SelectDay(DayOfWeek.Monday);
+        Check("CAT-21 fixture: Monday lists both slots (09:00 flagged, 10:00 plain)",
+            vm.Schedule.Slots.Select(r => r.StationName).SequenceEqual(["Harbour FM", "Melodia 99.2"]));
+        Check("CAT-21 VPN-05 the Schedule row badge follows the slot's station: HasVpn/VpnText on the flagged slot, absent on the plain one",
+            vm.Schedule.Slots[0].HasVpn && vm.Schedule.Slots[0].VpnText == "VPN · United Kingdom"
+            && !vm.Schedule.Slots[1].HasVpn && vm.Schedule.Slots[1].VpnText == "");
+
+        var vpnOption = vm.Settings.FallbackOptions.Single(o => o.Id == harbour.Id);
+        var plainOption = vm.Settings.FallbackOptions.Single(o => o.Id == anywhere.Id);
+        Check("CAT-21 VPN-07 the Settings fallback option carries the badge for the flagged station only",
+            vpnOption.HasVpn && vpnOption.VpnText == "VPN · United Kingdom" && !plainOption.HasVpn && plainOption.VpnText == ""
+            && vm.Settings.FallbackOptions[0].VpnText == "");
+
+        Check("CAT-21 VPN-09 nothing plays: no now-playing badge", !vm.HasVpn && vm.VpnText == "");
+        rig.Fake!.Publish(new PlaybackSnapshot(PlaybackStatus.Playing, null, null, harbour.Id, harbour.Name, true, true, false, "Live broadcast", "", null, null, null, 60));
+        Check("CAT-21 VPN-09 now-playing shows the station on air's badge: HasVpn and \"VPN · United Kingdom\"", vm.HasVpn && vm.VpnText == "VPN · United Kingdom");
+        rig.Fake.Publish(new PlaybackSnapshot(PlaybackStatus.Playing, null, null, anywhere.Id, anywhere.Name, true, true, false, "Live broadcast", "", null, null, null, 60));
+        Check("CAT-21 VPN-09 a station without a region clears it", !vm.HasVpn && vm.VpnText == "");
     }
 }

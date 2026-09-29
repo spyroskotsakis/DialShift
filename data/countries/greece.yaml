@@ -1,6 +1,7 @@
 code: GR
 name: Greece
 language_default: Greek
+timezone_default: Europe/Athens
 language_replace:
   ancient greek: Greek
 wiki:
@@ -230,11 +231,14 @@ curated:
   notes: Alpha Media Group
 - match:
   - athens
+  - athina 984
   name_local: Αθήνα 9.84
   city: Athens
   type: Municipal
   genre: Mixed (music & talk)
   leaning: Municipal
+  freq: '98.4'
+  url: https://athina984.live24.gr/athina984
   notes: City of Athens municipal radio
 - match:
   - athens deejay
@@ -659,6 +663,16 @@ curated:
   genre: Alternative rock / Easy listening
   leaning: None
 - match:
+  - happy 104
+  - happy radio 104
+  name_local: Happy Radio 104.0
+  city: Athens
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  freq: '104.0'
+  url: http://ath10400fm-radioplayer.live24.gr/ath10400fm
+- match:
   - hit radio
   name_local: HiT 88.9
   city: Athens
@@ -688,20 +702,19 @@ curated:
   genre: News & Talk
   leaning: Municipal
   notes: Municipal radio of Piraeus
+  no_auto_stream: true
 - match:
   - kidsradio
-  name_local: Kids Radio 88.6
-  city: Athens
-  type: Music
-  genre: Children
-  leaning: None
-- match:
   - kidsradiocom
+  - kidsradio com
+  - kids radio
   name_local: Kids Radio 88.6
   city: Athens
   type: Music
   genre: Children
   leaning: None
+  freq: '88.6'
+  url: https://stream.rcs.revma.com/ah71wyctekcwv
 - match:
   - kiss fm
   name_local: Kiss FM 92.9
@@ -901,13 +914,17 @@ curated:
   genre: Children
   leaning: None
 - match:
-  - radio thema
-  name_local: ΘΕΜΑ 104.6
+  - mega news
+  - meganews
+  name_local: MEGA NEWS 104.6
   city: Athens
   type: News & Talk
   genre: News & Talk
   leaning: Center-Right
-  notes: Proto Thema media group
+  freq: '104.6'
+  url: https://nmcdn-ea00263bf2fa4959b1207c5b169d1517.msvdn.net/icecastRelay/S92303783/lih0S0uubyJi/icecast
+  logo: https://resources.live24.gr/resources/images/stations/7b1d302b-9d98-493d-a82b-3ccb3983ce0a.png
+  notes: Alter Ego Media (Mega TV) news radio; launched 31 Aug 2026 on the former My Radio 104.6 frequency
 - match:
   - radio thessaloniki
   name_local: Radio Θεσσαλονίκη 94.5

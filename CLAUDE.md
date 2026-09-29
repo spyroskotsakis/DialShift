@@ -8,3 +8,4 @@ Full project instructions live in **AGENTS.md** (auto-loaded alongside this file
 - **Project skills:** `/radio-catalog-pipeline` (station catalog edits), `/release-packaging` (macOS `.app` + Windows packaging).
 - **Path-scoped rules:** `.claude/rules/core-purity.md` (`DialShift.Core/**`), `.claude/rules/data-catalog-only.md` (`data/**`).
 - **Enforcement:** `.claude/settings.json` has a PreToolUse hook that blocks `git push` to `origin`/`upstream` — pushes go to the `private` remote only.
+- **Active brief:** brief 3 addendum (D120) — a generic VPN/geo-restriction station signal (`requires_vpn`/`vpn_region`) plus UI badges; contracts `docs/catalog-contracts.md` §2.1/§2.3/§3.1/§6–§8 (CAT-19..21), acceptance `docs/acceptance-matrix.md` §14 (VPN-01..09).

@@ -51,10 +51,19 @@ public sealed class AppHarness : IAsyncDisposable
             services.AddSingleton<IStartupRegistration>(Startup);
             services.AddSingleton<ISystemPowerEvents>(Power);
             services.AddSingleton<IFileRevealService>(Reveal);
+            // Brief 5 §7: keep the real transfer service (over the journaling settings and the harness's dialogs and log,
+            // registered below) but replace the native Save/Open boundary, so nothing here can open an OS dialog.
+            services.AddSingleton<ITransferFilePicker>(TransferPicker);
             if (seed != null)
                 services.AddSingleton(sp =>
                 {
-                    var settings = sp.GetRequiredService<SettingsStore>().Load();
+                    var store = sp.GetRequiredService<SettingsStore>();
+                    var settings = store.Load();
+                    // Mirror the production first-run seed (AppComposition) with the test fixture, so a seeded scenario sees
+                    // the same starter stations the real app seeds on first run (starter-stations.json is not copied into the
+                    // test output directory, so StarterStations.Load would return empty here).
+                    if (!File.Exists(store.FilePath) && settings.Stations.Count == 0)
+                        settings.Stations = TestHarness.StarterSettings().Stations;
                     seed(settings);
                     return settings;
                 });
@@ -76,6 +85,7 @@ public sealed class AppHarness : IAsyncDisposable
             services.AddSingleton(sp => viewModel?.Invoke() ?? new MainWindowViewModel(
                 sp.GetRequiredService<IPlaybackCoordinator>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<IDialogService>(),
                 sp.GetRequiredService<IEditorDialogService>(), sp.GetRequiredService<IStartupRegistration>(), sp.GetRequiredService<IFileRevealService>(),
+                sp.GetRequiredService<ISettingsTransferService>(), sp.GetRequiredService<ITransferFilePicker>(),
                 sp.GetRequiredService<IUiDispatcher>(), sp.GetRequiredService<IAppShell>(), sp.GetRequiredService<IAppLog>(), sp.GetRequiredService<IClock>(),
                 TimeZoneInfo.Utc, new AppInfo(UiRig.Version, Paths.DataDirectory), sp.GetRequiredService<ICatalogProvider>(),
                 sp.GetRequiredService<ICatalogLogoLoader>()));
@@ -91,6 +101,9 @@ public sealed class AppHarness : IAsyncDisposable
     public FakeMonotonicClock Mono { get; } = new();
     public FakeStartupRegistration Startup { get; } = new();
     public FakeFileReveal Reveal { get; } = new();
+
+    /// <summary>The native Save/Open picker double (brief 5 §7), so the harness never opens an OS dialog.</summary>
+    public FakeTransferFilePicker TransferPicker { get; } = new();
     public FakeSingleInstance SingleInstance { get; }
     public FakePowerEvents Power { get; }
     public FakeDesktopLifetime Lifetime { get; }

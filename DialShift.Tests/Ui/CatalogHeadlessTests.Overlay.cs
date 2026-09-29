@@ -186,6 +186,7 @@ internal static partial class CatalogHeadlessTests
         await using var rig = await UiRig.CreateHeadlessAsync();
         rig.Catalog.Result = Loaded(Small);
         var stations = rig.Settings.Stations.Count;
+        var onDisk = rig.OnDisk().Stations.Count;
         var (dialog, editor) = await OpenAddAsync(rig);
         var before = editor.Results;
         var closeRequests = 0;
@@ -198,7 +199,7 @@ internal static partial class CatalogHeadlessTests
         dialog.Close(); // the title bar's close button: no command runs first
         Check("CAT-12 D83 a title-bar close ends as Cancel: the dialog closed, CancelCommand ran (one CloseRequested), Result Cancelled, nothing added",
             await WaitAsync(() => !dialog.IsVisible) && closeRequests == 1 && editor.Result == EditorResult.Cancelled && rig.Settings.Stations.Count == stations
-            && rig.OnDisk().Stations.Count == stations);
+            && rig.OnDisk().Stations.Count == onDisk);
         Check("CAT-12 D83 … and the search scheduled before it is never applied: PendingSearch completes, Results unchanged, the overlay never opened",
             await CompletesAsync(editor.PendingSearch) && ReferenceEquals(editor.Results, before) && !editor.IsResultsOpen);
         // Past the 200 ms debounce: a search that was not cancelled would land now.

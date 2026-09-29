@@ -1,6 +1,12 @@
 code: FR
 name: France
 language_default: French
+timezone_default: Europe/Paris
+city_timezones:
+  Guadeloupe: America/Guadeloupe
+  Guyane: America/Cayenne
+  Martinique: America/Martinique
+  Etang Salé: Indian/Reunion
 city_aliases:
   # one spelling per place in the City filter (D86): accent, hyphen and punctuation variants of the
   # same region or department (a region maps to itself, never to its capital, D71)

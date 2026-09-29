@@ -60,6 +60,7 @@ public sealed class FakeCoordinator(Journal journal, PlaybackSnapshot? initial =
     }
 
     public Task PlayAsync(Guid stationId) => Record("PlayAsync:" + stationId);
+    public Task PlayPreviewAsync(string url, string displayName) => Record($"PlayPreviewAsync:{displayName}:{url}");
     public Task ToggleAsync() => Record("ToggleAsync");
     public Task StopAsync() => Record("StopAsync");
     public Task NextStationAsync() => Record("NextStationAsync");

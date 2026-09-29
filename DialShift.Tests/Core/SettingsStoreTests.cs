@@ -41,7 +41,7 @@ public static class SettingsStoreTests
     {
         Check("Unsafe URL scheme rejected", !SettingsStore.ValidUrl("file:///C:/test.mp3") && !SettingsStore.ValidUrl("javascript:alert(1)"));
         Check("HTTPS stream accepted", SettingsStore.ValidUrl("https://example.org/live?a=1"));
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var store = new SettingsStore(directory);
         settings.Volume = 42; settings.Stations[0].Name = "Ελληνικό ραδιόφωνο";
         store.Save(settings);
@@ -49,13 +49,13 @@ public static class SettingsStoreTests
         settings.Volume = 30; store.Save(settings);
         Check("Atomic overwrite succeeds", store.Load().Volume == 30 && !File.Exists(store.FilePath + ".tmp"));
         File.WriteAllText(store.FilePath, "broken-json");
-        Check("Corrupt settings recovered and preserved", store.Load().Stations.Count > 0 && store.Warning != null && Directory.GetFiles(directory, "*.unreadable-*").Length == 1);
+        Check("Corrupt settings recovered and preserved", store.Load().Stations.Count == 0 && store.Warning != null && Directory.GetFiles(directory, "*.unreadable-*").Length == 1);
     }
 
     /// <summary>A valid baseline document (defaults + one Monday slot) as a mutable JSON tree.</summary>
     private static JsonObject Baseline()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.Schedule.Add(new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday] });
         return JsonSerializer.SerializeToNode(settings)!.AsObject();
     }
@@ -74,7 +74,7 @@ public static class SettingsStoreTests
     {
         var store = new SettingsStore(directory);
         var loaded = store.Load();
-        Check("CT-SET-01 missing file loads defaults without a warning", loaded.Stations.Count == 3 && store.Warning == null);
+        Check("CT-SET-01 missing file loads defaults without a warning", loaded.Stations.Count == 0 && store.Warning == null);
         Check("CT-SET-01 missing file: Load creates neither the file nor the directory", !File.Exists(store.FilePath) && !Directory.Exists(directory));
     }
 
@@ -92,7 +92,7 @@ public static class SettingsStoreTests
             var backups = Backups(directory);
             Check($"{id} {what}: .unreadable-* backup + defaults + warning",
                 backups.Length == 1 && File.ReadAllText(backups[0]) == original
-                && loaded.Stations.Count == 3 && loaded.Schedule.Count == 0 && loaded.Stations[0].Name == "Groove Salad"
+                && loaded.Stations.Count == 0 && loaded.Schedule.Count == 0
                 && store.Warning != null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
             Check($"{id} {what}: settings.json left as-is (defaults reach disk only on the next save)", File.ReadAllText(store.FilePath) == original);
         }
@@ -136,10 +136,8 @@ public static class SettingsStoreTests
     private static void DefaultsShape()
     {
         var d = Settings.Defaults();
-        Check("CT-SET-07 defaults: Groove Salad, Drone Zone, Secret Agent over https://ice5.somafm.com",
-            d.Stations.Select(s => s.Name).SequenceEqual(["Groove Salad", "Drone Zone", "Secret Agent"])
-            && d.Stations.All(s => s.Url.StartsWith("https://ice5.somafm.com/", StringComparison.Ordinal) && SettingsStore.ValidUrl(s.Url))
-            && d.Stations.Select(s => s.Id).Distinct().Count() == 3 && d.Stations.All(s => s.Id != Guid.Empty));
+        Check("CT-SET-07 defaults: no stations (the starter list comes from starter-stations.json, seeded on first run)",
+            d.Stations.Count == 0);
         Check("CT-SET-07 defaults: Version 1, Volume 60, schedule off and empty, no fallback/last, no login/tray",
             d.Version == 1 && d.Volume == 60 && !d.ScheduleEnabled && d.Schedule.Count == 0
             && d.FallbackStationId == null && d.LastStationId == null && !d.LaunchAtLogin && !d.StartInTray);
@@ -166,7 +164,7 @@ public static class SettingsStoreTests
 
     private static void FullRoundTrip(string directory)
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var entry = new ScheduleEntry { StationId = settings.Stations[2].Id, Label = "Evening", Time = "21:30", Days = [DayOfWeek.Friday, DayOfWeek.Sunday], Enabled = false };
         settings.Schedule.Add(entry);
         settings.ScheduleEnabled = settings.LaunchAtLogin = settings.StartInTray = true;
@@ -213,7 +211,7 @@ public static class SettingsStoreTests
         var firstWarning = store.Warning;
         var second = store.Load();
         Check("CF-04 two recoveries in the same millisecond: no exception, defaults both times",
-            first.Stations.Count == 3 && second.Stations.Count == 3);
+            first.Stations.Count == 0 && second.Stations.Count == 0);
         Check("CF-04 the first copy takes settings.json.unreadable-<timestamp>, the second -2; a taken -3 is left alone",
             File.ReadAllText(stem) == corrupt && File.ReadAllText(stem + "-2") == corrupt && File.ReadAllText(stem + "-3") == "older backup"
             && Backups(directory).Length == 3);
@@ -234,7 +232,7 @@ public static class SettingsStoreTests
         Settings? loaded = null;
         Check("CF-04 no free backup name: Load does not throw", NoThrow(() => loaded = store.Load()));
         Check("CF-04 no free backup name: defaults and a warning that says no copy was made",
-            loaded!.Stations.Count == 3 && store.Warning != null && store.Warning.Contains("a copy could not be made", StringComparison.Ordinal)
+            loaded!.Stations.Count == 0 && store.Warning != null && store.Warning.Contains("a copy could not be made", StringComparison.Ordinal)
             && store.Warning.Contains(store.FilePath, StringComparison.Ordinal));
         Check("CF-04 no free backup name: Save throws IOException and leaves the original untouched",
             Throws<IOException>(() => store.Save(Settings.Defaults())) && File.ReadAllText(store.FilePath) == corrupt
@@ -242,7 +240,7 @@ public static class SettingsStoreTests
         File.Delete(taken[41]);
         store.Save(Settings.Defaults());
         Check("CF-04 once a name is free, Save preserves the original first and then writes",
-            File.ReadAllText(taken[41]) == corrupt && store.Load().Stations.Count == 3 && store.Warning == null);
+            File.ReadAllText(taken[41]) == corrupt && store.Load().Stations.Count == 0 && store.Warning == null);
     }
 
     /// <summary>The backup copy fails because the folder is read-only; the original survives until a copy can be made.</summary>
@@ -260,7 +258,7 @@ public static class SettingsStoreTests
             Settings? loaded = null;
             Check($"{name}: Load does not throw", NoThrow(() => loaded = store.Load()));
             Check($"{name}: defaults, a no-copy warning, no backup file, original intact",
-                loaded!.Stations.Count == 3 && store.Warning != null && store.Warning.Contains("a copy could not be made", StringComparison.Ordinal)
+                loaded!.Stations.Count == 0 && store.Warning != null && store.Warning.Contains("a copy could not be made", StringComparison.Ordinal)
                 && Backups(directory).Length == 0 && File.ReadAllText(store.FilePath) == corrupt);
             Check($"{name}: Save throws IOException and the original is untouched",
                 Throws<IOException>(() => store.Save(Settings.Defaults())) && File.ReadAllText(store.FilePath) == corrupt);
@@ -272,7 +270,7 @@ public static class SettingsStoreTests
         store.Save(Settings.Defaults());
         var backups = Backups(directory);
         Check($"{name}: once writable, the next Save preserves the original first, then writes defaults",
-            backups.Length == 1 && File.ReadAllText(backups[0]) == corrupt && store.Load().Stations.Count == 3 && store.Warning == null);
+            backups.Length == 1 && File.ReadAllText(backups[0]) == corrupt && store.Load().Stations.Count == 0 && store.Warning == null);
     }
 
     /// <summary>

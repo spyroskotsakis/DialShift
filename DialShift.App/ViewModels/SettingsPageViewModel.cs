@@ -1,11 +1,18 @@
 using System.Reflection;
 using DialShift.App.Platform;
+using DialShift.App.Services;
 
 namespace DialShift.App.ViewModels;
 
 /// <summary>An entry of the fallback picker; <see cref="Id"/> null is "No fallback · keep retrying".</summary>
-public sealed record FallbackOption(Guid? Id, string Name)
+public sealed record FallbackOption(Guid? Id, string Name, string VpnRegion = "")
 {
+    /// <summary>The station needs a VPN; the picker shows the badge when its region is non-empty.</summary>
+    public bool HasVpn => VpnRegion.Length > 0;
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty without a region.</summary>
+    public string VpnText => UiText.VpnText(VpnRegion);
+
     public override string ToString() => Name;
 }
 
@@ -39,20 +46,28 @@ public sealed class SettingsPageViewModel : PageViewModel
     private readonly IStartupRegistration startup;
     private readonly IFileRevealService reveal;
     private readonly AppInfo info;
+    private readonly ISettingsTransferService transfer;
+    private readonly ITransferFilePicker transferPicker;
     private bool launchAtLogin;
     private bool isStartupBusy;
+    private bool isTransferBusy;
     private string? startupDiagnostic;
     private IReadOnlyList<FallbackOption> fallbackOptions = [];
     private FallbackOption? selectedFallback;
     private bool refreshing;
 
-    public SettingsPageViewModel(ViewModelServices services, IStartupRegistration startup, IFileRevealService reveal, AppInfo info) : base(services)
+    public SettingsPageViewModel(ViewModelServices services, IStartupRegistration startup, IFileRevealService reveal, AppInfo info,
+        ISettingsTransferService transfer, ITransferFilePicker transferPicker) : base(services)
     {
         this.startup = startup;
         this.reveal = reveal;
         this.info = info;
+        this.transfer = transfer;
+        this.transferPicker = transferPicker;
         launchAtLogin = services.Settings.Settings.LaunchAtLogin;
         OpenSettingsFolderCommand = new AsyncRelayCommand(OpenSettingsFolderAsync, services.ReportError);
+        ExportStationsCommand = new AsyncRelayCommand(ExportAsync, services.ReportError, () => !isTransferBusy);
+        ImportStationsCommand = new AsyncRelayCommand(ImportAsync, services.ReportError, () => !isTransferBusy);
         Refresh();
     }
 
@@ -86,6 +101,26 @@ public sealed class SettingsPageViewModel : PageViewModel
     }
 
     public bool IsStartupEditable => !isStartupBusy;
+
+    /// <summary>
+    /// True from the moment an export or import starts until it ends (the picker included), so neither transfer can run
+    /// twice and both buttons are disabled meanwhile (brief 5 §6, IE-08). Honest state: the flag is set before any await
+    /// and cleared in a <c>finally</c>.
+    /// </summary>
+    public bool IsTransferBusy
+    {
+        get => isTransferBusy;
+        private set
+        {
+            if (!SetProperty(ref isTransferBusy, value)) return;
+            OnPropertyChanged(nameof(IsTransferEnabled));
+            ExportStationsCommand.NotifyCanExecuteChanged();
+            ImportStationsCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    /// <summary>The two transfer buttons' <c>IsEnabled</c>: false while a transfer is in flight.</summary>
+    public bool IsTransferEnabled => !isTransferBusy;
 
     public string? StartupDiagnostic
     {
@@ -127,6 +162,8 @@ public sealed class SettingsPageViewModel : PageViewModel
     }
 
     public string LaunchAtLoginLabel => OperatingSystem.IsWindows() ? WindowsLaunchAtLoginLabel : MacLaunchAtLoginLabel;
+    public string ExportStationsLabel => UiText.ExportStationsLabel;
+    public string ImportStationsLabel => UiText.ImportStationsLabel;
     public string StartInTrayLabel => "Start in the tray when opened normally";
     public string StartupHelp => "Closing the window keeps your radio running. Choose Quit DialShift in the tray to exit.";
     public string FallbackHelp => "Retry a failed stream, then use this station as a fallback. Try the original again every 2 minutes.";
@@ -134,6 +171,12 @@ public sealed class SettingsPageViewModel : PageViewModel
     public string Tagline => "Your stations. Your schedule. Stored on this computer.";
 
     public AsyncRelayCommand OpenSettingsFolderCommand { get; }
+
+    /// <summary>Export: the Save picker, then the transfer service's own file write and success dialog (brief 5 §6).</summary>
+    public AsyncRelayCommand ExportStationsCommand { get; }
+
+    /// <summary>Import: the Open picker, then the transfer service's own validation, confirmation and success dialog (brief 5 §6).</summary>
+    public AsyncRelayCommand ImportStationsCommand { get; }
 
     /// <summary>Reads the OS registration once the page exists, so a stale entry (moved or upgraded app) shows as off with its reason. Logs <c>startup_registration.result</c>.</summary>
     public async Task LoadStartupStatusAsync()
@@ -155,7 +198,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         {
             var settings = Services.Settings.Settings;
             var options = new List<FallbackOption> { new(null, NoFallbackName) };
-            options.AddRange(settings.Stations.Select(s => new FallbackOption(s.Id, s.Name)));
+            options.AddRange(settings.Stations.Select(s => new FallbackOption(s.Id, s.Name, s.VpnRegion ?? "")));
             if (!options.SequenceEqual(fallbackOptions)) FallbackOptions = options;
             SelectedFallback = FallbackOptions.FirstOrDefault(o => o.Id == settings.FallbackStationId) ?? FallbackOptions[0];
             OnPropertyChanged(nameof(StartInTray));
@@ -204,5 +247,39 @@ public sealed class SettingsPageViewModel : PageViewModel
             Services.Log.Warn("ui.reveal_failed", "Couldn't open the settings folder.", ex);
             await Services.Dialogs.ShowMessageAsync(UiText.OpenFolderFailedTitle, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Export (brief 5 §6, D108, D113): asks the picker for a path with the date-stamped default name, then hands it to
+    /// the transfer service, which writes the file atomically, logs the counts and shows the counts dialog. A cancelled
+    /// picker (null) changes nothing. Guarded by <see cref="IsTransferBusy"/> so neither transfer can run twice.
+    /// </summary>
+    private async Task ExportAsync()
+    {
+        IsTransferBusy = true;
+        try
+        {
+            var path = await transferPicker.PickSavePathAsync(UiText.TransferFileName(DateTimeOffset.Now));
+            if (path is null) return;
+            await transfer.ExportAsync(path);
+        }
+        finally { IsTransferBusy = false; }
+    }
+
+    /// <summary>
+    /// Import (brief 5 §6, D113): asks the picker for a file, then hands it to the transfer service, which validates
+    /// fully before mutating, confirms, replaces the stations and schedule and shows the counts. A cancelled picker
+    /// (null) or a cancelled confirmation changes nothing and shows no dialog. Guarded by <see cref="IsTransferBusy"/>.
+    /// </summary>
+    private async Task ImportAsync()
+    {
+        IsTransferBusy = true;
+        try
+        {
+            var path = await transferPicker.PickOpenPathAsync();
+            if (path is null) return;
+            await transfer.ImportAsync(path);
+        }
+        finally { IsTransferBusy = false; }
     }
 }

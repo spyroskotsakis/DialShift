@@ -17,6 +17,9 @@ data/.venv/
 # app_catalog.write_app_catalog's temp file (mkstemp '.app-catalog.json.<random>.tmp'),
 # left only if the process is killed between the write and the rename
 data/output/.*.tmp
+# check_stations.py's generated health report: a transient, timestamped snapshot
+# (and it embeds absolute local paths) — not a checked-in catalog artifact
+data/output/health-report.json
 
 # Python bytecode caches
 __pycache__/

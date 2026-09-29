@@ -48,6 +48,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         IEditorDialogService editors,
         IStartupRegistration startup,
         IFileRevealService reveal,
+        ISettingsTransferService transfer,
+        ITransferFilePicker transferPicker,
         IUiDispatcher dispatcher,
         IAppShell shell,
         IAppLog log,
@@ -66,7 +68,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         Stations = new StationsPageViewModel(services);
         Schedule = new SchedulePageViewModel(services, clock, localZone);
-        Settings = new SettingsPageViewModel(services, startup, reveal, info);
+        Settings = new SettingsPageViewModel(services, startup, reveal, info, transfer, transferPicker);
 
         TogglePlayCommand = new AsyncRelayCommand(async () => { await coordinator.ToggleAsync(); await settings.SaveAsync(); }, services.ReportError);
         NextStationCommand = new AsyncRelayCommand(async () => { await coordinator.NextStationAsync(); await settings.SaveAsync(); }, services.ReportError);
@@ -128,6 +130,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string StationTitle => UiText.Title(snapshot);
 
+    /// <summary>The station on air's stored VPN region, looked up from the ids the snapshot carries (same station as the
+    /// Stations page marks current); null when nothing is playing or the station plays from anywhere.</summary>
+    private string? CurrentVpnRegion =>
+        (snapshot.CurrentStationId ?? snapshot.DesiredStationId) is { } id
+            ? settings.Settings.Stations.FirstOrDefault(s => s.Id == id)?.VpnRegion
+            : null;
+
+    /// <summary>The player card shows the VPN badge beside the station title when its stream needs one.</summary>
+    public bool HasVpn => CurrentVpnRegion is { Length: > 0 };
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty when the station plays from anywhere.</summary>
+    public string VpnText => UiText.VpnText(CurrentVpnRegion);
+
     public string TrackText => snapshot.TrackText;
 
     public string PlayPauseLabel => UiText.PlayPause(snapshot.IsActive);
@@ -185,6 +200,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(IsProblem));
         OnPropertyChanged(nameof(StationTitle));
+        OnPropertyChanged(nameof(HasVpn));
+        OnPropertyChanged(nameof(VpnText));
         OnPropertyChanged(nameof(TrackText));
         OnPropertyChanged(nameof(PlayPauseLabel));
         OnPropertyChanged(nameof(PlayPauseAutomationName));
@@ -214,5 +231,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         Schedule.Refresh();
         Settings.Refresh();
         OnPropertyChanged(nameof(UpNextText));
+        OnPropertyChanged(nameof(HasVpn));
+        OnPropertyChanged(nameof(VpnText));
     }
 }

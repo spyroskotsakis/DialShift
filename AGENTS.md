@@ -15,6 +15,7 @@ Native menu-bar/tray internet-radio app with a weekly listening schedule. Window
 - `docs/single-codebase-refactor.md` — one Avalonia codebase, LibVLC (Windows) / AVPlayer (macOS) adapters. Frozen final revision. Follow its §12 execution order, §5 state-machine spec, and all §4–§11 non-negotiables.
 - `docs/schedule-timezone-research.md` — per-slot IANA timezone support. QA-B1..B4 are BLOCKING fixes; QA-N1..N9 non-blocking. Never bump `Settings.Version`.
 - `docs/add-station-catalog-search.md` — brief 3: a searchable station catalog in the Add-station dialog, fed by the generated `data/output/app-catalog.json`. Its frozen contracts, file-ownership map and test plan are `docs/catalog-contracts.md`; acceptance rows CAT-01..18 (matrix §11); decisions D59+. Goal prompt: `docs/add-station-catalog-search-goal.md`.
+- brief 3 addendum (D120): a generic "needs a VPN / which location" station signal — `requires_vpn` + `vpn_region` in the catalog JSON, `StationCatalogEntry.RequiresVpn`/`VpnRegion`, the persisted `Station.VpnRegion` — shown as badges in the Add dialog, Stations list, Schedule and its editor, the Settings fallback picker, the tray and now-playing. Contracts and test rows in `docs/catalog-contracts.md` §2.1/§2.3/§3.1/§6–§8 (CAT-19..21); acceptance rows VPN-01..09 (matrix §14).
 - `docs/claude-goal-execution-timezone.md` — the orchestrator goal that sequences both briefs (main agent orchestrates, 7 expert subagents implement).
 - `docs/upstream-main-repo-comparison.md` — upstream v0.2.0 reference (AVPlayer `MacAudioSession.cs`, tray-menu fix).
 
@@ -47,6 +48,7 @@ Native menu-bar/tray internet-radio app with a weekly listening schedule. Window
 - **Honest labeling:** the only macOS build is "native osx-arm64 (AVPlayer)", artifact label `native-avplayer` (D36). It is ad-hoc signed, not notarized and not clean-machine tested until NC-07/NC-09 pass, and the README says so. No `osx-x64` artifact is produced (D13); the last Intel/Rosetta build is only at tag `legacy-last-known-good`.
 - **Timezone ids:** store IANA only; canonicalize at the boundary via `TryConvertWindowsIdToIanaId`; never compare `entry.TimeZone == TimeZoneInfo.Local.Id`.
 - **Playback policy** (retry/fallback/schedule/wake/cancellation) lives in `PlaybackCoordinator` — never in engine adapters. `IPlaybackEngine` is lowest-common-denominator; no ObjC/AppKit types across it.
+- **Script & harness path hygiene:** verification, native-check, smoke and one-off scripts resolve paths portably — `[System.IO.Path]::GetTempPath()`, `mktemp -d`/`$TMPDIR`, or `Environment.GetFolderPath` for temp sandboxes and canonical dirs, and repo-relative paths for build outputs. Never hardcode a specific user's home directory (`/Users/<name>`, `C:\Users\<name>`) or a machine-specific mount (a Parallels `Z:\…` shared-folder alias). VM-driver scripts that must reference a `Z:\…` mapping live only under gitignored `artifacts/`, never in tracked `scripts/`. Generated artifacts (`data/output/*.json`, health reports) must not embed absolute build paths — record repo-relative paths instead.
 
 ## Quality gates (apply to EVERY task, non-negotiable)
 

@@ -194,7 +194,9 @@ public sealed partial class CatalogProvider : ICatalogProvider
             Votes = station.Votes is >= 0 ? station.Votes : null,
             Notes = Text(station.Notes),
             Logo = SettingsStore.ValidUrl(logo) ? logo : "",
-            Tag = Text(station.Tag)
+            Tag = Text(station.Tag),
+            RequiresVpn = station.RequiresVpn ?? false,
+            VpnRegion = Text(station.VpnRegion)
         };
     }
 
@@ -282,6 +284,8 @@ public sealed partial class CatalogProvider : ICatalogProvider
         public string? Notes { get; set; }
         public string? Logo { get; set; }
         public string? Tag { get; set; }
+        public bool? RequiresVpn { get; set; }
+        public string? VpnRegion { get; set; }
     }
 
     /// <summary>The <c>stations</c> array: at most <see cref="MaxEntries"/> materialized elements, and the true count.</summary>
@@ -321,13 +325,14 @@ public sealed partial class CatalogProvider : ICatalogProvider
             "name"u8.ToArray(), "name_local"u8.ToArray(), "country"u8.ToArray(), "country_label"u8.ToArray(),
             "city"u8.ToArray(), "region"u8.ToArray(), "frequency_fm"u8.ToArray(), "type"u8.ToArray(), "genre"u8.ToArray(),
             "language"u8.ToArray(), "internet_only"u8.ToArray(), "stream_url"u8.ToArray(), "codec"u8.ToArray(),
-            "bitrate"u8.ToArray(), "votes"u8.ToArray(), "notes"u8.ToArray(), "logo"u8.ToArray(), "tag"u8.ToArray()
+            "bitrate"u8.ToArray(), "votes"u8.ToArray(), "notes"u8.ToArray(), "logo"u8.ToArray(), "tag"u8.ToArray(),
+            "requires_vpn"u8.ToArray(), "vpn_region"u8.ToArray()
         ];
 
         private enum StationField
         {
             Name, NameLocal, Country, CountryLabel, City, Region, FrequencyFm, Type, Genre, Language, InternetOnly,
-            StreamUrl, Codec, Bitrate, Votes, Notes, Logo, Tag, Unknown
+            StreamUrl, Codec, Bitrate, Votes, Notes, Logo, Tag, RequiresVpn, VpnRegion, Unknown
         }
 
         /// <summary>The document, or null when the root is JSON <c>null</c>. Throws only <see cref="JsonException"/> itself:
@@ -414,6 +419,8 @@ public sealed partial class CatalogProvider : ICatalogProvider
                     case StationField.Notes: station.Notes = Text(ref reader); break;
                     case StationField.Logo: station.Logo = Text(ref reader); break;
                     case StationField.Tag: station.Tag = Text(ref reader); break;
+                    case StationField.RequiresVpn: station.RequiresVpn = Bool(ref reader); break;
+                    case StationField.VpnRegion: station.VpnRegion = Text(ref reader); break;
                     default: reader.Skip(); break;
                 }
             }

@@ -15,7 +15,8 @@ namespace DialShift.Tests.Catalog;
 /// default location in the test process loads the real file", and CAT-01's export contract, read independently of the
 /// provider and compared with it and with <c>data/canonical/*.csv</c>, including the D84 shape of <c>language</c> (a
 /// normalized list of single names), D88's rule 9 on <c>frequency_fm</c>, the D86/D90 one spelling per place among the
-/// city values, and CAT-08's Language filter over the real entries.
+/// city values, CAT-08's Language filter over the real entries, and D120's VPN pair (CAT-19: the 21 §2.1 keys, the
+/// <c>requires_vpn</c>/<c>vpn_region</c> consistency of §2.3 rule 10).
 /// </summary>
 /// <remarks>
 /// These are the only catalog checks that read the real file. They assert its contract, never its contents: the station
@@ -29,10 +30,10 @@ internal static class CatalogExportContractTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(60);
 
-    /// <summary>§2.1: exactly these keys, in this order.</summary>
+    /// <summary>§2.1: exactly these 21 keys, in this order (the last two are D120's VPN signal).</summary>
     private static readonly string[] Keys =
         ["name", "name_local", "country", "country_label", "city", "region", "frequency_fm", "type", "genre", "language",
-         "internet_only", "stream_url", "codec", "bitrate", "votes", "notes", "logo", "tag"];
+         "internet_only", "stream_url", "codec", "bitrate", "votes", "notes", "logo", "tag", "timezone", "requires_vpn", "vpn_region"];
 
     private const string CollectionCountry = "Internet";
     private const string CollectionLabel = "Internet (collections)";
@@ -78,6 +79,7 @@ internal static class CatalogExportContractTests
         using var document = JsonDocument.Parse(bytes);
         var stations = Document(document.RootElement, result);
         Entries(stations, result.Catalog.Entries);
+        VpnSignal(stations);
         Order(result.Catalog.Entries);
         Languages(result.Catalog.Entries);
         TagNotes(result.Catalog.Entries);
@@ -146,13 +148,14 @@ internal static class CatalogExportContractTests
             var e = stations[i];
             if (e.ValueKind != JsonValueKind.Object || !e.EnumerateObject().Select(p => p.Name).SequenceEqual(Keys))
             {
-                Problem(i, "not an object with exactly the 18 keys in order");
+                Problem(i, "not an object with exactly the 21 keys in order");
                 shapeOk = false;
                 continue;
             }
-            foreach (var key in Keys.Except(["internet_only", "bitrate", "votes"]))
+            foreach (var key in Keys.Except(["internet_only", "bitrate", "votes", "requires_vpn"]))
                 if (e.GetProperty(key).ValueKind != JsonValueKind.String) Problem(i, key + " is not a string");
             if (e.GetProperty("internet_only").ValueKind is not (JsonValueKind.True or JsonValueKind.False)) Problem(i, "internet_only is not a boolean");
+            if (e.GetProperty("requires_vpn").ValueKind is not (JsonValueKind.True or JsonValueKind.False)) Problem(i, "requires_vpn is not a boolean");
             int? Integer(string key, int min)
             {
                 var value = e.GetProperty(key);
@@ -168,10 +171,11 @@ internal static class CatalogExportContractTests
                 Region = S("region"), FrequencyFm = S("frequency_fm"), Type = S("type"), Genre = S("genre"), Language = S("language"),
                 InternetOnly = e.GetProperty("internet_only").ValueKind == JsonValueKind.True, StreamUrl = S("stream_url"), Codec = S("codec"),
                 Bitrate = Integer("bitrate", 1), Votes = Integer("votes", 0), Notes = S("notes"), Logo = S("logo"), Tag = S("tag"),
+                RequiresVpn = e.GetProperty("requires_vpn").ValueKind == JsonValueKind.True, VpnRegion = S("vpn_region"),
             });
         }
-        Check("CAT-01 every station has exactly the 18 §2.1 keys in order, with the §2.1 JSON types (strings; internet_only boolean; " +
-              "bitrate null or ≥ 1; votes null or ≥ 0)", shapeOk && problems.Count == 0);
+        Check("CAT-01 every station has exactly the 21 §2.1 keys in order, with the §2.1 JSON types (strings; internet_only and " +
+              "requires_vpn booleans; bitrate null or ≥ 1; votes null or ≥ 0)", shapeOk && problems.Count == 0);
 
         problems.Clear();
         for (var i = 0; i < mapped.Count; i++)
@@ -202,6 +206,49 @@ internal static class CatalogExportContractTests
         foreach (var ((json, app), i) in differing.Take(5)) Console.WriteLine($"  stations[{i}]\n  json: {json}\n  app:  {app}");
         Check("CAT-01 the provider keeps every field exactly as the file writes it (field-for-field, in file order): the export needs no app-side repair",
             mapped.Count == loaded.Count && differing.Count == 0);
+    }
+
+    /// <summary>
+    /// D120 (CAT-19): the export's VPN signal, read independently of the provider. §2.1 puts <c>requires_vpn</c> and
+    /// <c>vpn_region</c> last, in that order, the first a JSON boolean and the second a string, and §2.3 rule 10 makes
+    /// them agree on every entry: flagged exactly when the region is named. The file must carry both a flagged station
+    /// with its region and an unflagged one with an empty region, so the signal is exercised, not merely absent.
+    /// </summary>
+    private static void VpnSignal(List<JsonElement> stations)
+    {
+        var objects = stations.Where(e => e.ValueKind == JsonValueKind.Object).ToList();
+        var tail = objects.All(e => e.EnumerateObject().Select(p => p.Name).TakeLast(2).SequenceEqual(["requires_vpn", "vpn_region"]));
+        var typed = objects.All(e =>
+            e.TryGetProperty("requires_vpn", out var flag) && flag.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && e.TryGetProperty("vpn_region", out var region) && region.ValueKind == JsonValueKind.String);
+        Check("CAT-19 every entry ends with \"requires_vpn\" then \"vpn_region\" (the §2.1 tail), requires_vpn a JSON boolean and vpn_region a string",
+            stations.Count > 0 && objects.Count == stations.Count && tail && typed);
+
+        var inconsistent = new List<string>();
+        int flagged = 0, unflagged = 0;
+        if (typed)
+        {
+            foreach (var e in objects)
+            {
+                var needs = e.GetProperty("requires_vpn").ValueKind == JsonValueKind.True;
+                var region = e.GetProperty("vpn_region").GetString() ?? "";
+                if (needs != region.Length > 0) inconsistent.Add($"{e.GetProperty("name").GetString()}: requires_vpn={needs} vpn_region=\"{region}\"");
+                if (needs) flagged++;
+                else unflagged++;
+            }
+        }
+        foreach (var problem in inconsistent.Take(5)) Console.WriteLine("  " + problem);
+        Check("CAT-19 §2.3 rule 10 both ways: requires_vpn is true exactly when vpn_region is non-empty (no flag without a region, no region without the flag)",
+            typed && inconsistent.Count == 0);
+        var regions = typed
+            ? string.Join(", ", objects.Where(e => e.GetProperty("requires_vpn").ValueKind == JsonValueKind.True)
+                .Select(e => e.GetProperty("vpn_region").GetString()).OrderBy(r => r, StringComparer.Ordinal).Distinct())
+            : "";
+        Console.WriteLine($"  requires_vpn: {flagged} of {stations.Count} entries flagged (regions: {regions}); {unflagged} unflagged");
+        Check("CAT-19 the export carries both signals: at least one flagged entry names its region and at least one unflagged entry has an empty one",
+            typed && flagged > 0 && unflagged > 0
+            && objects.Where(e => e.GetProperty("requires_vpn").ValueKind == JsonValueKind.True).All(e => e.GetProperty("vpn_region").GetString()!.Length > 0)
+            && objects.Where(e => e.GetProperty("requires_vpn").ValueKind == JsonValueKind.False).All(e => e.GetProperty("vpn_region").GetString() == ""));
     }
 
     /// <summary>§2.2's URL rule: SettingsStore.ValidUrl plus BHV-52's length limit, no white space or control character.</summary>

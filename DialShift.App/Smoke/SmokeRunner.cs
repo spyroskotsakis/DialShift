@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using DialShift.App.Services;
 using DialShift.App.Tray;
 using DialShift.App.ViewModels;
@@ -10,6 +12,7 @@ using DialShift.App.Views;
 using DialShift.App.Views.Dialogs;
 using DialShift.Core;
 using DialShift.Core.Playback;
+using DialShift.Core.Transfer;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DialShift.App.Smoke;
@@ -65,6 +68,7 @@ public sealed class SmokeRunner
     private readonly IAppShell shell;
     private readonly AppPaths paths;
     private readonly ICatalogProvider catalog;
+    private readonly ISettingsTransferService transfer;
     private readonly string engine;
     private readonly NativeMenu initialRootMenu;
     private readonly TrayIcon initialTrayIcon;
@@ -88,6 +92,7 @@ public sealed class SmokeRunner
         shell = services.GetRequiredService<IAppShell>();
         paths = services.GetRequiredService<AppPaths>();
         catalog = services.GetRequiredService<ICatalogProvider>();
+        transfer = services.GetRequiredService<ISettingsTransferService>();
         // Captured once: every later tray check compares against these instances (HS-03).
         initialRootMenu = tray.RootMenu;
         initialTrayIcon = tray.TrayIcon;
@@ -221,6 +226,7 @@ public sealed class SmokeRunner
             await CheckAsync("Restore from tray", RestoreFromTrayAsync);
             await CheckAsync("Persistence", PersistenceAsync);
             await ScreenshotChecksAsync();
+            await CheckAsync("Settings transfer: export, change a station, import back restores it", TransferRoundtripAsync);
 
             if (launch.RecoveryTest)
             {
@@ -629,6 +635,66 @@ public sealed class SmokeRunner
             $"volume {loaded.Volume} (expected {Settings.Volume}), {loaded.Stations.Count} station(s), warning={store.Warning ?? "none"}");
     }
 
+    // ---- 12b. Settings transfer: export → change → import back (brief 5 §8, IE-01/IE-02) ----------------------------
+
+    /// <summary>
+    /// The transfer roundtrip through the real <see cref="ISettingsTransferService"/> and its real dialogs: export to the
+    /// smoke output dir with an explicit path (the native Save picker is bypassed, D114), change a station through the
+    /// app's one mutation path, then import the file back and verify the restore. The service's own dialogs are driven
+    /// like every other smoke dialog; no OS dialog ever opens.
+    /// </summary>
+    private async Task<Outcome> TransferRoundtripAsync()
+    {
+        shell.ShowMainWindow();
+        await Task.Delay(Settle);
+        var path = Path.Combine(results.OutputDirectory, "transfer-roundtrip.json");
+
+        var stationIds = Settings.Stations.Select(s => s.Id).ToList();
+        var firstName = Settings.Stations[0].Name;
+        var slotCount = Settings.Schedule.Count;
+        var volume = Settings.Volume;
+
+        var export = transfer.ExportAsync(path);
+        await AnswerTransferDialogAsync();
+        var exported = await export;
+
+        var wroteFile = File.Exists(path) && !File.Exists(path + ".tmp");
+        var parsed = wroteFile ? TransferCodec.Parse(File.ReadAllText(path)) : null;
+
+        Settings.Stations[0].Name = firstName + " (smoke edit)";
+        await settings.CommitAsync(SettingsChange.Stations);
+        var edited = Settings.Stations[0].Name != firstName;
+
+        var import = transfer.ImportAsync(path);
+        await AnswerTransferDialogAsync(expectedConfirm: "Import");
+        await AnswerTransferDialogAsync();
+        var imported = await import;
+
+        var restored = Settings.Stations.Count == stationIds.Count
+            && Settings.Stations.Select(s => s.Id).SequenceEqual(stationIds)
+            && Settings.Stations[0].Name == firstName
+            && Settings.Schedule.Count == slotCount
+            && Settings.Volume == volume;
+
+        var ok = exported.Succeeded && wroteFile && parsed?.SchemaVersion == TransferCodec.SchemaVersion && edited
+            && imported.Succeeded && imported.DroppedOrphanCount == 0 && restored;
+        return new Outcome(ok,
+            $"export wrote {path} (parsed {parsed?.Stations.Count} stations, {parsed?.Schedule.Count} slots); " +
+            $"edited \"{firstName} (smoke edit)\" → import outcome={imported.Outcome}; restored {Settings.Stations.Count} stations, " +
+            $"{Settings.Schedule.Count} slots, first name now \"{Settings.Stations[0].Name}\"");
+    }
+
+    /// <summary>Answers the next transfer dialog through its confirm button, the path a user takes; asserts the expected button wording when given.</summary>
+    private static async Task AnswerTransferDialogAsync(string? expectedConfirm = null)
+    {
+        var dialog = await SmokeUi.WaitForWindowAsync<MessageDialog>();
+        var model = (MessageDialogViewModel)dialog.DataContext!;
+        if (expectedConfirm != null && model.ConfirmText != expectedConfirm)
+            throw new InvalidOperationException($"Expected a \"{expectedConfirm}\" confirmation, got \"{model.ConfirmText}\".");
+        SmokeUi.Click(dialog, model.ConfirmCommand);
+        await Task.Delay(Settle);
+    }
+
     // ---- 12. Screenshots -------------------------------------------------------------------------------------------
 
     private async Task ScreenshotChecksAsync()
@@ -638,7 +704,7 @@ public sealed class SmokeRunner
         {
             ("Screenshot: Stations page", "stations.png", file => CapturePageAsync(MainPage.Stations, file)),
             ("Screenshot: Schedule page", "schedule.png", file => CapturePageAsync(MainPage.Schedule, file)),
-            ("Screenshot: Settings page", "settings.png", file => CapturePageAsync(MainPage.Settings, file)),
+            ("Screenshot: Settings page", "settings.png", CaptureSettingsAsync),
             ("Screenshot: station editor", "station-editor.png", CaptureStationEditorAsync),
             ("Screenshot: add station with catalog results", "station-editor-add.png", CaptureCatalogSearchAsync),
             ("Screenshot: schedule editor", "schedule-editor.png", CaptureScheduleEditorAsync),
@@ -672,6 +738,22 @@ public sealed class SmokeRunner
     private async Task<string> CapturePageAsync(MainPage page, string file)
     {
         viewModel.SelectedPage = page;
+        await Task.Delay(300);
+        return Describe(SmokeUi.Capture(window, file), file);
+    }
+
+    /// <summary>
+    /// The Settings page screenshot, scrolled so the About card's three buttons ("Open settings folder ↗", Export,
+    /// Import) are all in frame (brief 5 §8: "settings.png shows all three buttons"). With the Export and Import
+    /// buttons side by side (D118) all three fit at 860 px, so the <c>BringIntoView</c> below is a defensive guard:
+    /// it keeps the capture robust if the About card ever grows and pushes the buttons down.
+    /// </summary>
+    private async Task<string> CaptureSettingsAsync(string file)
+    {
+        viewModel.SelectedPage = MainPage.Settings;
+        await Task.Delay(300);
+        window.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(b => AutomationProperties.GetName(b) == "Import stations & schedule")?.BringIntoView();
         await Task.Delay(300);
         return Describe(SmokeUi.Capture(window, file), file);
     }

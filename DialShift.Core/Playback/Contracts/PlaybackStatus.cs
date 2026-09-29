@@ -61,11 +61,17 @@ public sealed record PlaybackSnapshot(
     string? NextStationName,
     int Volume)
 {
+    /// <summary>Idle status line: before anything has played, and after a transient preview is stopped. Single source of truth.</summary>
+    internal const string IdleStatusText = "Ready when you are";
+
+    /// <summary>Idle secondary line: before anything has played, and after a transient preview is stopped. Single source of truth.</summary>
+    internal const string IdleTrackText = "Choose a station and make yourself at home.";
+
     /// <summary>Snapshot before anything has played, matching today's first-launch texts.</summary>
     public static PlaybackSnapshot Initial(int volume) => new(
         PlaybackStatus.Stopped, null, null, null, null,
         IsActive: false, IsPlaying: false, IsFallback: false,
-        StatusText: "Ready when you are",
-        TrackText: "Choose a station and make yourself at home.",
+        StatusText: IdleStatusText,
+        TrackText: IdleTrackText,
         RetryInSeconds: null, Next: null, NextStationName: null, Volume: volume);
 }

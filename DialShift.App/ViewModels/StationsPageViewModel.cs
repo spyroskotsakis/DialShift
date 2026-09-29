@@ -22,6 +22,13 @@ public sealed class StationRowViewModel : ObservableObject
     public Station Station { get; }
     public string Name { get; }
     public string Initial { get; }
+
+    /// <summary>The station needs a VPN: its stored <see cref="Station.VpnRegion"/> is non-empty (the badge's one rule).</summary>
+    public bool HasVpn => Station.VpnRegion is { Length: > 0 };
+
+    /// <summary>"VPN · United Kingdom" (<see cref="UiText.VpnText"/>), empty without a region.</summary>
+    public string VpnText => UiText.VpnText(Station.VpnRegion);
+
     public string Subtitle { get; }
     public string ListenAutomationName => "Listen to " + Name;
     public string EditAutomationName => "Edit " + Name;
@@ -58,7 +65,7 @@ public sealed class StationsPageViewModel : PageViewModel
 
     public string EmptyText => "Start with a station you love. Add its direct MP3, AAC or HLS stream URL above.";
 
-    public string CreditText => "Starter stations by SomaFM. Add your Greek favorites with their direct stream URLs.";
+    public string CreditText => "Starter stations by SomaFM. Add your own favorites with their direct stream URLs.";
 
     public AsyncRelayCommand AddCommand { get; }
 
@@ -94,11 +101,18 @@ public sealed class StationsPageViewModel : PageViewModel
     private async Task EditAsync(Station? station)
     {
         var editor = new StationEditorViewModel(Services.Settings.Settings, station, Services.Dialogs, Services.ReportError,
-            Services.Catalog, Services.Logos, Services.Dispatcher, Services.CatalogSearchDelay);
+            Services.Catalog, Services.Logos, Services.Dispatcher, Services.Coordinator, Services.CatalogSearchDelay);
         switch (await Services.Editors.ShowStationEditorAsync(editor))
         {
             case EditorResult.Saved:
                 await Services.Settings.CommitAsync(SettingsChange.Stations);
+                // A station just added starts playing: a preview still playing that stream is adopted as it is (the
+                // coordinator's seamless promote), so adding what you are listening to never restarts it.
+                if (editor.AddedStation is { } added)
+                {
+                    await Services.Coordinator.PlayAsync(added.Id);
+                    await Services.Settings.SaveAsync();
+                }
                 break;
             case EditorResult.Deleted when station != null:
                 await DeleteAsync(station);

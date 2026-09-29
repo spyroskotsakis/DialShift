@@ -84,7 +84,7 @@ public static class TimezoneTests
     /// <summary>Default stations, schedule on; entries without a station get the first one.</summary>
     private static Settings With(params ScheduleEntry[] entries)
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.ScheduleEnabled = true;
         foreach (var entry in entries)
         {
@@ -236,7 +236,7 @@ public static class TimezoneTests
 
     private static void Row1NullZoneMatchesPhase1()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var s0 = settings.Stations[0].Id;
         var s1 = settings.Stations[1].Id;
         ScheduleEntry[] entries =
@@ -302,7 +302,7 @@ public static class TimezoneTests
     {
         foreach (var (id, zone) in new[] { ("Europe/Athens", Athens), ("America/New_York", NewYork) })
         {
-            var stations = Settings.Defaults().Stations;
+            var stations = StarterSettings().Stations;
             ScheduleEntry[] plain =
             [
                 new() { StationId = stations[0].Id, Time = "08:00", Days = [Mon, Tue, Wed, Thu, Fri] },
@@ -786,7 +786,7 @@ public static class TimezoneTests
         var loaded = store.Load();
         var backups = Directory.GetFiles(temp.Path, "settings.json.unreadable-*");
         Check("CT-SET-11 [hazard] \"TimeZone\": 123 resets to defaults with a .unreadable-* copy (QA-N3 note; pinned, not fixed)",
-            backups.Length == 1 && File.ReadAllText(backups[0]) == original && loaded.Schedule.Count == 0 && loaded.Stations.Count == 3
+            backups.Length == 1 && File.ReadAllText(backups[0]) == original && loaded.Schedule.Count == 0 && loaded.Stations.Count == 0
             && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
     }
 

@@ -15,6 +15,7 @@ stations:
   genre: SomaFM · Ambient / downtempo
   url: https://ice5.somafm.com/groovesalad-128-aac
   language: Instrumental
+  starter: true
   notes: DialShift default station
   logo: https://somafm.com/logos/256/groovesalad256.png
 - name: Drone Zone
@@ -23,6 +24,7 @@ stations:
   genre: SomaFM · Atmospheric
   url: https://ice5.somafm.com/dronezone-128-aac
   language: Instrumental
+  starter: true
   notes: DialShift default station
   logo: https://somafm.com/logos/256/dronezone256.png
 - name: Secret Agent
@@ -31,6 +33,7 @@ stations:
   genre: SomaFM · Cinematic grooves
   url: https://ice5.somafm.com/secretagent-128-aac
   language: Instrumental
+  starter: true
   notes: DialShift default station
   logo: https://somafm.com/logos/256/secretagent256.png
 - name: Space Station Soma

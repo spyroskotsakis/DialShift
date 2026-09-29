@@ -40,6 +40,12 @@
 // ¹² A removed desired/current station behaves like ForgetStation (→Idle). A changed URL of the active desired station
 //    behaves like a manual UserPlay of it. A changed fallback applies to the next due retry. A changed volume is re-sent.
 //
+// Preview: PlayPreviewAsync is a transient UserPlay (Stp/SW/Con/Ply/Rec/Fail/Sus → Con) of a station that is never stored
+//   in Settings and never writes LastStationId; retry re-attempts that same URL and never selects the fallback. A later
+//   PlayAsync for a station whose URL equals the preview's adopts it in place (LastStationId written, failures/fallback
+//   reset, no new session). A second preview, PlayAsync, StopAsync (a hard clear to the idle snapshot with no station),
+//   or a schedule slot supersedes it. The settings-changed revalidation ignores the transient station.
+//
 // ─── Serialization design (brief 1 §5.4–§5.5) ───────────────────────────────────────────────────────────────────────────
 // • ONE state gate (SemaphoreSlim(1,1)) guards every field below "State". It is never held across an await: every public
 //   member acquires it, runs a synchronous transition, captures its side effects (operation CTSs to cancel, engine
@@ -144,6 +150,7 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
     private bool isActive;
     private bool isPlaying;
     private bool fallback;
+    private bool previewing;
     private int failures;
     private string statusText;
     private string trackText;
@@ -203,6 +210,15 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         if (Find(stationId) is { } station) UserPlay(station, now);
     });
 
+    public Task PlayPreviewAsync(string url, string displayName) => RunAsync(now =>
+    {
+        // Transient station: never stored in Settings, so it can neither be the schedule's target nor be re-resolved later.
+        var station = new Station { Id = Guid.NewGuid(), Name = displayName, Url = url, VpnRegion = null };
+        // A preview holds the current occurrence like a manual play, so the schedule cannot interrupt it within the slot.
+        scheduleSession.HoldCurrent(settings, LocalNow(), localZone);
+        StartPlayback(station, now, recordLastStation: false);
+    });
+
     public Task ToggleAsync() => RunAsync(now =>
     {
         if (isActive) UserStop();
@@ -248,14 +264,39 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
     {
         // A manual choice holds the current occurrence so the next tick does not override it.
         scheduleSession.HoldCurrent(settings, LocalNow(), localZone);
+        if (TryPromotePreview(station)) return;
         StartPlayback(station, now);
     }
 
-    private void StartPlayback(Station station, long now)
+    /// <summary>
+    /// Seamless promote: a real play whose URL is the active preview's adopts the station in place (writes
+    /// <c>Settings.LastStationId</c>, resets failures/fallback/retry like a normal play) without a new engine session —
+    /// the stream already playing keeps playing. Returns false when there is no matching preview, or when the preview's
+    /// stream is not actually live, so the caller starts normally instead.
+    /// </summary>
+    private bool TryPromotePreview(Station station)
     {
+        if (!previewing || !isActive || desiredUrl != station.Url) return false;
+        // Seamless promote only while the preview's stream is actually live; a failed preview has no session to keep,
+        // so let the caller start it normally (reconnect + fallback as a real station) rather than freeze a Failed state.
+        if (status is not (PlaybackStatus.Connecting or PlaybackStatus.Playing or PlaybackStatus.Reconnecting)) return false;
+        previewing = false;
+        desired = station;
+        current = station;
+        settings.LastStationId = station.Id;
+        failures = 0;
+        fallback = false;
+        ClearRetry();
+        return true;
+    }
+
+    private void StartPlayback(Station station, long now, bool recordLastStation = true)
+    {
+        // Any normal start (manual play, next, schedule slot) supersedes a preview; a preview is the only non-recording start.
+        previewing = !recordLastStation;
         desired = station;
         desiredUrl = station.Url;
-        settings.LastStationId = station.Id;
+        if (recordLastStation) settings.LastStationId = station.Id;
         failures = 0;
         fallback = false;
         isActive = true;
@@ -278,6 +319,17 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         ClearRetry();
         ClearRecovery();
         status = PlaybackStatus.Stopped;
+        if (previewing)
+        {
+            // A preview is transient: stopping it is a hard clear to the idle snapshot with no station, unlike a pause.
+            previewing = false;
+            desired = null;
+            desiredUrl = null;
+            current = null;
+            statusText = PlaybackSnapshot.IdleStatusText;
+            trackText = PlaybackSnapshot.IdleTrackText;
+            return;
+        }
         statusText = settings.ScheduleEnabled ? "Paused · resumes at the next scheduled change" : "Paused";
         trackText = "Press play to return to the live broadcast.";
     }
@@ -293,6 +345,8 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
     {
         settings.Volume = Math.Clamp(settings.Volume, 0, 100);
         SendVolumeIfChanged();
+        // A preview's transient station is intentionally absent from Settings; it is never a removal, and its URL never changes.
+        if (previewing) return;
         if (desired is { } d && Find(d.Id) is null) Forget(d.Id);
         if (current is { } c && Find(c.Id) is null) Forget(c.Id);
         if (current is { } cur) current = Find(cur.Id);
@@ -377,7 +431,10 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
         if (isActive && desired != null && retryStartedAt is { } armedAt && retryGeneration == operationGeneration
             && (status is PlaybackStatus.Failed or PlaybackStatus.Playing) && Elapsed(armedAt, now) >= retryDelay)
         {
-            var (target, useFallback) = RetryPolicy.SelectRetryTarget(settings, desired, failures, fallback);
+            // A preview always re-attempts its own transient URL; it never selects the fallback station.
+            var (target, useFallback) = previewing
+                ? (desired, false)
+                : RetryPolicy.SelectRetryTarget(settings, desired, failures, fallback);
             if (useFallback) Info("playback.fallback", $"Switching to fallback '{target.Name}' after {failures} failures of '{desired.Name}'.");
             else if (fallback) Info("playback.fallback", $"Re-trying primary '{desired.Name}'.");
             fallback = useFallback;
@@ -454,7 +511,9 @@ public sealed class PlaybackCoordinator : IPlaybackCoordinator
             Info("wake.recovery", "outcome=schedule_slot_started");
             return;
         }
-        if (Find(desired?.Id) is { } station)
+        // A preview reconnects its own transient station; a normal play re-resolves the desired station from Settings.
+        var station = previewing && desired is { } preview ? preview : Find(desired?.Id);
+        if (station is not null)
         {
             Open(station, PlaybackStatus.Reconnecting, now);
             Info("wake.recovery", $"outcome=reconnecting; station='{station.Name}'");

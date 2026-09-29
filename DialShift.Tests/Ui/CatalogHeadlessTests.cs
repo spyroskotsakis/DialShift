@@ -64,6 +64,11 @@ internal static partial class CatalogHeadlessTests
         await Headless.RunAsync(ResultsScrollBarCoversNoText);
         await Headless.RunAsync(DetailPlaceholders);
         await Headless.RunAsync(FilterLabelInk);
+        await Headless.RunAsync(VpnBadge);
+        await Headless.RunAsync(ShowMorePagesTheResults);
+        await Headless.RunAsync(QuickPlayFromTheRowAndTheDetailPane);
+        await Headless.RunAsync(QuickPlayFromTheDetailPaneWithTheResultsOpen);
+        await Headless.RunAsync(QuickPlayLifecycleOverTheRealCoordinator);
     }
 
     // ─── helpers ───
@@ -874,6 +879,44 @@ internal static partial class CatalogHeadlessTests
         if (detailCut.Count > 0) Console.WriteLine("  clipped (real catalog, detail): " + string.Join("; ", detailCut));
         Check("CAT-14 real catalog: the longest notes and name in the detail pane are wrapped or end in their designed ellipsis, never cut", detailCut.Count == 0);
         Png(dialog, "catalog-real-long-notes");
+        dialog.Close();
+        await PumpAsync();
+    }
+
+    // ─── CAT-21 (D120): the VPN badge in the real Add dialog ───
+
+    /// <summary>
+    /// The result row (line 2, beside the kind) and the detail pane (leading the chips) show the D120 VPN badge for a
+    /// flagged entry, both reading "VPN · United Kingdom"; a plain entry's row and detail pane show none.
+    /// </summary>
+    private static async Task VpnBadge()
+    {
+        await using var rig = await UiRig.CreateHeadlessAsync();
+        rig.Catalog.Result = Loaded(VpnSmall);
+        var (dialog, editor) = await OpenAddAsync(rig);
+        await SearchAsync(dialog, editor, "harbour");
+        Check("CAT-21 fixture: \"harbour\" lists Harbour FM alone, highlighted, the results open",
+            Overlay(dialog).IsVisible && editor.Results.Single().Entry == VpnStation && editor.HighlightedResult?.Entry == VpnStation);
+        Layout(dialog);
+        var rows = Items(dialog);
+        Check("CAT-21 fixture: one realized result row, the flagged Harbour FM", rows.Count == 1 && rows[0].DataContext is CatalogResultRow row && Equals(row.Entry, VpnStation));
+        var rowBadge = Find<Border>(rows[0]).Single(b => b.Classes.Contains("vpnBadge"));
+        var detailBadge = Find<Border>(Detail(dialog)).Single(b => b.Classes.Contains("vpnBadge"));
+        Check("CAT-21 VPN-03 the Add dialog renders the badge on the flagged result row and in the detail pane, each reading \"VPN · United Kingdom\"",
+            rowBadge.IsEffectivelyVisible && detailBadge.IsEffectivelyVisible
+            && Find<TextBlock>(rowBadge).Single().Text == "VPN · United Kingdom"
+            && Find<TextBlock>(detailBadge).Single().Text == "VPN · United Kingdom");
+        Check("CAT-21 VPN-03 the flagged row draws exactly one badge (line 2, beside the kind), no other visible badge is drawn",
+            Find<Border>(dialog).Count(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible) == 2);
+        Png(dialog, "catalog-vpn-badge");
+
+        await SearchAsync(dialog, editor, "melodia");
+        Layout(dialog);
+        Check("CAT-21 VPN-03 a plain entry: the badge borders are in the templates but none is visible (row and detail pane)",
+            Find<Border>(dialog).Any(b => b.Classes.Contains("vpnBadge"))
+            && !Find<Border>(dialog).Any(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible)
+            && editor.HighlightedResult?.Entry == Melodia);
+        Png(dialog, "catalog-vpn-plain");
         dialog.Close();
         await PumpAsync();
     }

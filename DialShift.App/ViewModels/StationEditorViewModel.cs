@@ -1,7 +1,9 @@
+using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using DialShift.App.Services;
 using DialShift.Core;
 using DialShift.Core.Catalog;
+using DialShift.Core.Playback;
 
 namespace DialShift.App.ViewModels;
 
@@ -35,6 +37,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     private readonly Action<Exception> onError;
     private readonly ICatalogLogoLoader logos;
     private readonly IUiDispatcher dispatcher;
+    private readonly IPlaybackCoordinator coordinator;
     private readonly TimeSpan searchDelay;
     private readonly LatestValueDispatcher<SearchOutcome> searchResults;
     private readonly CancellationTokenSource lifetime = new();
@@ -59,9 +62,12 @@ public sealed class StationEditorViewModel : EditorViewModel
     private CatalogFilterOption selectedType = CatalogFilterOption.All;
     private CatalogFilterOption selectedGenre = CatalogFilterOption.All;
     private CatalogFilterOption selectedLanguage = CatalogFilterOption.All;
-    private IReadOnlyList<CatalogResultRow> results = [];
+    private readonly ObservableCollection<CatalogResultRow> results = [];
+    private int shownCap = StationCatalogQuery.DefaultCap;
     private int totalCount;
     private string totalCountText = "";
+    private string? previewingUrl;
+    private CatalogResultRow? previewingRow;
     private bool hasNoMatches;
     private bool isResultsOpen;
     private bool searchInFlight;
@@ -81,7 +87,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     private TaskCompletionSource? pendingSearch;
 
     public StationEditorViewModel(Settings settings, Station? original, IDialogService dialogs, Action<Exception> onError,
-        ICatalogProvider catalog, ICatalogLogoLoader logos, IUiDispatcher dispatcher, TimeSpan searchDelay)
+        ICatalogProvider catalog, ICatalogLogoLoader logos, IUiDispatcher dispatcher, IPlaybackCoordinator coordinator, TimeSpan searchDelay)
         : base(original == null ? "Add a frequency" : "Edit station",
             "Use the direct audio stream URL from the station's player or website.",
             canDelete: original != null, onError)
@@ -92,6 +98,7 @@ public sealed class StationEditorViewModel : EditorViewModel
         this.onError = onError;
         this.logos = logos;
         this.dispatcher = dispatcher;
+        this.coordinator = coordinator;
         this.searchDelay = searchDelay;
         Original = original;
         name = original?.Name ?? "";
@@ -99,10 +106,17 @@ public sealed class StationEditorViewModel : EditorViewModel
         url = original?.Url ?? "";
         ClearFiltersCommand = new RelayCommand(ClearSearchAndFilters);
         SelectEntryCommand = new RelayCommand(SelectHighlighted);
+        ShowMoreCommand = new RelayCommand(ShowMore);
         searchResults = new LatestValueDispatcher<SearchOutcome>(dispatcher, ApplySearch);
 
         if (original != null) return; // D62: editing never loads the catalog.
-        CloseRequested += (_, _) => Shutdown();
+        // Cancel, Delete and the title-bar close stop a preview still playing; Save leaves it playing, so the caller can
+        // promote the station it added onto the same stream without a restart.
+        CloseRequested += (_, result) =>
+        {
+            Shutdown();
+            if (result != EditorResult.Saved) StopPreview();
+        };
         isCatalogLoading = true;
         catalogStatusText = UiText.CatalogLoading;
         pendingSearch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -110,6 +124,10 @@ public sealed class StationEditorViewModel : EditorViewModel
     }
 
     public Station? Original { get; }
+
+    /// <summary>Add mode: the station Add added to <c>Settings</c>, so the caller can play it after committing (and adopt a
+    /// preview already playing that same stream). Null in Edit mode, and until a save succeeds.</summary>
+    public Station? AddedStation { get; private set; }
 
     public override string DeleteLabel => "Delete station";
 
@@ -175,10 +193,25 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// <summary>Empties the search, sets every filter to All, and searches once.</summary>
     public RelayCommand ClearFiltersCommand { get; }
 
-    /// <summary>At most <see cref="StationCatalogQuery.DefaultCap"/> rows, in rank order.</summary>
-    public IReadOnlyList<CatalogResultRow> Results { get => results; private set => SetProperty(ref results, value); }
+    /// <summary>At most <see cref="shownCap"/> rows, in rank order. One collection for the dialog's lifetime: a new search
+    /// replaces its contents, and "Show more" appends to it, so the list's scroll position stays where the user left it.</summary>
+    public IReadOnlyList<CatalogResultRow> Results => results;
 
-    public int TotalCount { get => totalCount; private set => SetProperty(ref totalCount, value); }
+    /// <summary>How many entries matched: the whole match count, whatever <see cref="Results"/> currently shows.</summary>
+    public int TotalCount
+    {
+        get => totalCount;
+        private set
+        {
+            if (SetProperty(ref totalCount, value)) OnPropertyChanged(nameof(HasMoreResults));
+        }
+    }
+
+    /// <summary>The list holds fewer rows than matched: the footer offers "Show more" (the next page of <see cref="shownCap"/>-sized pages).</summary>
+    public bool HasMoreResults => totalCount > results.Count;
+
+    /// <summary>Loads the next page of the same query (50 → 100 → 150 …) and appends it to the rows already listed.</summary>
+    public RelayCommand ShowMoreCommand { get; }
 
     /// <summary>The results footer (§5.3, D85): "Top 50 of 8,274 stations by votes" unfiltered, else "Showing 50 of 214 matches".</summary>
     public string TotalCountText { get => totalCountText; private set => SetProperty(ref totalCountText, value); }
@@ -223,7 +256,9 @@ public sealed class StationEditorViewModel : EditorViewModel
         get => highlighted;
         set
         {
-            if (SetProperty(ref highlighted, value)) UpdateDetail();
+            if (!SetProperty(ref highlighted, value)) return;
+            UpdateDetail();
+            UpdatePreviewState();
         }
     }
 
@@ -246,6 +281,106 @@ public sealed class StationEditorViewModel : EditorViewModel
 
     /// <summary>The detail row's logo; null shows its monogram.</summary>
     public Bitmap? DetailLogo { get => detailLogo; private set => SetProperty(ref detailLogo, value); }
+
+    // ─── quick play: a "listen before you add" preview through the coordinator ───
+
+    /// <summary>The stream URL being previewed, else null. The dialog is modal and is the only driver of the preview while
+    /// it is open, so this local flag is the whole state (no <c>SnapshotChanged</c> subscription).</summary>
+    public string? PreviewingUrl
+    {
+        get => previewingUrl;
+        private set
+        {
+            if (!SetProperty(ref previewingUrl, value)) return;
+            OnPropertyChanged(nameof(IsPreviewing));
+            UpdatePreviewState();
+        }
+    }
+
+    /// <summary>A stream is being previewed through the coordinator.</summary>
+    public bool IsPreviewing => previewingUrl != null;
+
+    /// <summary>
+    /// The quick-play toggle for one row (the row's own button and the detail pane's, which shows
+    /// <see cref="DetailRow"/>): the row's stream is previewing, so stopping it (<see cref="IPlaybackCoordinator.StopAsync"/>,
+    /// a hard stop that clears the preview) and clearing the flag; otherwise flagging it and playing it as a transient
+    /// preview, which never touches the saved stations or the last-played station.
+    /// </summary>
+    public async Task TogglePreviewAsync(CatalogResultRow row)
+    {
+        var url = row.Entry.StreamUrl;
+        if (ReferenceEquals(previewingRow, row))
+        {
+            // This exact row is the one previewing: stop (a hard stop that ends the preview entirely).
+            await coordinator.StopAsync();
+            ClearPreview();
+            return;
+        }
+        if (string.Equals(previewingUrl, url, StringComparison.Ordinal))
+        {
+            // The same stream is already previewing through another row: move the highlight to this row without
+            // restarting the stream (two catalog entries can share one stream URL, e.g. regional affiliates).
+            previewingRow = row;
+            UpdatePreviewState();
+            return;
+        }
+        previewingRow = row;
+        PreviewingUrl = url;
+        try
+        {
+            await coordinator.PlayPreviewAsync(url, row.Entry.Name);
+        }
+        catch
+        {
+            // Nothing is playing after all: clear the flag (which refreshes every row's state) so the buttons return to
+            // play instead of claiming a stop over silence. The failure is reported like any failed command.
+            if (ReferenceEquals(previewingRow, row)) ClearPreview();
+            throw;
+        }
+    }
+
+    /// <summary>Stops a preview the user is listening to because the dialog is going away (Cancel, Delete, the title bar).
+    /// Fire and forget: the dialog is closing, and a failed stop is reported like any failed command.</summary>
+    private async void StopPreview()
+    {
+        if (previewingRow == null) return;
+        ClearPreview();
+        try { await coordinator.StopAsync(); }
+        catch (Exception ex) { onError(ex); }
+    }
+
+    /// <summary>Clears the preview state — the tracked row and its URL — and refreshes every row's buttons.</summary>
+    private void ClearPreview()
+    {
+        previewingRow = null;
+        PreviewingUrl = null;
+    }
+
+    /// <summary>
+    /// Points every row's quick play at <see cref="PreviewingUrl"/>: the row whose stream is previewing (so it shows stop,
+    /// in the list and in the detail pane, however the highlight moves), and the row the pointer or the keyboard is on, which
+    /// is the only one whose list button shows at all.
+    /// </summary>
+    private void UpdatePreviewState()
+    {
+        foreach (var row in results)
+        {
+            var previewing = ReferenceEquals(row, previewingRow);
+            row.IsPreviewing = previewing;
+            row.ShowPreview = previewing || ReferenceEquals(row, highlighted);
+        }
+        // The detail pane binds DetailRow (highlighted ?? selectedRow). A picked row survives a later search that
+        // replaced the list (D89), so it can be absent from results; point it at the previewing row too, or a
+        // picked-but-not-listed station would preview with no visible stop. IndexOf is reference-based, so this only
+        // touches a detail row the loop above did not already reach — never the highlighted row, which must keep
+        // ShowPreview = true.
+        if (detailRow is { } detail && IndexOf(results, detail) < 0)
+        {
+            var previewing = ReferenceEquals(detail, previewingRow);
+            detail.IsPreviewing = previewing;
+            detail.ShowPreview = previewing;
+        }
+    }
 
     /// <summary>Test seam: completes when the latest scheduled search has been applied (or the catalog turned out
     /// unavailable, or the dialog closed). In Add mode it is pending from construction until the first search lands.</summary>
@@ -307,11 +442,13 @@ public sealed class StationEditorViewModel : EditorViewModel
         station.Url = urlText;
         if (Original == null)
         {
-            // D73: the notes describe the picked stream, so they stay only while the saved URL is still that stream.
-            station.Notes = SelectedEntry is { Notes.Length: > 0 } entry && string.Equals(urlText, entry.StreamUrl, StringComparison.Ordinal)
-                ? entry.Notes
-                : null;
+            // D73: the notes and the VPN region describe the picked stream, so they stay only while the saved URL is still
+            // that stream; a hand-typed URL inherits neither.
+            var picked = SelectedEntry is { } entry && string.Equals(urlText, entry.StreamUrl, StringComparison.Ordinal) ? entry : null;
+            station.Notes = picked is { Notes.Length: > 0 } ? picked.Notes : null;
+            station.VpnRegion = picked is { VpnRegion.Length: > 0 } ? picked.VpnRegion : null;
             settings.Stations.Add(station);
+            AddedStation = station;
         }
         Error = null;
         Close(EditorResult.Saved);
@@ -399,7 +536,26 @@ public sealed class StationEditorViewModel : EditorViewModel
         ScheduleSearch(TimeSpan.Zero, open: true);
     }
 
+    /// <summary>Schedules a search of the current text and filters. A new query starts at the top
+    /// <see cref="StationCatalogQuery.DefaultCap"/> rows again, whatever "Show more" had grown the page to.</summary>
     private void ScheduleSearch(TimeSpan delay, bool open)
+    {
+        shownCap = StationCatalogQuery.DefaultCap;
+        RunSearch(delay, open, StationCatalogQuery.DefaultCap, append: false);
+    }
+
+    /// <summary>
+    /// "Show more": the next page of the same query (50 → 100 → 150 …), appended to the rows already listed. The overlay
+    /// stays as it is, so the highlight and the scroll position stay where the user left them (§ "Show more").
+    /// </summary>
+    private void ShowMore()
+    {
+        if (!HasMoreResults) return;
+        shownCap += StationCatalogQuery.DefaultCap;
+        RunSearch(TimeSpan.Zero, open: true, shownCap, append: true);
+    }
+
+    private void RunSearch(TimeSpan delay, bool open, int cap, bool append)
     {
         if (!isCatalogAvailable || closed) return;
         var generation = ++searchGeneration;
@@ -408,8 +564,9 @@ public sealed class StationEditorViewModel : EditorViewModel
         if (pendingSearch == null || pendingSearch.Task.IsCompleted)
             pendingSearch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         searchInFlight = true;
-        openOnApply = open;
-        _ = RunSearchAsync(new SearchRequest(generation, index, searchText, CurrentFilters(), delay), cts.Token);
+        // An appended page never opens or closes the overlay: it is only ever asked for from the open list.
+        if (!append) openOnApply = open;
+        _ = RunSearchAsync(new SearchRequest(generation, index, searchText, CurrentFilters(), delay, cap, append), cts.Token);
     }
 
     private CatalogFilters CurrentFilters() =>
@@ -424,11 +581,13 @@ public sealed class StationEditorViewModel : EditorViewModel
     {
         var generation = ++searchGeneration;
         CancelAndDispose(ref searchCts);
-        var request = new SearchRequest(generation, index, searchText, CurrentFilters(), TimeSpan.Zero);
+        // Enter runs the text as typed as a query of its own, so it starts at the top page again.
+        shownCap = StationCatalogQuery.DefaultCap;
+        var request = new SearchRequest(generation, index, searchText, CurrentFilters(), TimeSpan.Zero, shownCap, Append: false);
         CatalogSearchResult result;
         try
         {
-            result = StationCatalogQuery.Search(request.Catalog, request.Text, request.Filters);
+            result = StationCatalogQuery.Search(request.Catalog, request.Text, request.Filters, request.Cap);
         }
         catch (Exception ex)
         {
@@ -447,7 +606,7 @@ public sealed class StationEditorViewModel : EditorViewModel
             {
                 if (request.Delay > TimeSpan.Zero) await Task.Delay(request.Delay, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
-                return StationCatalogQuery.Search(request.Catalog, request.Text, request.Filters);
+                return StationCatalogQuery.Search(request.Catalog, request.Text, request.Filters, request.Cap);
             }, token).ConfigureAwait(false);
             lock (pushGate)
             {
@@ -483,22 +642,48 @@ public sealed class StationEditorViewModel : EditorViewModel
     {
         if (closed || outcome.Request.Generation != searchGeneration) return;
         searchInFlight = false;
-        var rows = outcome.Result.Items.Select(e => new CatalogResultRow(e)).ToList();
-        Results = rows;
+        var page = outcome.Result.Items.Select(e => new CatalogResultRow(e, TogglePreviewAsync, onError)).ToList();
+        // Ranking is deterministic and total-stable, so a larger page repeats the rows already listed in the same order:
+        // "Show more" appends exactly the new rows, and the overlay, the highlight and the scroll bar stay as they were.
+        var rows = outcome.Request.Append ? AppendRows(page) : ReplaceRows(page);
         TotalCount = outcome.Result.TotalCount;
-        var browsing = string.IsNullOrWhiteSpace(outcome.Request.Text) && outcome.Request.Filters == CatalogFilters.None;
-        TotalCountText = browsing
-            ? UiText.BrowseCount(rows.Count, outcome.Result.TotalCount)
-            : UiText.ResultCount(rows.Count, outcome.Result.TotalCount);
+        // The footer counts the rows now listed, which the appended page has just grown.
+        TotalCountText = string.IsNullOrWhiteSpace(outcome.Request.Text) && outcome.Request.Filters == CatalogFilters.None
+            ? UiText.BrowseCount(results.Count, outcome.Result.TotalCount)
+            : UiText.ResultCount(results.Count, outcome.Result.TotalCount);
         HasNoMatches = outcome.Result.TotalCount == 0;
-        // D87: no match closes the overlay, so the form the status line's message points to stays in view. A search the
-        // user asked for opens it, unless the user closed the results (Escape, the form, a press outside) while it was in flight.
-        if (outcome.Result.TotalCount == 0) IsResultsOpen = false;
-        else if (openOnApply) IsResultsOpen = true;
-        // D85: new rows in an open overlay highlight the top match again, so typing then Enter picks it; closed, none.
-        HighlightedResult = isResultsOpen && rows.Count > 0 ? rows[0] : null;
-        LoadRowLogos(rows);
+        if (!outcome.Request.Append)
+        {
+            // D87: no match closes the overlay, so the form the status line's message points to stays in view. A search the
+            // user asked for opens it, unless the user closed the results (Escape, the form, a press outside) while it was in flight.
+            if (outcome.Result.TotalCount == 0) IsResultsOpen = false;
+            else if (openOnApply) IsResultsOpen = true;
+            // D85: new rows in an open overlay highlight the top match again, so typing then Enter picks it; closed, none.
+            HighlightedResult = isResultsOpen && rows.Count > 0 ? rows[0] : null;
+        }
+        // Logos are fetched for the new rows only: the ones already listed keep theirs (§ "Show more" 5).
+        LoadRowLogos(rows, replace: !outcome.Request.Append);
+        OnPropertyChanged(nameof(Results));
+        OnPropertyChanged(nameof(HasMoreResults));
+        UpdatePreviewState();
         pendingSearch?.TrySetResult();
+    }
+
+    /// <summary>Lists <paramref name="page"/> instead of the rows before it, and returns them.</summary>
+    private IReadOnlyList<CatalogResultRow> ReplaceRows(IReadOnlyList<CatalogResultRow> page)
+    {
+        results.Clear();
+        foreach (var row in page) results.Add(row);
+        return page;
+    }
+
+    /// <summary>Appends the rows of <paramref name="page"/> that are not listed yet (everything past the rows already
+    /// shown), and returns just those.</summary>
+    private IReadOnlyList<CatalogResultRow> AppendRows(IReadOnlyList<CatalogResultRow> page)
+    {
+        var added = page.Skip(results.Count).ToList();
+        foreach (var row in added) results.Add(row);
+        return added;
     }
 
     // ─── pick, detail, logos ───
@@ -536,10 +721,19 @@ public sealed class StationEditorViewModel : EditorViewModel
             dispatcher.Post(() => { if (!cts.IsCancellationRequested) DetailLogo = logo; });
     }
 
-    private void LoadRowLogos(IReadOnlyList<CatalogResultRow> rows)
+    /// <summary>
+    /// Starts the logo loads of <paramref name="rows"/>. A replaced list cancels the loads of the rows it drops; an appended
+    /// page ("Show more") keeps them, so a row listed before this search still gets its logo, and only the rows it adds are
+    /// ever fetched again.
+    /// </summary>
+    private void LoadRowLogos(IReadOnlyList<CatalogResultRow> rows, bool replace)
     {
-        CancelAndDispose(ref rowLogosCts);
-        var cts = rowLogosCts = new CancellationTokenSource();
+        var cts = rowLogosCts;
+        if (replace || cts == null)
+        {
+            CancelAndDispose(ref rowLogosCts);
+            cts = rowLogosCts = new CancellationTokenSource();
+        }
         foreach (var row in rows)
             if (row.Entry.Logo.Length > 0) _ = LoadRowLogoAsync(row, cts.Token);
     }
@@ -590,7 +784,11 @@ public sealed class StationEditorViewModel : EditorViewModel
         return -1;
     }
 
-    private sealed record SearchRequest(int Generation, StationCatalogIndex Catalog, string Text, CatalogFilters Filters, TimeSpan Delay);
+    /// <summary>One search to run: <paramref name="Cap"/> is how many rows to ask for (<see cref="StationCatalogQuery.DefaultCap"/>
+    /// for a new query, more for each "Show more"), and <paramref name="Append"/> says the result adds to the rows already
+    /// listed instead of replacing them.</summary>
+    private sealed record SearchRequest(int Generation, StationCatalogIndex Catalog, string Text, CatalogFilters Filters,
+        TimeSpan Delay, int Cap, bool Append);
 
     private sealed record SearchOutcome(SearchRequest Request, CatalogSearchResult Result);
 

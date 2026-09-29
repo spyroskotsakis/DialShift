@@ -528,7 +528,8 @@ internal static class CatalogPerfTests
         var ui = new TimedDispatcher();
         using var logos = new CatalogLogoLoader(new NotFoundHandler());
         var catalog = new FakeCatalogProvider { Result = loaded };
-        var editor = new StationEditorViewModel(new Settings(), null, new RecordingDialogService(), _ => { }, catalog, logos, ui, TimeSpan.Zero);
+        var editor = new StationEditorViewModel(new Settings(), null, new RecordingDialogService(), _ => { }, catalog, logos,
+            ui, new FakeCoordinator(new Journal()), TimeSpan.Zero);
         var dialog = new StationEditorDialog(editor);
         dialog.Show();
         var slow = new List<string>();

@@ -213,6 +213,25 @@
   </Style>
 
   <!--
+    The VPN badge: a station whose stream is reachable only from inside a region. The warning tint (the unknown-zone
+    chip's), noticeable but not alarming, since the station still plays where it is meant to. The text keeps 4.5:1 on the
+    tint (DsWarningBrush on DsWarningTintBrush). One style every view references, so the badge never grows a second look;
+    the text is UiText.VpnText alone, and the owner sets HorizontalAlignment (Left in a vertical stack).
+  -->
+  <Style Selector="Border.vpnBadge">
+    <Setter Property="Background" Value="{StaticResource DsWarningTintBrush}"/>
+    <Setter Property="CornerRadius" Value="5"/>
+    <Setter Property="Padding" Value="7,2"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Border.vpnBadge TextBlock">
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource DsWarningBrush}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+
+  <!--
     Buttons. The label box stretches to the button and centers the text, so a button's MinWidth is headroom for its label:
     each text-bearing button sets a MinWidth that leaves at least 15% of the label's width free, which absorbs wider
     platform fonts (Segoe UI) and fallback glyphs (▶ ↘ ↗) without clipping. A button that is squeezed anyway ends its

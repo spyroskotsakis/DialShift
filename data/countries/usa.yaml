@@ -1,0 +1,927 @@
+code: US
+name: United States
+language_default: English
+# A curated-only country: ONLY the entries below ship (no Wikipedia list, no radio-browser
+# extras) — the full US directory (~30,000 stations) would dwarf the app catalog's budget.
+# Two families: tech-radio stations (dedicated technology programming) and the most
+# famous / biggest-audience US stations. Stations whose stream could not be verified from
+# this network carry `no_auto_stream: true` — an honest identity row, never an invented URL.
+curated_only: true
+timezone_default: America/New_York
+city_timezones:
+  Los Angeles: America/Los_Angeles
+  San Francisco: America/Los_Angeles
+  Palo Alto: America/Los_Angeles
+  Stanford: America/Los_Angeles
+  Berkeley: America/Los_Angeles
+  San Jose: America/Los_Angeles
+  San Diego: America/Los_Angeles
+  Santa Monica: America/Los_Angeles
+  Seattle: America/Los_Angeles
+  Phoenix: America/Phoenix
+  Green Valley: America/Phoenix
+  Dallas: America/Chicago
+  Houston: America/Chicago
+  St. Louis: America/Chicago
+  Chicago: America/Chicago
+  Minneapolis: America/Chicago
+  New Orleans: America/Chicago
+  Boston: America/New_York
+  Philadelphia: America/New_York
+  Pittsburgh: America/New_York
+  Detroit: America/Detroit
+  Denver: America/Denver
+  Salt Lake City: America/Denver
+  Austin: America/Chicago
+  Long Beach: America/Los_Angeles
+  Portland: America/Los_Angeles
+  Tucson: America/Phoenix
+  Newark: America/New_York
+curated:
+# ---------------------------------------------------------------- tech radio
+- match:
+  - kfi
+  - kfi am 640
+  name: KFI AM 640
+  city: Los Angeles
+  region: California
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '640'
+  url: https://stream.revma.ihrhls.com/zc177
+  notes: iHeart talk radio; flagship of Rich On Tech with Rich DeMuro (Saturdays 11am-2pm PT, syndicated nationally)
+- match:
+  - kgvy
+  name: KGVY 1080
+  city: Green Valley
+  region: Arizona
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '1080'
+  no_auto_stream: true
+  notes: Home of TechtalkRadio (Saturdays 4pm Arizona time); covers Green Valley-Sahuarita-Tucson. Stream not on public directories.
+- match:
+  - kcbs
+  - kcbs 740
+  name: KCBS All News
+  city: San Francisco
+  region: California
+  type: News & Talk
+  genre: Technology & Business
+  leaning: None
+  freq: '740'
+  no_auto_stream: true
+  notes: All-news station; KCBS Bloomberg Tech and Business Report on weekdays (also on 106.9 FM). Stream not on public directories.
+- match:
+  - kdow
+  name: KDOW 1220 AM
+  city: Palo Alto
+  region: California
+  type: Business
+  genre: Technology
+  leaning: None
+  freq: '1220'
+  no_auto_stream: true
+  notes: The Bay Area's business radio; Silicon Valley Insider with Keith Koo (Fridays 1pm PT; innovation, AI, cyber risk, fintech). Stream not on public directories.
+- match:
+  - keib
+  name: KEIB The Patriot
+  city: Los Angeles
+  region: California
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '1150'
+  no_auto_stream: true
+  notes: Carries The Kim Komando Show (Saturdays noon-3pm PT). Stream not on public directories.
+- match:
+  - kogo
+  - kogo am 600
+  name: KOGO 600
+  city: San Diego
+  region: California
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '600'
+  url: https://ample.revma.ihrhls.com/zc257
+  notes: Carries The Kim Komando Show and Daily Tech Update
+- match:
+  - kqed
+  name: KQED
+  city: San Francisco
+  region: California
+  type: Public
+  genre: Technology & Science
+  leaning: None
+  freq: '88.5'
+  url: http://streams.kqed.org/kqedradio.m3u
+  notes: Public radio; Tech Nation with Dr. Moira Gunn (Fridays 10pm PT) - technology and science leaders
+- match:
+  - krld
+  name: KRLD NewsRadio 1080
+  city: Dallas
+  region: Texas
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '1080'
+  no_auto_stream: true
+  notes: Carries The Kim Komando Show and Daily Tech Update (Dallas-Fort Worth). Stream not on public directories.
+- match:
+  - ktar
+  name: KTAR News 92.3
+  city: Phoenix
+  region: Arizona
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '92.3'
+  url: http://bonneville.cdnstream1.com/2698_48.aac
+  notes: Carries The Kim Komando Show and Daily Tech Update
+- match:
+  - ktlk
+  name: KTLK 1130 AM
+  city: Minneapolis
+  region: Minnesota
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '1130'
+  no_auto_stream: true
+  notes: Carries The Kim Komando Show and Daily Tech Update (Minneapolis-St. Paul). Stream not on public directories.
+- match:
+  - ktrb
+  name: KTRB The Answer
+  city: San Francisco
+  region: California
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '860'
+  no_auto_stream: true
+  notes: Carries Silicon Valley Insider with Keith Koo (Saturdays 10am PT; Bay Area tech-business talk). Stream not on public directories.
+- match:
+  - ktrs
+  - the big 550 ktrs
+  name: KTRS The Big 550
+  city: St. Louis
+  region: Missouri
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '550'
+  url: https://ice6.securenetsystems.net/KTRS
+  notes: Tech Talk presented by SumnerOne (Fridays ~4:20pm CT; workplace IT and practical tech)
+- match:
+  - kzsu
+  - kzsu fm stanford university
+  name: KZSU Stanford
+  city: Stanford
+  region: California
+  type: Public
+  genre: Technology
+  leaning: None
+  freq: '90.1'
+  url: http://kzsu-streams.stanford.edu/kzsu-1-256.mp3
+  notes: Stanford student radio; Hearsay Culture (technology, internet policy, IP and society)
+- match:
+  - kalx
+  - kalx fm berkeley
+  name: KALX Berkeley
+  city: Berkeley
+  region: California
+  type: Public
+  genre: Technology
+  leaning: None
+  freq: '90.7'
+  url: https://stream.kalx.berkeley.edu:8443/kalx-320.aac
+  notes: UC Berkeley radio; Spectrum science-and-technology show is on indefinite hiatus (archive/podcast only)
+- match:
+  - kprc
+  - kprc am 950
+  name: KPRC AM 950
+  city: Houston
+  region: Texas
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '950'
+  url: https://stream.revma.ihrhls.com/zc2277
+  notes: Carries The Kim Komando Show and Daily Tech Update
+- match:
+  - wor
+  name: WOR 710
+  city: New York
+  region: New York
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '710'
+  no_auto_stream: true
+  notes: Carries Rich On Tech with Rich DeMuro (Sundays 8-11pm ET rebroadcast). Stream not on public directories.
+- match:
+  - wls am 890
+  - wls am 890 chicago
+  name: WLS 890 AM
+  city: Chicago
+  region: Illinois
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '890'
+  url: https://playerservices.streamtheworld.com/api/livestream-redirect/WLSAMAAC.aac
+  requires_vpn: true
+  vpn_region: United States
+  notes: Carries The Kim Komando Show and Daily Tech Update. Stream geo-restricted outside the US.
+- match:
+  - wsb
+  name: WSB 750 / 95.5
+  city: Atlanta
+  region: Georgia
+  type: News & Talk
+  genre: Technology
+  leaning: None
+  freq: '750'
+  url: https://ad-oom-cmg.streamguys1.com/atl750/atl750-sgplayer-aac
+  notes: Carries The Kim Komando Show and Daily Tech Update (also on 95.5 FM)
+- match:
+  - radio zindagi
+  - zindagi
+  name: Radio Zindagi
+  city: San Jose
+  region: California
+  type: News & Talk
+  genre: Technology & Business
+  leaning: None
+  freq: '1550'
+  url: https://18093.live.streamtheworld.com/SP_R4994213_SC
+  notes: South Asian radio of the Bay Area; The Silicon Dreams (startups, VC, AI, Web3; Mondays 3pm PT). Station sources list both 1550 AM and 1170 AM for the Bay Area.
+# ---------------------------------------------------------------- famous stations
+- match:
+  - wltw
+  - wltw litefm 106.7 fm new york ny
+  name: 106.7 Lite FM (WLTW)
+  city: New York
+  region: New York
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  freq: '106.7'
+  url: https://stream.revma.ihrhls.com/zc1477
+  notes: One of the country's biggest, most consistently dominant music stations (cume ~3.4M)
+- match:
+  - wcbs fm
+  - wcbs fm 101.1
+  name: CBS-FM 101.1 (WCBS-FM)
+  city: New York
+  region: New York
+  type: Music
+  genre: Classic hits
+  leaning: None
+  freq: '101.1'
+  no_auto_stream: true
+  notes: Major New York heritage classic-hits brand (cume ~2.4M). Stream not on public directories.
+- match:
+  - whtz
+  - z100
+  name: Z100 (WHTZ)
+  city: New York
+  region: New York
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  freq: '100.3'
+  url: https://stream.revma.ihrhls.com/zc1469
+  notes: Iconic New York Top 40 station with national pop-culture recognition
+- match:
+  - wins
+  name: 1010 WINS (WINS)
+  city: New York
+  region: New York
+  type: News & Talk
+  genre: All-news
+  leaning: None
+  freq: '1010'
+  no_auto_stream: true
+  notes: One of America's best-known rolling-news stations (1010 AM / 92.3 FM). Stream not on public directories.
+- match:
+  - wnyc
+  - wnyc 93.9 fm
+  name: WNYC
+  city: New York
+  region: New York
+  type: Public
+  genre: News & Culture
+  leaning: None
+  freq: '93.9'
+  url: http://fm939.wnyc.org/wnycfm.aac
+  notes: New York Public Radio's flagship; the nation's most-listened-to public-radio station (93.9 FM / 820 AM)
+- match:
+  - kost
+  - kost 103.5
+  name: KOST 103.5
+  city: Los Angeles
+  region: California
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  freq: '103.5'
+  url: https://stream.revma.ihrhls.com/zc193
+  notes: Leading Los Angeles mass-appeal adult-contemporary station (cume ~2.35M)
+- match:
+  - krth
+  name: K-Earth 101 (KRTH)
+  city: Los Angeles
+  region: California
+  type: Music
+  genre: Classic hits
+  leaning: None
+  freq: '101.1'
+  no_auto_stream: true
+  notes: One of the best-known US classic-hits brands. Stream not on public directories.
+- match:
+  - kiis
+  - 102.7 kiis fm
+  name: 102.7 KIIS FM
+  city: Los Angeles
+  region: California
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  freq: '102.7'
+  url: https://stream.revma.ihrhls.com/zc185
+  notes: Flagship Los Angeles contemporary-hit brand
+- match:
+  - kroq
+  name: KROQ 106.7
+  city: Los Angeles
+  region: California
+  type: Music
+  genre: Rock / Alternative
+  leaning: None
+  freq: '106.7'
+  url: http://live.amperwave.net/direct/audacy-kroqfmaac-imc
+  notes: World Famous KROQ - alternative-rock institution since the 1970s
+- match:
+  - kcrw
+  - kcrw 88.9 fm live
+  name: KCRW
+  city: Santa Monica
+  region: California
+  type: Public
+  genre: Music / Culture
+  leaning: None
+  freq: '89.9'
+  url: https://streams.kcrw.com/kcrw_mp3
+  notes: NPR's flagship Southern California member station; home of Morning Becomes Eclectic
+- match:
+  - wksc
+  - 103.5 kiss fm wksc chicago
+  name: 103.5 Kiss FM (WKSC)
+  city: Chicago
+  region: Illinois
+  type: Music
+  genre: Pop / Hits
+  leaning: None
+  freq: '103.5'
+  url: https://stream.revma.ihrhls.com/zc849
+  notes: Large Chicago hit-music brand
+- match:
+  - wbez
+  name: WBEZ 91.5
+  city: Chicago
+  region: Illinois
+  type: Public
+  genre: News & Talk
+  leaning: None
+  freq: '91.5'
+  url: http://stream.wbez.org/wbez128.mp3
+  notes: Major Chicago public radio; home market of This American Life and Wait Wait... Don't Tell Me!
+- match:
+  - wtop
+  - wtop 103.5 fm
+  name: WTOP 103.5
+  city: Washington
+  region: District of Columbia
+  type: News & Talk
+  genre: All-news
+  leaning: None
+  freq: '103.5'
+  url: https://playerservices.streamtheworld.com/api/livestream-redirect/WTOPFM.mp3
+  notes: Dominant Washington all-news station and a leading US news-radio brand
+- match:
+  - kexp
+  - kexp 90.3 seattle wa
+  name: KEXP 90.3
+  city: Seattle
+  region: Washington
+  type: Public
+  genre: Indie / Alternative
+  leaning: None
+  freq: '90.3'
+  url: http://live-mp3-128.kexp.org/kexp128.mp3
+  notes: Internationally influential for music discovery and live in-studio performances
+- match:
+  - koda
+  name: Sunny 99.1 (KODA)
+  city: Houston
+  region: Texas
+  type: Music
+  genre: Adult contemporary
+  leaning: None
+  freq: '99.1'
+  no_auto_stream: true
+  notes: Major Houston adult-contemporary station (cume ~2.3M). Stream not on public directories.
+- match:
+  - wskq
+  - wskq mega 97.9
+  name: Mega 97.9 (WSKQ)
+  city: New York
+  region: New York
+  type: Music
+  genre: Spanish tropical
+  leaning: None
+  freq: '97.9'
+  url: https://liveaudio.lamusica.com/NY_WSKQ_icy
+  notes: One of the country's highest-reach Spanish-language outlets
+- match:
+  - wfmu
+  name: WFMU 91.1
+  city: Jersey City
+  region: New Jersey
+  type: Public
+  genre: Freeform
+  leaning: None
+  freq: '91.1'
+  url: http://stream2.wfmu.org/freeform-128k
+  notes: Globally known independent freeform station with a strong online audience
+- match:
+  - wfuv
+  name: WFUV 90.7
+  city: New York
+  region: New York
+  type: Public
+  genre: Adult alternative
+  leaning: None
+  freq: '90.7'
+  url: http://wfuv-onair.streamguys.org/onair-hi
+  notes: Fordham University radio; tastemaker for indie, folk, Americana and adult-alternative
+- match:
+  - wwoz
+  - wwoz 90.7 new orleans la
+  name: WWOZ 90.7
+  city: New Orleans
+  region: Louisiana
+  type: Public
+  genre: Jazz / Blues
+  leaning: None
+  freq: '90.7'
+  url: http://wwoz-sc.streamguys.com/wwoz-hi.mp3
+  notes: A defining station for New Orleans cultural music and festival programming
+# ---------------------------------------------------------------- more famous stations
+- match:
+  - wktu
+  - wktu ktu 103.5 the beat of new york
+  name: 103.5 KTU (WKTU)
+  city: New York
+  region: New York
+  type: Music
+  genre: Rhythmic / Dance
+  leaning: None
+  freq: '103.5'
+  url: https://stream.revma.ihrhls.com/zc1473
+  notes: New York rhythmic-pop and dance brand (iHeartMedia)
+- match:
+  - wxrt
+  name: 93XRT (WXRT)
+  city: Chicago
+  region: Illinois
+  type: Music
+  genre: Adult alternative
+  leaning: None
+  freq: '93.1'
+  no_auto_stream: true
+  notes: Chicago heritage adult-alternative station (Audacy). Stream not on public directories.
+- match:
+  - ktrh
+  - news talk 740 ktrh
+  name: NewsRadio 740 KTRH
+  city: Houston
+  region: Texas
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '740'
+  url: https://stream.revma.ihrhls.com/zc2285/hls.m3u8
+  notes: Heritage Houston talk station (iHeartMedia)
+- match:
+  - wamu
+  - wamu american university radio
+  name: WAMU 88.5
+  city: Washington
+  region: District of Columbia
+  type: Public
+  genre: News & Talk
+  leaning: None
+  freq: '88.5'
+  url: https://wamu.cdnstream1.com/wamu.mp3
+  notes: Washington public radio (American University)
+- match:
+  - kndd
+  name: 107.7 The End (KNDD)
+  city: Seattle
+  region: Washington
+  type: Music
+  genre: Rock / Alternative
+  leaning: None
+  freq: '107.7'
+  no_auto_stream: true
+  notes: Major Seattle alternative brand (Audacy). Stream not on public directories.
+- match:
+  - wbz fm
+  - 98.5 the sports hub
+  name: 98.5 The Sports Hub (WBZ-FM)
+  city: Boston
+  region: Massachusetts
+  type: Sports
+  genre: Sports
+  leaning: None
+  freq: '98.5'
+  no_auto_stream: true
+  notes: Prominent Boston sports-talk station (Beasley). Stream not on public directories.
+- match:
+  - wbur
+  - wbur 90.9 fm boston
+  name: WBUR 90.9
+  city: Boston
+  region: Massachusetts
+  type: Public
+  genre: News & Talk
+  leaning: None
+  freq: '90.9'
+  url: http://wbur-sc.streamguys.com/wbur
+  notes: Boston public radio and national content producer (Boston University)
+- match:
+  - wmmr
+  name: 93.3 WMMR
+  city: Philadelphia
+  region: Pennsylvania
+  type: Music
+  genre: Rock
+  leaning: None
+  freq: '93.3'
+  no_auto_stream: true
+  notes: Heritage Philadelphia rock brand (Beasley). Stream not on public directories.
+- match:
+  - wip
+  - sportsradio 94wip
+  name: SportsRadio 94WIP
+  city: Philadelphia
+  region: Pennsylvania
+  type: Sports
+  genre: Sports
+  leaning: None
+  freq: '94.1'
+  no_auto_stream: true
+  notes: Major Philadelphia sports-talk outlet (Audacy). Stream not on public directories.
+- match:
+  - wusl
+  name: Power 99 (WUSL)
+  city: Philadelphia
+  region: Pennsylvania
+  type: Music
+  genre: Urban contemporary
+  leaning: None
+  freq: '98.9'
+  no_auto_stream: true
+  notes: Major Philadelphia urban-contemporary brand (iHeartMedia). Stream not on public directories.
+- match:
+  - wdet
+  - wdet 101.9 fm detroit public radio
+  name: WDET 101.9
+  city: Detroit
+  region: Michigan
+  type: Public
+  genre: News & Talk
+  leaning: None
+  freq: '101.9'
+  url: https://wdet.cdnstream1.com/4550_256.aac
+  notes: Detroit public radio (Wayne State University)
+- match:
+  - wamj
+  name: Majic 107.5/97.5 (WAMJ)
+  city: Atlanta
+  region: Georgia
+  type: Music
+  genre: Urban adult contemporary
+  leaning: None
+  freq: '107.5'
+  no_auto_stream: true
+  notes: Atlanta urban adult-contemporary brand (Urban One). Stream not on public directories.
+- match:
+  - wqht
+  name: Hot 97 (WQHT)
+  city: New York
+  region: New York
+  type: Music
+  genre: Hip-hop / R&B
+  leaning: None
+  freq: '97.1'
+  url: http://18073.live.streamtheworld.com/WQHTFMAAC_SC
+  notes: Nationally known hip-hop brand (Mediaco)
+- match:
+  - wqxr
+  - wqxr 105.9 fm
+  name: WQXR 105.9
+  city: New York
+  region: New York
+  type: Public
+  genre: Classical
+  leaning: None
+  freq: '105.9'
+  url: https://stream.wqxr.org/wqxr-web
+  notes: New York classical-music service (New York Public Radio)
+- match:
+  - kutx
+  - kutx 98.9
+  name: KUTX 98.9
+  city: Austin
+  region: Texas
+  type: Public
+  genre: Adult alternative
+  leaning: None
+  freq: '98.9'
+  url: https://streams.kut.org/4428_192.mp3
+  notes: Austin music-discovery public station (University of Texas)
+- match:
+  - kut
+  - kut 90.5 fm
+  name: KUT 90.5
+  city: Austin
+  region: Texas
+  type: Public
+  genre: News & Talk
+  leaning: None
+  freq: '90.5'
+  url: https://streams.kut.org/4426_128.mp3
+  notes: Austin public radio (University of Texas)
+- match:
+  - kusc
+  - kusc 91.5 los angeles ca
+  name: Classical KUSC 91.5
+  city: Los Angeles
+  region: California
+  type: Public
+  genre: Classical
+  leaning: None
+  freq: '91.5'
+  url: https://14103.live.streamtheworld.com/KUSCAAC96_SC
+  notes: Major US classical-music service (University of Southern California)
+# ---------------------------------------------------------------- major news / talk
+- match:
+  - wabc
+  name: WABC 770
+  city: New York
+  region: New York
+  type: News & Talk
+  genre: Talk / Opinion
+  leaning: None
+  freq: '770'
+  url: http://13683.live.streamtheworld.com:3690/WABCAMAAC_SC
+  notes: New York talk/opinion station
+- match:
+  - knx
+  name: KNX News 97.1
+  city: Los Angeles
+  region: California
+  type: News & Talk
+  genre: All-news
+  leaning: None
+  freq: '97.1'
+  no_auto_stream: true
+  notes: Los Angeles all-news station (Audacy). Stream not on public directories.
+- match:
+  - wgn
+  - wgn 720 chicago il
+  name: WGN Radio 720
+  city: Chicago
+  region: Illinois
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '720'
+  url: http://18.204.34.32/wgnam-wgnammp3-ibc2
+  notes: Chicago heritage news/talk station
+- match:
+  - wbbm
+  name: CBS News Chicago (WBBM)
+  city: Chicago
+  region: Illinois
+  type: News & Talk
+  genre: All-news
+  leaning: None
+  freq: '780'
+  no_auto_stream: true
+  notes: Chicago all-news station, 780 AM / 105.9 FM (Audacy). Stream not on public directories.
+- match:
+  - kuow
+  name: KUOW 94.9
+  city: Seattle
+  region: Washington
+  type: Public
+  genre: News & Talk
+  leaning: None
+  freq: '94.9'
+  no_auto_stream: true
+  notes: Seattle public radio (94.9 FM / 1340 AM). Stream not on public directories.
+- match:
+  - kiro
+  name: KIRO Newsradio 97.3
+  city: Seattle
+  region: Washington
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '97.3'
+  url: https://bonneville.cdnstream1.com/2643_48.aac
+  notes: Seattle news/talk station (Bonneville)
+- match:
+  - kmox
+  - news radio 1120 kmox
+  name: KMOX 1120
+  city: St. Louis
+  region: Missouri
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '1120'
+  no_auto_stream: true
+  notes: St. Louis news/talk station, 1120 AM / 104.1 FM (Audacy). Stream not on public directories.
+- match:
+  - wbap
+  name: WBAP 820
+  city: Dallas
+  region: Texas
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '820'
+  url: https://playerservices.streamtheworld.com/api/livestream-redirect/WBAPAMAAC.aac
+  requires_vpn: true
+  vpn_region: United States
+  notes: Dallas-Fort Worth news/talk, 820 AM / 93.3 FM. Stream geo-restricted outside the US.
+- match:
+  - wjr
+  - wjr 760 detroit mi
+  name: WJR 760
+  city: Detroit
+  region: Michigan
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '760'
+  url: http://18423.live.streamtheworld.com/WJRAMAAC_SC
+  notes: Detroit heritage news/talk station
+- match:
+  - wcco
+  name: WCCO 830
+  city: Minneapolis
+  region: Minnesota
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '830'
+  no_auto_stream: true
+  notes: Minneapolis-St. Paul news/talk station (Audacy). Stream not on public directories.
+- match:
+  - kdka
+  name: KDKA 1020
+  city: Pittsburgh
+  region: Pennsylvania
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '1020'
+  no_auto_stream: true
+  notes: Pittsburgh news/talk, 1020 AM / 100.1 FM (Audacy); the first commercial radio station. Stream not on public directories.
+- match:
+  - koa
+  - koa 850 am 94.1 fm
+  name: KOA 850
+  city: Denver
+  region: Colorado
+  type: News & Talk
+  genre: News & Talk / Sports
+  leaning: None
+  freq: '850'
+  url: http://stream.revma.ihrhls.com/zc389/hls.m3u8
+  notes: Denver news/talk and sports, 850 AM / 94.1 FM (iHeartMedia)
+- match:
+  - ksl
+  name: KSL NewsRadio
+  city: Salt Lake City
+  region: Utah
+  type: News & Talk
+  genre: News & Talk
+  leaning: None
+  freq: '102.7'
+  url: https://bonneville.cdnstream1.com/2704_48.aac
+  notes: Salt Lake City news/talk, 102.7 FM / 1160 AM (Bonneville)
+# ---------------------------------------------------------------- public / cultural
+- match:
+  - kjazz 88.1
+  - kjazz 88.1 kkjz
+  name: KJazz 88.1 (KKJZ)
+  city: Long Beach
+  region: California
+  type: Public
+  genre: Jazz / Blues
+  leaning: None
+  freq: '88.1'
+  url: https://streaming.live365.com/a49833
+  notes: Southern California's major jazz service, with local and national jazz programming
+- match:
+  - kalw
+  name: KALW 91.7
+  city: San Francisco
+  region: California
+  type: Public
+  genre: News & Culture
+  leaning: None
+  freq: '91.7'
+  url: https://kalw-live.streamguys1.com/kalw
+  notes: San Francisco public radio; Crosscurrents, Your Call and Bay Area community reporting
+- match:
+  - wbgo
+  - wbgo jazz 88.3 fm
+  name: WBGO Jazz 88.3
+  city: Newark
+  region: New Jersey
+  type: Public
+  genre: Jazz / Blues
+  leaning: None
+  freq: '88.3'
+  url: https://ais-sa8.cdnstream1.com/3629_128.mp3
+  notes: One of America's most important jazz radio services (Newark / New York metro)
+- match:
+  - vocalo
+  - wbez hd2 vocalo stream
+  name: Vocalo 91.1
+  city: Chicago
+  region: Illinois
+  type: Public
+  genre: Music & Culture
+  leaning: None
+  freq: '91.1'
+  url: http://stream.vocalo.org/vocalo128
+  notes: Chicago Public Media's culture- and music-oriented service
+- match:
+  - wxpn
+  - wxpn 88.5 philadelphia pa
+  name: WXPN 88.5
+  city: Philadelphia
+  region: Pennsylvania
+  type: Public
+  genre: Adult alternative
+  leaning: None
+  freq: '88.5'
+  url: https://wxpnhi.xpn.org/xpnhi
+  notes: Home of World Cafe; major supporter of emerging, folk, rock and singer-songwriter music
+- match:
+  - wgbh
+  - wgbh 89.7
+  name: GBH 89.7 (WGBH)
+  city: Boston
+  region: Massachusetts
+  type: Public
+  genre: News & Culture
+  leaning: None
+  freq: '89.7'
+  url: https://streams.audio.wgbh.org/wgbh
+  notes: Major Boston public-media producer with strong arts and educational heritage
+- match:
+  - kxci
+  - kxci 91.3
+  name: KXCI 91.3
+  city: Tucson
+  region: Arizona
+  type: Public
+  genre: Community / Global music
+  leaning: None
+  freq: '91.3'
+  url: https://kxci.broadcasttool.stream:80/play
+  notes: Volunteer-driven Tucson community radio; global, folk, Latin, Indigenous and local music
+- match:
+  - xray.fm
+  name: XRAY.FM
+  city: Portland
+  region: Oregon
+  type: Public
+  genre: Independent music & culture
+  leaning: None
+  freq: '91.1'
+  url: https://listen.xray.fm/stream
+  notes: Noncommercial independent programming with a strong local arts focus (91.1 / 107.1 FM)

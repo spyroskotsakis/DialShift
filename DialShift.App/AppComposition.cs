@@ -44,7 +44,16 @@ public static class AppComposition
         services.AddSingleton(_ => new SettingsStore(paths.DataDirectory));
         // Loading runs on first resolution, inside App startup: if the corrupt-file backup copy throws, the
         // startup-failure path reports it (BHV-03, BHV-04).
-        services.AddSingleton(sp => sp.GetRequiredService<SettingsStore>().Load());
+        services.AddSingleton(sp =>
+        {
+            var store = sp.GetRequiredService<SettingsStore>();
+            var settings = store.Load();
+            // First run (no settings.json yet): seed the starter stations bundled next to the apphost. Station data stays
+            // in data/ (CAT-17), never as C# literals. The list is not saved here; the next Save persists whatever it becomes.
+            if (!File.Exists(store.FilePath) && settings.Stations.Count == 0)
+                settings.Stations = StarterStations.Load(AppContext.BaseDirectory);
+            return settings;
+        });
 
         services.AddSingleton<IPlaybackCoordinator>(sp =>
         {
@@ -68,6 +77,17 @@ public static class AppComposition
         services.AddSingleton<IDialogService>(sp => sp.GetRequiredService<AvaloniaDialogService>());
         services.AddSingleton<IEditorDialogService>(sp => sp.GetRequiredService<AvaloniaDialogService>());
         services.AddSingleton<ISettingsService, SettingsService>();
+
+        // Brief 5 settings transfer (docs/settings-import-export.md §7). The service does the file I/O, validation,
+        // confirmation and the one CommitAsync path; the picker is the native Save/Open boundary over the main window,
+        // resolved lazily at pick time so tests and the smoke runner never open an OS dialog.
+        services.AddSingleton<ISettingsTransferService>(sp => new SettingsTransferService(
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IAppLog>(),
+            AppInfo.DisplayVersion(typeof(AppComposition).Assembly)));
+        services.AddSingleton<ITransferFilePicker>(_ => new TransferFilePicker(RunningMainWindow));
+
         services.AddSingleton<IAppShell>(_ => Application.Current as IAppShell
             ?? throw new InvalidOperationException("The DialShift Avalonia application is not running."));
 
@@ -88,6 +108,8 @@ public static class AppComposition
             sp.GetRequiredService<IEditorDialogService>(),
             sp.GetRequiredService<IStartupRegistration>(),
             sp.GetRequiredService<IFileRevealService>(),
+            sp.GetRequiredService<ISettingsTransferService>(),
+            sp.GetRequiredService<ITransferFilePicker>(),
             sp.GetRequiredService<IUiDispatcher>(),
             sp.GetRequiredService<IAppShell>(),
             sp.GetRequiredService<IAppLog>(),

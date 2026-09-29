@@ -1,7 +1,8 @@
 # DialShift Radio Data Section
 
-A clean, scalable station catalog for the DialShift app: **Greece, France, Germany** today,
-more countries by dropping in one YAML file. Everything regenerates from data files —
+A clean, scalable station catalog for the DialShift app: **Greece, France, Germany**, a
+curated **United States** tech-and-famous-stations list, and a **United Kingdom** national
+list, more countries by dropping in one YAML file. Everything regenerates from data files —
 nothing in here is hand-maintained twice, and nothing in the Python is station data.
 
 ## What you get
@@ -9,6 +10,7 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
 | artifact | where | what it is |
 |---|---|---|
 | **App catalog** | `output/app-catalog.json` | the station list the app's Add-station search reads; generated, validated, checked in |
+| **Starter stations** | `output/starter-stations.json` | the first-run default stations (collection entries marked `starter: true`); the app seeds a fresh install from it |
 | **Multi-tab XLSX** | `output/dialshift-radio-catalog.xlsx` | the human-readable deliverable. Opens nicely in macOS Numbers |
 | **Per-country CSVs** | `canonical/<country>-stations.csv` | clean, one row per station |
 | **Country data files** | `countries/<name>.yaml` | THE source of truth for curated station facts |
@@ -24,7 +26,9 @@ nothing in here is hand-maintained twice, and nothing in the Python is station d
   manual copy as the fallback).
 - **Import Ready** — every station with a working stream, all countries, most popular first.
   This is the tab to copy from when you enter a station by hand.
-- **Greece / France / Germany** — full lists, including stations without a stream.
+- **Greece / France / Germany / United Kingdom / United States** — full lists, including
+  stations without a stream. The US and UK tabs are curated national lists (not the whole
+  dial); their stations without a public stream say so in Notes.
 - **Focus tabs — Munich, Paris, Toulouse, Aude** — local shortlists: the FM landscape of each
   place plus the networks based there (Munich: Bayern 1-3, BR24, Antenne Bayern, Gong 96.3,
   Charivari, egoFM…; Paris: the national networks + community stations like Libertaire, Courtoisie,
@@ -68,12 +72,14 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
 `docs/catalog-contracts.md` §2 (decisions D59, D69, D71, D84).
 
 - **Shape:** `{"schema_version":1,"generated_utc":"yyyy-MM-ddTHH:mm:ssZ","stations":[…]}`, UTF-8,
-  one station per line (readable diffs). Each station has exactly these 18 keys, in this order:
+  one station per line (readable diffs). Each station has exactly these 21 keys, in this order:
   `name · name_local · country · country_label · city · region · frequency_fm · type · genre ·
-  language · internet_only · stream_url · codec · bitrate · votes · notes · logo · tag`.
+  language · internet_only · stream_url · codec · bitrate · votes · notes · logo · tag · timezone ·
+  requires_vpn · vpn_region`.
   `country` is the YAML `code` and `country_label` its `name`; collections are
   `Internet` / `Internet (collections)`. `tag` is the Description/Genre text (`app_tag()` in
-  `build/common.py`, the same text as the XLSX), so the app never recomputes it.
+  `build/common.py`, the same text as the XLSX), so the app never recomputes it. `requires_vpn` /
+  `vpn_region` are the geo-restriction signal (below).
 - **Inclusion:** `stream_status == Working` and a stream URL the app accepts (http/https, a host,
   no whitespace, at most 2,048 characters). Deduped per country with the pipeline's final key
   (name, city, stream URL). Ordered by country, votes (highest first), name, stream URL.
@@ -88,23 +94,26 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   punctuation; a `+` right after the last letter (`dab+`) and a bracket or quote that pairs with one
   inside (`halle (saale)`) stay; a tag with no letter or digit left is dropped, repeats are dropped
   ignoring case, first spelling kept); every other note is kept as it is. The CSVs and the XLSX
-  keep the pipeline's raw note; logos that are not http(s) become `""`.
+  keep the pipeline's raw note; logos that are not http(s) become `""`. `requires_vpn` is `true`
+  only for a row whose YAML entry says so; `vpn_region` is trimmed. The two are consistent by
+  construction and checked: `requires_vpn` is `true` exactly when `vpn_region` is non-empty.
 - **Language (D84):** a list of single language names joined with `", "` (`English, German, Low
   German`), or `""`. The raw value is split on `,` and `;` only (never on `-`, `/` or `.`), and each
   token is looked up in `languages.yaml` (below) in any case: a canonical name stays itself, an alias
   becomes its name or names, a drop key disappears; names are kept once, first seen first. Only the
   JSON is normalized: the CSVs and the XLSX keep the raw value.
-- **Validation (hard failure, same run):** schema version, the 18 keys and their types, non-empty
+- **Validation (hard failure, same run):** schema version, the 21 keys and their types, non-empty
   name and country, valid stream URL, no duplicate `(name, country, stream_url)`, the count equals
   the Working rows that pass the URL rule, 1–10,000 entries, every `language` a clean list
   (non-empty names, trimmed, no `,` or `;`, none twice, none an alias or drop key), no note
-  still in the raw `tags:` form, and every `frequency_fm` empty, an FM value with a `.` (64–108),
+  still in the raw `tags:` form, the `requires_vpn` / `vpn_region` consistency rule above, and
+  every `frequency_fm` empty, an FM value with a `.` (64–108),
   a kHz integer (150 to 30,000, the top of shortwave) or one of the band words of
   `frequency-bands.yaml`, so free text never reaches the app's frequency column. On any problem
   the run prints every problem, exits non-zero and leaves the previous JSON (and the XLSX)
   untouched. If it fails on real data, fix the YAML, not the script. Every run logs two lines, for
   example
-  `app-catalog: working=8277 url_excluded=7 duplicates_removed=0 exported=8270 -> data/output/app-catalog.json`
+  `app-catalog: working=8394 url_excluded=7 duplicates_removed=0 exported=8387 -> data/output/app-catalog.json`
   and `app-catalog: languages=42 unknown=0`.
 - **Language table (`languages.yaml`):** `languages` (canonical names: a language's usual English
   name), `aliases` (key → one name or a list: spellings, typos, native names, and dialects or
@@ -132,24 +141,38 @@ like the XLSX, so a fresh `dotnet build` needs no Python. The exact contract is
   example this repo's `data/output/app-catalog.json` right after a pipeline run, without
   rebuilding. A relative path is refused (the catalog is then unavailable, no fallback).
 
-## Canonical schema (18 frozen columns)
+## Canonical schema (21 frozen columns)
 
 `country · name · name_local · city · region · frequency_fm · type · genre · language ·
 political_leaning · internet_only · stream_url · codec · bitrate · stream_status · votes ·
-notes · source`
+notes · source · timezone · requires_vpn · vpn_region`
 
-- `type` — Music · News & Talk · Political · Sports · Religious · Municipal · Public · Other
+- `type` — Music · News & Talk · Political · Sports · Religious · Municipal · Military ·
+  Public · Other
 - `political_leaning` — Left / Center-Left / Center / Center-Right / Right / State / Municipal /
   **None** (not applicable/unknown). Only filled where well documented.
 - `internet_only` — Yes (web-only) · No (terrestrial) · Unknown (not in an official FM directory)
 - `stream_status` — Working / Down / No stream found (from radio-browser.info checks)
 - `language` — as the source gives it (radio-browser's comma-joined list, or the YAML value),
   kept as provenance; only the app catalog normalizes it (above)
+- `timezone` — the station's IANA timezone, an empty string for internet collections. Every
+  row gets one: a curated entry's own `timezone`, else its canonical city's
+  `city_timezones` value, else the country's `timezone_default` (all three live in the
+  country YAML; the app-catalog export validates every id).
+- `requires_vpn` / `vpn_region` — the geo-restriction signal, a per-station fact that lives ONLY
+  in the entry's `countries/*.yaml` or `collections/*.yaml` (both keys default to `false` / `""`
+  when the YAML does not set them). `requires_vpn: true` marks a station whose stream plays only
+  from inside a region (a `no_auto_stream: true` station that does have a public, verified stream
+  gets a pinned `url:` and these two keys instead). `vpn_region` names that region in plain
+  English (`United States` for the two stations flagged today, WBAP 820 and WLS 890 AM). The pair must be consistent — `requires_vpn: true`
+  exactly when `vpn_region` is non-empty — or the run fails. A station that is simply not on
+  public directories (no stream to play) keeps `no_auto_stream: true` and is not flagged.
 
 ## How it works (single source of truth, no double-maintained data)
 
 1. **`countries/<name>.yaml`** holds the only hand-maintained data: curated station facts
-   (name, city, type, genre, political leaning, optional pinned stream URL), national-programme
+   (name, city, type, genre, political leaning, optional pinned stream URL, optional
+   `requires_vpn` / `vpn_region` geo-restriction pair), national-programme
    consolidation rules (the ERT network), city aliases, the language defaults, and an optional
    Wikipedia list URL. **`languages.yaml`** holds the app catalog's language table and
    **`frequency-bands.yaml`** its frequency band words. Station, language and band data never live
@@ -169,6 +192,11 @@ notes · source`
 1. Copy a YAML, fill in: `code` (ISO 3166-1 alpha-2), `name`, `language_default`, `city_aliases`,
    `curated` entries. `name` is the country's English name as radio-browser.info spells it: the
    build queries radio-browser by that name and uses it as the country's tab and filter label.
+   `timezone_default` is the IANA timezone every row gets unless a city overrides it, and the
+   optional `city_timezones` maps a **canonical city** (the spelling rows already show) to its
+   IANA timezone — use it for overseas territories (`Guadeloupe: America/Guadeloupe`) and
+   multi-zone countries (see `usa.yaml`); the build stops on an id that is not a valid IANA
+   timezone.
    `city_aliases` maps a city spelling from the sources (radio-browser's `state`, a Wikipedia
    prefecture) to the city to show, e.g. `munchen: Munich`. It is the only alias list: the build
    reads it from each YAML (`build_stations.load_country`) and has none in code. A key is
@@ -206,6 +234,11 @@ notes · source`
    (a focus area is a city — `{city: Paris, label: Paris}` — or a region —
    `{city: Carcassonne, region: Aude, label: Aude}`). Curated entries opt in with `focus: <label>`;
    terrestrial rows in a focus city are added automatically.
+   `curated_only: true` (see `usa.yaml`) ships ONLY the `curated` entries: no Wikipedia rows and
+   no radio-browser extras — for a country whose whole national directory would be unmanageable
+   (the US's ~30,000-station list would dwarf the app catalog's budget). Curated entries still
+   resolve their streams and logos from radio-browser by their `match` keys, and pinned `url`s
+   work as usual.
 3. Run the build. Done — no Python changes.
 
 ### Adding a collection (genre folder)
@@ -218,6 +251,14 @@ that defaults to `Music`), optional pinned `url`,
 `language` (else the collection's `language_default`), `notes`. Unpinned entries resolve their
 stream from radio-browser at build time.
 Collections become their own tab + `canonical/collection-<code>.csv`.
+
+An entry may also carry `starter: true` — it marks a **first-run default station**.
+`build_all.py` writes every `starter: true` entry with a stream URL to
+`output/starter-stations.json` as `{name, stream_url, tag}`, in the YAML's own order (not
+alphabetical), and the app seeds a fresh install from that file when no `settings.json` exists
+yet; with a settings file already present nothing is seeded. The three DialShift defaults
+(Groove Salad, Drone Zone, Secret Agent) are the `starter: true` entries of
+`collections/ambient-chill.yaml`, so the starter list is data, not code.
 
 ## Refreshing the data
 
@@ -238,6 +279,71 @@ the regenerated `canonical/*.csv`, `output/dialshift-radio-catalog.xlsx` and
 `raw/` data is reused and the country CSVs come out byte-identical. Collections always look their
 stations up on radio-browser live, so even without `--refresh` their CSV can change (usually the
 votes); commit such a change only together with the JSON built from it.
+
+## Health check (`build/check_stations.py`)
+
+One pass over the **single consolidated file the app ships, `output/app-catalog.json`**
+(all countries + collections in one list — nothing is checked per country), validating the
+data and verifying, with real HTTP probes, that every stream URL serves audio and every logo
+URL serves an image. This is the automated "is the whole library still healthy" sweep — no
+manual per-record checking.
+
+```bash
+.venv/bin/python build/check_stations.py [catalog.json] \
+    [--workers 25] [--timeout 8] [--limit N] [--no-streams] [--no-logos] \
+    [--audit-rb] [--prune] [--strict] [--output report.json] [--broken-csv broken.csv]
+```
+
+**Data validation (errors fail the run, exit 1):** `schema_version == 1`; every station has a
+non-empty trimmed name, an http(s) `stream_url` ≤ 2,048 characters, a valid `frequency_fm`
+(empty, an FM value with a `.` in 64–108, a kHz integer in 150–30,000, or a
+`frequency-bands.yaml` word — the app catalog's rule 9), and no duplicate of
+(country, name, stream). **Warnings (reported, not fatal):** an empty language (the D84 drop of
+non-languages like "Various Languages"/"Multilingual" — correct data), and the same name +
+same stream in **different cities**, which is kept on purpose: local stations that share one
+stream (relay networks, e.g. the Greek Star FM family or the Ecclesia network) are distinct
+stations, never auto-merged. True duplicates (same name + same stream + same city, or one row
+without a city) are errors.
+
+**Stream verdicts:** `OK` (2xx + audio content type + bytes; HLS playlists count),
+`FAIL` (an HTTP error, or a 2xx answer that is not audio — usually a stale landing page on a
+rotten stream URL), `ERROR` (network/timeout). **Logo verdicts:** `OK` (2xx + `image/*`),
+`FAIL` (HTTP error), `NONIMAGE` (2xx but not an image), `ERROR`, `SKIP` (no logo).
+
+**Exit codes:** 0 = validation passed (broken streams/logos are listed but not fatal);
+1 = validation errors, or `--strict` with any broken stream/logo; 2 = usage.
+
+**Reading the results:** the console prints the verdict counts, the validation problems and the
+first broken rows; `--output report.json` writes the full machine-readable report (verdicts,
+every broken stream/logo with its URL and reason, validation errors + warnings, the
+radio-browser gap audit, and the prune outcome); `--broken-csv` writes the broken streams and
+logos as CSV.
+
+**Pruning dead streams (`--prune`):** after probing, rewrite the catalog WITHOUT the stations
+whose stream verdict is `FAIL` (a definite non-audio answer: an HTTP error or a non-audio
+content type). `ERROR` rows (timeout/network trouble) are kept — a transient failure must not
+drop a station. The file's shape (`schema_version`, `generated_utc`, `stations`) is unchanged,
+so the app reads the pruned file as a normal catalog; the write is atomic (temp file + rename).
+Data-validation errors block pruning (exit 1), and `--prune` refuses `--limit` (a limited run
+would truncate the catalog). The pruned `app-catalog.json` is the file the app ships — this is
+the publish-hygiene step between builds: run the check with `--prune` and commit the pruned
+JSON. The next `build_all.py` run regenerates the full catalog from `canonical/` again, so
+prune again after every rebuild.
+
+**Caveats (why a reported failure may be environmental, not data):**
+
+- Streams can be temporarily down or slow; a `TimeoutError`/`URLError` may pass on a retry.
+  The probe uses browser-like headers + a Range request (some hosts answer empty to plain
+  requests); it never reads beyond the first bytes.
+- Some hosts block bots by IP/User-Agent or geofence (e.g. a 403 from a station site) — the
+  logo/stream may still work inside the app.
+- An `application/ogg` / `audio/ogg` stream counts as OK (OPUS); the app engines play it.
+
+**Gap audit (`--audit-rb`):** compares the consolidated catalog against the cached
+`raw/<code>/radio-browser.json` dumps and lists radio-browser stations that are working
+(`lastcheckok=1`) and missing from the catalog, votes descending (missing with votes ≥ 2 are
+the meaningful ones). The pipeline already imports radio-browser extras; this catches what its
+filters suppress.
 
 ## Data sources
 

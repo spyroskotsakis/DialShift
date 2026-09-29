@@ -21,12 +21,20 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
 
 from common import (DATA_DIR, RB_TAGS_LABEL, city_aliases, classify, clean_name, dedupe_rb,
                     fetch_radio_browser, fetch_text, language_key, language_replace, norm, norm_city, norm_freq,
                     row_score, url_norm)
+
+
+def clean_logo(v):
+    """A radio-browser favicon can be the literal string 'null'/'none' — treat it as no logo."""
+    v = v or ''
+    return '' if str(v).strip().lower() in ('null', 'none') else v
+
 
 COUNTRIES_DIR = DATA_DIR / 'countries'
 COLLECTIONS_DIR = DATA_DIR / 'collections'
@@ -40,6 +48,24 @@ def load_country(path):
         cfg = yaml.safe_load(f)
     cfg['city_aliases'] = city_aliases(cfg.get('city_aliases'), Path(path).name)
     cfg['language_replace'] = language_replace(cfg.get('language_replace'), Path(path).name)
+    # timezones: `timezone_default` (fallback for every row) and `city_timezones`
+    # (canonical city -> IANA zone; overrides the default). Every id must resolve as an
+    # IANA timezone (zoneinfo) — a bad id is a hard error naming the file and the id.
+    tz_default = cfg.get('timezone_default')
+    city_tz = cfg.get('city_timezones') or {}
+    problems = []
+    for label, value in [('timezone_default', tz_default)] + \
+            [(f'city_timezones[{k!r}]', v) for k, v in city_tz.items()]:
+        if value is None:
+            continue
+        try:
+            ZoneInfo(str(value))
+        except Exception:
+            problems.append(f'{label} is not an IANA timezone: {value!r}')
+    if problems:
+        raise ValueError(f'{Path(path).name}: ' + '; '.join(problems))
+    cfg['timezone_default'] = tz_default or ''
+    cfg['city_timezones'] = dict(city_tz)
     # focus areas: 'focus_areas:' list (city- or region-based), or the older
     # 'focus_cities:' / single 'focus:' block (kept working for compatibility)
     cfg['focus_areas'] = cfg.get('focus_areas') or cfg.get('focus_cities') \
@@ -94,6 +120,16 @@ def parse_wiki_tables(text):
                         continue
                     if header and header[0] == 'Frequency' and len(cells) >= 3:
                         freq = re.sub(r'[^\d.]', '', cells[0] or '')
+                        # The header fixes the columns: a row with fewer cells than its header
+                        # has a cell missing (e.g. a name/year/description row inside a
+                        # Frequency table), so every column is shifted and the first cell is a
+                        # name, not a frequency. Skip it rather than read the year as the name.
+                        if len(cells) < len(header):
+                            continue
+                        # A real FM/MW row also always names a frequency; a row without one is
+                        # not a catalog entry.
+                        if not freq:
+                            continue
                         rows.append(dict(region=region, prefecture=pref, freq=freq,
                                          name=cells[1], since=cells[2] or '',
                                          desc=cells[3] if len(cells) > 3 else ''))
@@ -180,6 +216,12 @@ def build_country(cfg, force_refresh=False):
 
     lang_default = cfg.get('language_default', '')
 
+    def row_timezone(city_c, entry=None):
+        """The IANA timezone of a row: the entry's own, else the city's, else the country default."""
+        if entry and entry.get('timezone'):
+            return entry['timezone']
+        return cfg['city_timezones'].get(city_c, cfg['timezone_default'])
+
     def make_row(wname, entry, city, region, freq, desc, stream, internet_only, source, force_pin=False):
         t, g = classify(desc, (stream or {}).get('tags', ''), code)
         entry = entry or {}
@@ -208,8 +250,12 @@ def build_country(cfg, force_refresh=False):
                    bitrate='' if pinned else (stream or {}).get('bitrate', ''),
                    stream_status='Working' if ok else ('Down' if stream else 'No stream found'),
                    votes=0 if pinned else (stream or {}).get('votes', 0),
-                   logo=entry.get('logo') or (stream or {}).get('favicon', ''),
-                   notes=entry.get('notes', desc), source=source)
+                   logo=clean_logo(entry.get('logo') or (stream or {}).get('favicon', '')),
+                   notes=entry.get('notes', desc), source=source,
+                   timezone=row_timezone(ccity, entry),
+                   requires_vpn=entry.get('requires_vpn') is True,
+                   vpn_region=entry.get('vpn_region') or '',
+                   starter=entry.get('starter') is True)
         # focus membership: explicit entry flag (true = first focus area, or a
         # label/city/region name), or a terrestrial row in a focus city/region
         fc = entry.get('focus')
@@ -254,8 +300,9 @@ def build_country(cfg, force_refresh=False):
         if nat:
             if nat['id'] not in national_seen:
                 national_seen.add(nat['id'])
+                nat_city = norm_city(nat.get('city', city), aliases)
                 add(dict(country=code, name=nat.get('name', wname), name_local=nat.get('name_local', ''),
-                         city=norm_city(nat.get('city', city), aliases), region='National',
+                         city=nat_city, region='National',
                          frequency_fm=str(nat.get('freq', w['freq']) or ''),
                          type=nat.get('type', 'Public'), genre=nat.get('genre', ''),
                          language=nat.get('language', lang_default),
@@ -263,7 +310,10 @@ def build_country(cfg, force_refresh=False):
                          stream_url=nat.get('url') or '',
                          codec='', bitrate='',
                          stream_status='Working' if nat.get('url') else 'No stream found',
-                         votes=0, notes=nat.get('notes', desc), source='curated'))
+                         votes=0, notes=nat.get('notes', desc), source='curated',
+                         timezone=row_timezone(nat_city, nat),
+                         requires_vpn=nat.get('requires_vpn') is True,
+                         vpn_region=nat.get('vpn_region') or ''))
             continue
 
         # curated identity for a known station
@@ -327,30 +377,48 @@ def build_country(cfg, force_refresh=False):
                 del by_norm[(n, _state)]
 
     # Pass 2: everything else
-    for (n, _state), group in by_norm.items():
-        s = max(group, key=lambda x: (x.get('votes') or 0))
-        url = (s.get('url_resolved') or '').split('?ver=')[0]
-        if (s.get('votes') or 0) < 2 and not s.get('state'):
-            continue
-        if url_norm(url) in pinned_urls:             # duplicates a pinned stream
-            continue
-        if any(n == wn or (min(len(n), len(wn)) >= 5 and (n in wn or wn in n)) for wn in wiki_norms):
-            continue
-        tags = s.get('tags', '') or ''
-        t, g = classify('', tags, code)
-        lang = (s.get('language') or '').title() or lang_default
-        lang = cfg['language_replace'].get(language_key(lang), lang)
-        add(dict(country=code, name=s['name'], name_local='',
-                 city=norm_city(s.get('state') or '', aliases) or '—',
-                 region=s.get('state') or '(unlisted)',
-                 frequency_fm='', type=t, genre=g, language=lang,
-                 political_leaning='None', internet_only='Unknown',
-                 stream_url=url,
-                 codec=s.get('codec') or '', bitrate=s.get('bitrate') or '',
-                 stream_status='Working', votes=s.get('votes') or 0,
-                 logo=s.get('favicon') or '',
-                 notes=f"{RB_TAGS_LABEL} {tags}", source='radio-browser'))
-        extras += 1
+    # A country YAML may set `curated_only: true` to list ONLY its curated entries — no
+    # radio-browser extras (and typically no wiki block) — for catalogs whose whole national
+    # directory would be unmanageable (e.g. the United States' ~30k-station list). Curated
+    # entries still resolve their streams from radio-browser by match key, and pinned URLs
+    # work as usual.
+    if not cfg.get('curated_only'):
+        # Same name + same stream already listed = a true duplicate of an existing row (a radio-browser
+        # rename or an unlisted twin of a curated/wiki station). Skip it — but NEVER merge stations that
+        # merely share a name: rows with the same normalized name and DIFFERENT stream URLs are distinct
+        # (regional variants, relays), and both stay.
+        existing = {(norm(r['name']).replace(' ', ''), url_norm(r['stream_url']))
+                    for r in rows if r['stream_url']}
+        for (n, _state), group in by_norm.items():
+            s = max(group, key=lambda x: (x.get('votes') or 0))
+            url = (s.get('url_resolved') or '').split('?ver=')[0]
+            if (s.get('votes') or 0) < 2 and not s.get('state'):
+                continue
+            if url_norm(url) in pinned_urls:             # duplicates a pinned stream
+                continue
+            if any(n == wn or (min(len(n), len(wn)) >= 5 and (n in wn or wn in n)) for wn in wiki_norms):
+                continue
+            if (n.replace(' ', ''), url_norm(url)) in existing:
+                continue
+            tags = s.get('tags', '') or ''
+            t, g = classify('', tags, code)
+            lang = (s.get('language') or '').title() or lang_default
+            lang = cfg['language_replace'].get(language_key(lang), lang)
+            ex_city = norm_city(s.get('state') or '', aliases) or '—'
+            add(dict(country=code, name=s['name'], name_local='',
+                     city=ex_city,
+                     region=s.get('state') or '(unlisted)',
+                     frequency_fm='', type=t, genre=g, language=lang,
+                     political_leaning='None', internet_only='Unknown',
+                     stream_url=url,
+                     codec=s.get('codec') or '', bitrate=s.get('bitrate') or '',
+                     stream_status='Working', votes=s.get('votes') or 0,
+                     logo=clean_logo(s.get('favicon') or ''),
+                     notes=f"{RB_TAGS_LABEL} {tags}", source='radio-browser',
+                     timezone=cfg['city_timezones'].get(ex_city, cfg['timezone_default']),
+                     requires_vpn=False, vpn_region=''))
+            existing.add((n.replace(' ', ''), url_norm(url)))
+            extras += 1
 
     # final safety dedupe: same normalized name + city + stream = same station
     # (keeps the richest row: with frequency, curated, then most votes)
@@ -392,7 +460,7 @@ def rb_search(name, limit=8):
 def build_collection(cfg):
     rows = []
     cache = {}
-    for e in cfg.get('stations', []):
+    for order, e in enumerate(cfg.get('stations', [])):
         pinned = e.get('url')
         s = None
         # search radio-browser even for pinned entries: favicon comes from there
@@ -420,8 +488,11 @@ def build_collection(cfg):
                          bitrate=(s or {}).get('bitrate', 0),
                          stream_status='Working' if url else 'No stream found',
                          votes=(s or {}).get('votes') or 0,
-                         logo=e.get('logo') or (s or {}).get('favicon', ''),
-                         notes=e.get('notes', ''), source='curated', focus_area=''))
+                         logo=clean_logo(e.get('logo') or (s or {}).get('favicon', '')),
+                         notes=e.get('notes', ''), source='curated', focus_area='',
+                         timezone='', requires_vpn=e.get('requires_vpn') is True,
+                         vpn_region=e.get('vpn_region') or '', starter=e.get('starter') is True,
+                         starter_order=order))
     rows.sort(key=lambda r: r['name'].lower())
     return rows
 

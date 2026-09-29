@@ -3,7 +3,8 @@ namespace DialShift.Core.Catalog;
 /// <summary>One station of the generated app catalog (docs/catalog-contracts.md §2). Plain immutable data.</summary>
 /// <remarks>Strings are never null; "" means unknown. The catalog provider guarantees: Name, Country and StreamUrl
 /// are non-empty, StreamUrl passes SettingsStore.ValidUrl and is at most 2,048 characters, Logo is "" or an http(s)
-/// URL, Bitrate is null or positive, Votes is null or non-negative. The query engine does not re-validate.</remarks>
+/// URL, Bitrate is null or positive, Votes is null or non-negative. The query engine does not re-validate.
+/// <see cref="VpnRegion"/> is "" whenever <see cref="RequiresVpn"/> is false; the pipeline enforces this.</remarks>
 public sealed record StationCatalogEntry
 {
     /// <summary>The station's name as the catalog lists it; may be longer than the station dialog's 100 characters (D73).</summary>
@@ -44,4 +45,10 @@ public sealed record StationCatalogEntry
 
     /// <summary>The precomputed "Description / genre" text a picked station gets (<c>app_tag</c> of the pipeline).</summary>
     public string Tag { get; init; } = "";
+
+    /// <summary>True when the stream needs a VPN to be reachable.</summary>
+    public bool RequiresVpn { get; init; }
+
+    /// <summary>The VPN region as a human-readable region label (e.g. <c>United Kingdom</c>) the stream is reachable through; "" when no VPN is needed.</summary>
+    public string VpnRegion { get; init; } = "";
 }

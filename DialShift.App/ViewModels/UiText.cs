@@ -81,6 +81,25 @@ public static class UiText
     /// <summary>Startup-failure dialog (BHV-04, HS-08), the legacy Windows app's wording.</summary>
     public static string StartupFailed(string reason, string logFile) => $"DialShift couldn't start. {reason}\n\nDetails: {logFile}";
 
+    // ─── Settings transfer (brief 5 §6, D108) ───
+    // The transfer dialogs' wording lives in the service lane (Services/TransferText.cs), which shows them; the page only
+    // names the file the Save picker suggests and the two buttons' captions.
+
+    /// <summary>
+    /// The About card's two transfer button captions (brief 5 §6, spec §6 "all labels in UiText"). The ellipsis is the
+    /// single U+2026 character; the matching automation names are these without it (SettingsPage.axaml).
+    /// </summary>
+    public const string ExportStationsLabel = "Export stations & schedule…";
+    /// <summary>The Import button's caption; see <see cref="ExportStationsLabel"/>.</summary>
+    public const string ImportStationsLabel = "Import stations & schedule…";
+
+    /// <summary>
+    /// The Save dialog's suggested name (D108): "DialShift-transfer-2026-09-28.json". The day is the computer's local
+    /// one, formatted invariantly, so the name reads the same whatever the culture.
+    /// </summary>
+    public static string TransferFileName(DateTimeOffset when) =>
+        $"DialShift-transfer-{when.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}.json";
+
     /// <summary>
     /// The monogram of a station tile and of a catalog result without a logo: the first character, upper-case invariant
     /// ("?" for an empty name). A character outside the Basic Multilingual Plane (a surrogate pair) is kept whole.
@@ -136,6 +155,12 @@ public static class UiText
         return shown >= total ? $"All {Stations(total)} by votes" : $"Top {Count(shown)} of {Stations(total)} by votes";
     }
 
+    /// <summary>The results footer's next-page control: the list shows fewer rows than the query matched (§ "Show more").</summary>
+    public const string ShowMore = "Show more";
+
+    /// <summary>The "Show more" button's automation name: the label without its space, as the headless tests address it.</summary>
+    public const string ShowMoreAutomationName = "ShowMore";
+
     /// <summary>A catalog count, grouped the invariant way whatever the computer's culture: "8,274".</summary>
     public static string Count(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
 
@@ -152,6 +177,18 @@ public static class UiText
             FrequencyBand.Kilohertz => frequencyFm + " kHz",
             _ => frequencyFm
         };
+
+    // ─── VPN badge (requires_vpn / vpn_region) ───
+
+    /// <summary>The badge's word, shared by the badge text and the tray's native menu label.</summary>
+    public const string VpnTag = "VPN";
+
+    /// <summary>
+    /// A station's VPN badge, the one place the badge's text is built: "VPN · United Kingdom" for the region the pipeline
+    /// recorded, "" when the station plays from anywhere. <paramref name="region"/> is the human-readable label (never a
+    /// zone id); the persisted <see cref="Station.VpnRegion"/> is null or "" when there is no VPN.
+    /// </summary>
+    public static string VpnText(string? region) => string.IsNullOrWhiteSpace(region) ? "" : VpnTag + " · " + region;
 
     public static string DeleteStationQuestion(Station station, int slotCount) =>
         $"Delete {station.Name}" + (slotCount > 0 ? $" and its {slotCount} schedule slot(s)?" : "?");

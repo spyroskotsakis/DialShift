@@ -35,7 +35,14 @@
                 AutomationProperties.Name="{x:Static vm:ScheduleEditorViewModel.StationAutomationName}">
         <ComboBox.ItemTemplate>
           <DataTemplate x:DataType="core:Station">
-            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+            <!-- The items are Stations, not a row view model: the badge's text still comes from UiText.VpnText, through VpnConverters.Text. -->
+            <DockPanel>
+              <Border DockPanel.Dock="Right" Classes="vpnBadge" Margin="8,0,0,0"
+                      IsVisible="{Binding VpnRegion, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding VpnRegion, Converter={x:Static vm:VpnConverters.Text}}" />
+              </Border>
+              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
           </DataTemplate>
         </ComboBox.ItemTemplate>
       </ComboBox>

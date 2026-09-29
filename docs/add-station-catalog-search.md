@@ -64,7 +64,7 @@ name (or its frequency, city…) and picks from the catalog instead of copy-past
 
 - **YAML-only data** (`.claude/rules/data-catalog-only.md`): all station facts live in `data/countries/`
   and `data/collections/`; the Python is one generic pipeline. Adding a country = one YAML file, zero code.
-- **Canonical CSVs** (`data/canonical/*.csv`, 18 frozen columns, checked in) are already app-ready rows;
+- **Canonical CSVs** (`data/canonical/*.csv`, 21 frozen columns, checked in) are already app-ready rows;
   `stream_status == 'Working'` + non-empty `stream_url` already gate the "Import Ready" tab, and
   `app_tag()` in `build_all.py` already computes the exact Description/Genre text the dialog wants.
 - **MVVM editor scaffolding**: `EditorViewModel` base (title/description/error/save/close/focus),
@@ -135,7 +135,8 @@ name (or its frequency, city…) and picks from the catalog instead of copy-past
 - **Validation in the pipeline** (same run, hard fail): every entry has non-empty `name` + valid
   `stream_url`; no duplicate `(name, country, stream_url)`; `schema_version == 1`; count ==
   Working-stream count in the canonical CSVs (log both).
-- The 18-column canonical CSVs and the XLSX are **unchanged** except: the XLSX README tab's
+- The canonical CSVs (now 21 columns: the VPN addendum appended `requires_vpn` and `vpn_region`
+  after `timezone`) and the XLSX are otherwise **unchanged** except: the XLSX README tab's
   "How to add a station to the DialShift app" section is rewritten to point at the in-app picker
   (manual copy remains as the fallback).
 

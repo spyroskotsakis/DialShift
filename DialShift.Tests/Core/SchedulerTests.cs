@@ -30,7 +30,7 @@ public static class SchedulerTests
 
     private static void Legacy()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var first = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday, DayOfWeek.Tuesday] };
         var second = new ScheduleEntry { StationId = settings.Stations[1].Id, Time = "10:00", Days = [DayOfWeek.Monday] };
         settings.Schedule.AddRange([first, second]);
@@ -66,7 +66,7 @@ public static class SchedulerTests
     private static void TieBreak()
     {
         // Two entries at the same instant, added directly (bypassing Conflicts); the larger id is listed first.
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var small = new ScheduleEntry { Id = Guid.Parse("10000000-0000-0000-0000-000000000000"), StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday] };
         var large = new ScheduleEntry { Id = Guid.Parse("20000000-0000-0000-0000-000000000000"), StationId = settings.Stations[1].Id, Time = "08:00", Days = [DayOfWeek.Monday] };
         settings.Schedule.AddRange([large, small]);
@@ -76,7 +76,7 @@ public static class SchedulerTests
 
     private static void KeyFormat()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var entry = new ScheduleEntry { Id = Guid.Parse("0f0e0d0c-0b0a-0908-0706-050403020100"), StationId = settings.Stations[0].Id, Time = "07:05", Days = [DayOfWeek.Monday] };
         settings.Schedule.Add(entry);
         var occurrence = Scheduler.Evaluate(settings, Mon(9)).Current;
@@ -97,7 +97,7 @@ public static class SchedulerTests
 
     private static void EmptyDays()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.Schedule.Add(new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [] });
         Check("CT-SCH-03 entry with empty Days is never Current or Next",
             Enumerable.Range(0, 7).All(d => Scheduler.Evaluate(settings, Mon(8).AddDays(d)) == (null, null)));
@@ -105,7 +105,7 @@ public static class SchedulerTests
 
     private static void WeeklyWrap()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.Schedule.Add(new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday] });
         var (current, next) = Scheduler.Evaluate(settings, Mon(7, 59));
         Check("CT-SCH-04 weekly slot at Mon 07:59: Current is the previous Monday 08:00", current?.At == Mon(7, 59) - new TimeSpan(6, 23, 59, 0));
@@ -114,7 +114,7 @@ public static class SchedulerTests
 
     private static void KindPreserved()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.Schedule.Add(new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday] });
         // Kind is only a tag here; nothing converts, so no host zone is consulted.
         bool KindFollowsNow(DateTimeKind kind)
@@ -148,7 +148,7 @@ public static class SchedulerTests
 
     private static void IgnoresScheduleEnabled()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.Schedule.Add(new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08:00", Days = [DayOfWeek.Monday] });
         settings.ScheduleEnabled = false;
         var (current, next) = Scheduler.Evaluate(settings, Mon(10));
@@ -174,7 +174,7 @@ public static class SchedulerTests
             .Where(c => !Scheduler.TryTime(sample.ToString("HH:mm", c), out var back) || back != sample).Select(c => c.Name).ToList();
         Check($"CT-SCH-09 every culture's HH:mm text parses back (unparsed: {string.Join(", ", unparsed.DefaultIfEmpty("none"))})", unparsed.Count == 0);
 
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         var slot = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "08.30", Days = [DayOfWeek.Monday] };
         settings.Schedule.Add(slot);
         var (current, next) = Scheduler.Evaluate(settings, Mon(8, 30));
