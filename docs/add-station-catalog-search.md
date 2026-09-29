@@ -64,7 +64,7 @@ name (or its frequency, city…) and picks from the catalog instead of copy-past
 
 - **YAML-only data** (`.claude/rules/data-catalog-only.md`): all station facts live in `data/countries/`
   and `data/collections/`; the Python is one generic pipeline. Adding a country = one YAML file, zero code.
-- **Canonical CSVs** (`data/canonical/*.csv`, 18 frozen columns, checked in) are already app-ready rows;
+- **Canonical CSVs** (`data/canonical/*.csv`, 21 frozen columns, checked in) are already app-ready rows;
   `stream_status == 'Working'` + non-empty `stream_url` already gate the "Import Ready" tab, and
   `app_tag()` in `build_all.py` already computes the exact Description/Genre text the dialog wants.
 - **MVVM editor scaffolding**: `EditorViewModel` base (title/description/error/save/close/focus),
