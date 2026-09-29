@@ -135,7 +135,8 @@ name (or its frequency, city…) and picks from the catalog instead of copy-past
 - **Validation in the pipeline** (same run, hard fail): every entry has non-empty `name` + valid
   `stream_url`; no duplicate `(name, country, stream_url)`; `schema_version == 1`; count ==
   Working-stream count in the canonical CSVs (log both).
-- The 18-column canonical CSVs and the XLSX are **unchanged** except: the XLSX README tab's
+- The canonical CSVs (now 21 columns: the VPN addendum appended `requires_vpn` and `vpn_region`
+  after `timezone`) and the XLSX are otherwise **unchanged** except: the XLSX README tab's
   "How to add a station to the DialShift app" section is rewritten to point at the in-app picker
   (manual copy remains as the fallback).
 
