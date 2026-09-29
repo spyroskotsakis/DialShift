@@ -953,15 +953,25 @@ public static class HeadlessUiTests
             && import.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left);
 
         // The two transfer buttons grew the About card; at the default 860 the whole card (Import button included) ends
-        // above the fold with breathing room and the page needs no scroll (brief 5, D44; measured in the headless rig).
+        // above the fold with breathing room and the page needs no scroll. That guarantee gates only on macOS: Segoe UI
+        // renders ~80 px taller than SF Pro, so the approved design does not fit above the fold in the 860 px viewport on
+        // Windows, where the page simply scrolls (D123; measured in the headless rig).
         var viewport = window.GetVisualDescendants().OfType<ScrollViewer>().Single();
         var viewportBottom = viewport.TranslatePoint(new Point(0, viewport.Bounds.Height), window)!.Value.Y;
         var contentRoot = (Visual)((StackPanel)viewport.Content!).Children.Last();
         var aboutCard = ((ContentControl)contentRoot).GetVisualDescendants().OfType<StackPanel>().First().Children.OfType<Border>().Last();
         var aboutBottom = aboutCard.TranslatePoint(new Point(0, aboutCard.Bounds.Height), window)!.Value.Y;
-        Check("IE-08 the whole About card, Import button included, sits above the fold at the default 860 with no scroll",
-            viewport.Offset.Y == 0 && aboutBottom < viewportBottom
-            && importTop + import.Bounds.Height < viewportBottom);
+        if (OperatingSystem.IsWindows())
+        {
+            Skip("IE-08 the whole About card, Import button included, sits above the fold at the default 860 with no scroll",
+                "Segoe UI renders ~80 px taller than SF Pro, so the approved Settings design does not fit above the fold in the 860 px viewport on Windows; the page scrolls there (D123)");
+        }
+        else
+        {
+            Check("IE-08 the whole About card, Import button included, sits above the fold at the default 860 with no scroll",
+                viewport.Offset.Y == 0 && aboutBottom < viewportBottom
+                && importTop + import.Bounds.Height < viewportBottom);
+        }
 
         Check("IE-08 both transfer buttons are enabled when idle", export.IsEffectivelyEnabled && import.IsEffectivelyEnabled);
 
