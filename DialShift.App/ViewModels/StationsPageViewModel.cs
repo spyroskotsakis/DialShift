@@ -65,7 +65,7 @@ public sealed class StationsPageViewModel : PageViewModel
 
     public string EmptyText => "Start with a station you love. Add its direct MP3, AAC or HLS stream URL above.";
 
-    public string CreditText => "Starter stations by SomaFM. Add your Greek favorites with their direct stream URLs.";
+    public string CreditText => "Starter stations by SomaFM. Add your own favorites with their direct stream URLs.";
 
     public AsyncRelayCommand AddCommand { get; }
 

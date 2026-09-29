@@ -146,7 +146,7 @@ public static class AppLifecycleTests
         await PressAsync(dialog, Key.Enter);
         await PumpAsync();
         Check("HS-07 BHV-03 the notice is shown once", !dialog.IsVisible && OpenedWindows.OfType<MessageDialog>().Count() == 1);
-        Check("HS-07 BHV-03 the app runs on defaults (three starter stations shown)", app.MainWindow!.IsVisible && app.Lifetime.ExitCode == null);
+        Check("HS-07 BHV-03 the app runs on empty defaults (no starter stations after a corrupt-settings recovery)", app.MainWindow!.IsVisible && app.Lifetime.ExitCode == null);
     }
 
     private static async Task RecoveredNoticeInTray()

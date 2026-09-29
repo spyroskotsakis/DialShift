@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using DialShift.Core;
 
 namespace DialShift.Tests;
 
@@ -81,6 +82,21 @@ public static class TestHarness
         try { await action(); return true; }
         catch (Exception ex) { Console.WriteLine("  unexpected exception: " + ex); return false; }
     }
+
+    /// <summary>
+    /// The three SomaFM stations the data pipeline marks <c>starter: true</c> (data/collections/ambient-chill.yaml) and the
+    /// app seeds on first run from <c>starter-stations.json</c> — in source order. <see cref="Settings.Defaults"/> is empty,
+    /// so fixtures that need a populated first-run state share this instead of hardcoding stations inline.
+    /// </summary>
+    public static Settings StarterSettings() => new()
+    {
+        Stations =
+        [
+            new() { Name = "Groove Salad", Tag = "SomaFM · Ambient / downtempo", Url = "https://ice5.somafm.com/groovesalad-128-aac" },
+            new() { Name = "Drone Zone", Tag = "SomaFM · Atmospheric", Url = "https://ice5.somafm.com/dronezone-128-aac" },
+            new() { Name = "Secret Agent", Tag = "SomaFM · Cinematic grooves", Url = "https://ice5.somafm.com/secretagent-128-aac" }
+        ]
+    };
 
     public static async Task<int> RunAsync(string[] args, params TestSuite[] suites)
     {

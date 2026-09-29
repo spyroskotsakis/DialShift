@@ -59,5 +59,9 @@
     <Content Include="..\data\output\app-catalog.json" Link="app-catalog.json"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
              Condition="Exists('..\data\output\app-catalog.json')" />
+    <!-- First-run starter stations (data/output/starter-stations.json), seeded when there is no settings.json yet. -->
+    <Content Include="..\data\output\starter-stations.json" Link="starter-stations.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('..\data\output\starter-stations.json')" />
   </ItemGroup>
 </Project>

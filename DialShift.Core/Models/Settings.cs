@@ -12,13 +12,10 @@ public sealed class Settings
     public Guid? FallbackStationId { get; set; }
     public Guid? LastStationId { get; set; }
 
-    public static Settings Defaults() => new()
-    {
-        Stations =
-        [
-            new() { Name = "Groove Salad", Tag = "SomaFM · Ambient / downtempo", Url = "https://ice5.somafm.com/groovesalad-128-aac" },
-            new() { Name = "Drone Zone", Tag = "SomaFM · Atmospheric", Url = "https://ice5.somafm.com/dronezone-128-aac" },
-            new() { Name = "Secret Agent", Tag = "SomaFM · Cinematic grooves", Url = "https://ice5.somafm.com/secretagent-128-aac" }
-        ]
-    };
+    /// <summary>
+    /// A fresh install starts with no stations. The three starter stations are seeded on first run from the bundled
+    /// <c>starter-stations.json</c> (see DialShift.App's <c>StarterStations</c>), so the source of truth for station
+    /// data stays in <c>data/</c> and out of C# literals (CAT-17).
+    /// </summary>
+    public static Settings Defaults() => new();
 }

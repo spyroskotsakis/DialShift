@@ -57,7 +57,13 @@ public sealed class AppHarness : IAsyncDisposable
             if (seed != null)
                 services.AddSingleton(sp =>
                 {
-                    var settings = sp.GetRequiredService<SettingsStore>().Load();
+                    var store = sp.GetRequiredService<SettingsStore>();
+                    var settings = store.Load();
+                    // Mirror the production first-run seed (AppComposition) with the test fixture, so a seeded scenario sees
+                    // the same starter stations the real app seeds on first run (starter-stations.json is not copied into the
+                    // test output directory, so StarterStations.Load would return empty here).
+                    if (!File.Exists(store.FilePath) && settings.Stations.Count == 0)
+                        settings.Stations = TestHarness.StarterSettings().Stations;
                     seed(settings);
                     return settings;
                 });

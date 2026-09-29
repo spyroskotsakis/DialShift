@@ -15,7 +15,7 @@ public static class ScheduleSessionTests
     /// <summary>Schedule on; slot A Mon 09:00 (station 0), slot B Mon 11:00 (station 1).</summary>
     private static (Settings Settings, ScheduleEntry A, ScheduleEntry B) TwoSlots()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.ScheduleEnabled = true;
         var a = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "09:00", Days = [DayOfWeek.Monday] };
         var b = new ScheduleEntry { StationId = settings.Stations[1].Id, Time = "11:00", Days = [DayOfWeek.Monday] };
@@ -40,7 +40,7 @@ public static class ScheduleSessionTests
 
     private static void LegacyDst()
     {
-        var stations = Settings.Defaults().Stations;
+        var stations = StarterSettings().Stations;
         var dst = new Settings { Stations = stations, Schedule = [new() { StationId = stations[0].Id, Time = "03:30", Days = [DayOfWeek.Sunday] }] };
         dst.ScheduleEnabled = true;
         var session = new ScheduleSession();
@@ -86,7 +86,7 @@ public static class ScheduleSessionTests
 
     private static void HoldWithNoCurrent()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.ScheduleEnabled = true;
         var session = new ScheduleSession();
         session.HoldCurrent(settings, Mon(8, 30)); // no slots yet: nothing current, nothing held
@@ -117,7 +117,7 @@ public static class ScheduleSessionTests
 
     private static void EditedSlotFires()
     {
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.ScheduleEnabled = true;
         var slot = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "10:00", Days = [DayOfWeek.Monday] };
         settings.Schedule.Add(slot);
@@ -132,7 +132,7 @@ public static class ScheduleSessionTests
     {
         // CF-02: after the wall clock is corrected backwards past a fired slot, the older occurrence that becomes current at
         // the jump is adopted silently (last week's slot is not replayed), but a slot the clock then reaches fires.
-        var settings = Settings.Defaults();
+        var settings = StarterSettings();
         settings.ScheduleEnabled = true;
         var tuesday = new ScheduleEntry { StationId = settings.Stations[0].Id, Time = "09:00", Days = [DayOfWeek.Tuesday] };
         var wednesday = new ScheduleEntry { StationId = settings.Stations[1].Id, Time = "10:00", Days = [DayOfWeek.Wednesday] };

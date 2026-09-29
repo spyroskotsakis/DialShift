@@ -44,7 +44,16 @@ public static class AppComposition
         services.AddSingleton(_ => new SettingsStore(paths.DataDirectory));
         // Loading runs on first resolution, inside App startup: if the corrupt-file backup copy throws, the
         // startup-failure path reports it (BHV-03, BHV-04).
-        services.AddSingleton(sp => sp.GetRequiredService<SettingsStore>().Load());
+        services.AddSingleton(sp =>
+        {
+            var store = sp.GetRequiredService<SettingsStore>();
+            var settings = store.Load();
+            // First run (no settings.json yet): seed the starter stations bundled next to the apphost. Station data stays
+            // in data/ (CAT-17), never as C# literals. The list is not saved here; the next Save persists whatever it becomes.
+            if (!File.Exists(store.FilePath) && settings.Stations.Count == 0)
+                settings.Stations = StarterStations.Load(AppContext.BaseDirectory);
+            return settings;
+        });
 
         services.AddSingleton<IPlaybackCoordinator>(sp =>
         {

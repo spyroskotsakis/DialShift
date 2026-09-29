@@ -117,8 +117,8 @@ internal static class CatalogSettingsTests
         if (!saved.AsSpan().SequenceEqual(PreBrief)) Console.WriteLine("  saved:\n" + Encoding.UTF8.GetString(saved));
         Check("CAT-15 saving the loaded pre-brief settings is byte-for-byte identical to the pre-brief file (null Notes writes nothing)",
             saved.AsSpan().SequenceEqual(PreBrief));
-        Check("CAT-15 Settings.Defaults: Version 1 and every default station without Notes",
-            Settings.Defaults() is { Version: 1 } d && d.Stations.All(s => s.Notes is null) && new Station().Notes is null);
+        Check("CAT-15 Settings.Defaults: Version 1 and no stations (the starter list is seeded from the data file)",
+            Settings.Defaults() is { Version: 1 } d && d.Stations.Count == 0 && new Station().Notes is null);
     }
 
     private static void NotesRoundTrip(string directory)
@@ -180,8 +180,8 @@ internal static class CatalogSettingsTests
         var loaded = store.Load();
         var backups = Backups(directory);
         Check("CAT-15 [hazard] \"Notes\": 123 resets to defaults with a .unreadable-* copy (D61, like CT-SET-11; pinned, not fixed)",
-            backups.Length == 1 && File.ReadAllBytes(backups[0]).AsSpan().SequenceEqual(original) && loaded.Stations.Count == 3
-            && loaded.Stations[0].Name == "Groove Salad" && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
+            backups.Length == 1 && File.ReadAllBytes(backups[0]).AsSpan().SequenceEqual(original) && loaded.Stations.Count == 0
+            && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
     }
 
     // ─── CAT-20: the persisted VPN region (D120, the Notes recipe) ───
@@ -264,7 +264,7 @@ internal static class CatalogSettingsTests
         var loaded = store.Load();
         var backups = Backups(directory);
         Check("CAT-20 [hazard] \"VpnRegion\": 123 resets to defaults with a .unreadable-* copy (D120, like CT-SET-11/\"Notes\": 123; pinned, not fixed)",
-            backups.Length == 1 && File.ReadAllBytes(backups[0]).AsSpan().SequenceEqual(original) && loaded.Stations.Count == 3
-            && loaded.Stations[0].Name == "Groove Salad" && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
+            backups.Length == 1 && File.ReadAllBytes(backups[0]).AsSpan().SequenceEqual(original) && loaded.Stations.Count == 0
+            && store.Warning is not null && store.Warning.Contains(backups[0], StringComparison.Ordinal));
     }
 }

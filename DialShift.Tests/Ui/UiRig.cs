@@ -34,6 +34,10 @@ public sealed class UiRig : IAsyncDisposable
         if (settingsJson != null) File.WriteAllText(Paths.SettingsFile, settingsJson);
         Store = new SettingsStore(Paths.DataDirectory);
         Settings = Store.Load();
+        // Fresh install (no settings.json): seed the starter stations the real app seeds on first run (CAT-17). The
+        // scenario's seed then mutates this populated state, so empty-state tests reach empty by deleting from it.
+        if (settingsJson is null && Settings.Stations.Count == 0)
+            Settings.Stations = TestHarness.StarterSettings().Stations;
         seed?.Invoke(Settings);
         Clock = new FakeClock(now ?? DefaultNow);
         Zone = zone ?? TimeZoneInfo.Utc;

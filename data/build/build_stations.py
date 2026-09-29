@@ -254,7 +254,8 @@ def build_country(cfg, force_refresh=False):
                    notes=entry.get('notes', desc), source=source,
                    timezone=row_timezone(ccity, entry),
                    requires_vpn=entry.get('requires_vpn') is True,
-                   vpn_region=entry.get('vpn_region') or '')
+                   vpn_region=entry.get('vpn_region') or '',
+                   starter=entry.get('starter') is True)
         # focus membership: explicit entry flag (true = first focus area, or a
         # label/city/region name), or a terrestrial row in a focus city/region
         fc = entry.get('focus')
@@ -459,7 +460,7 @@ def rb_search(name, limit=8):
 def build_collection(cfg):
     rows = []
     cache = {}
-    for e in cfg.get('stations', []):
+    for order, e in enumerate(cfg.get('stations', [])):
         pinned = e.get('url')
         s = None
         # search radio-browser even for pinned entries: favicon comes from there
@@ -490,7 +491,8 @@ def build_collection(cfg):
                          logo=clean_logo(e.get('logo') or (s or {}).get('favicon', '')),
                          notes=e.get('notes', ''), source='curated', focus_area='',
                          timezone='', requires_vpn=e.get('requires_vpn') is True,
-                         vpn_region=e.get('vpn_region') or ''))
+                         vpn_region=e.get('vpn_region') or '', starter=e.get('starter') is True,
+                         starter_order=order))
     rows.sort(key=lambda r: r['name'].lower())
     return rows
 

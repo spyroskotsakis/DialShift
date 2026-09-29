@@ -20,6 +20,7 @@ column widths) so it opens cleanly in macOS Numbers.
 """
 import csv
 import hashlib
+import json
 import ssl
 import sys
 import urllib.request
@@ -208,6 +209,19 @@ def main():
         sys.exit(1)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     write_app_catalog(app_doc, app_json)
+
+    # The first-run default stations (data/collections ambient-chill entries marked `starter: true`), written as a
+    # tiny loose file the app reads synchronously on first launch. The `tag` mirrors the entry's genre — the same
+    # display label the app shows for a hand-added station — so the seeded stations look exactly as they always have.
+    # Source order (YAML order) is preserved, not alphabetical, so the first-run list matches the historical default
+    # order (Groove Salad, Drone Zone, Secret Agent).
+    starters = sorted((r for _, rows in sources for r in rows if r.get('starter') and r.get('stream_url')),
+                      key=lambda r: r.get('starter_order', 0))
+    starter_json = OUTPUT / 'starter-stations.json'
+    with open(starter_json, 'w', encoding='utf-8') as f:
+        json.dump([{'name': r['name'], 'stream_url': r['stream_url'], 'tag': r['genre']} for r in starters],
+                  f, ensure_ascii=False, indent=2)
+    print(f"starter-stations: {len(starters)} -> {starter_json.relative_to(DATA_DIR.parent)}")
 
     all_rows = [r for rows in per_country.values() for r in rows]
     working = [r for r in all_rows if r['stream_status'] == 'Working' and r['stream_url']]

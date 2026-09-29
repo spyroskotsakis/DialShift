@@ -940,7 +940,7 @@ public static class ViewModelTests
         await using var rig = UiRig.CreateViewModels(settingsJson: "{ this is not json");
         var backups = Directory.GetFiles(rig.Paths.DataDirectory, "settings.json.unreadable-*");
         Check("HS-07 BHV-03 a corrupt settings.json is backed up as settings.json.unreadable-* and defaults load",
-            backups.Length == 1 && rig.Store.Warning != null && rig.Settings.Stations.Count == 3 && File.ReadAllText(backups[0]) == "{ this is not json");
+            backups.Length == 1 && rig.Store.Warning != null && rig.Settings.Stations.Count == 0 && File.ReadAllText(backups[0]) == "{ this is not json");
         await rig.ViewModel.ShowSettingsRecoveredAsync(rig.Store.Warning);
         await rig.ViewModel.ShowSettingsRecoveredAsync(rig.Store.Warning);
         Check("HS-07 BHV-03 the \"DialShift · Settings recovered\" notice is shown once, naming the backup",

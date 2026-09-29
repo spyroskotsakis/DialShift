@@ -150,7 +150,7 @@ public static class HeadlessUiTests
             Shows(window, "SCHEDULE OFF · You're in control") && Shows(window, "LOCAL TIME · " + TimeZoneInfo.Utc.StandardName));
         Check("HS-01 BHV-51 Stations page: title, \"03  SAVED FREQUENCIES\", \"+  Add station\", credit line",
             Shows(window, "Your stations") && Shows(window, "03  SAVED FREQUENCIES") && Shows(window, "+  Add station")
-            && Shows(window, "Starter stations by SomaFM. Add your Greek favorites with their direct stream URLs."));
+            && Shows(window, "Starter stations by SomaFM. Add your own favorites with their direct stream URLs."));
         Check("HS-01 BHV-51 each row: initial tile, name, tag, \"▶  Listen\" and \"Edit\"",
             new[] { ("G", "Groove Salad", "SomaFM · Ambient / downtempo"), ("D", "Drone Zone", "SomaFM · Atmospheric"), ("S", "Secret Agent", "SomaFM · Cinematic grooves") }
                 .All(r => Shows(window, r.Item1) && Shows(window, r.Item2) && Shows(window, r.Item3))
