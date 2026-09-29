@@ -67,6 +67,7 @@ public sealed class StationEditorViewModel : EditorViewModel
     private int totalCount;
     private string totalCountText = "";
     private string? previewingUrl;
+    private CatalogResultRow? previewingRow;
     private bool hasNoMatches;
     private bool isResultsOpen;
     private bool searchInFlight;
@@ -308,12 +309,22 @@ public sealed class StationEditorViewModel : EditorViewModel
     public async Task TogglePreviewAsync(CatalogResultRow row)
     {
         var url = row.Entry.StreamUrl;
-        if (string.Equals(previewingUrl, url, StringComparison.Ordinal))
+        if (ReferenceEquals(previewingRow, row))
         {
+            // This exact row is the one previewing: stop (a hard stop that ends the preview entirely).
             await coordinator.StopAsync();
-            PreviewingUrl = null;
+            ClearPreview();
             return;
         }
+        if (string.Equals(previewingUrl, url, StringComparison.Ordinal))
+        {
+            // The same stream is already previewing through another row: move the highlight to this row without
+            // restarting the stream (two catalog entries can share one stream URL, e.g. regional affiliates).
+            previewingRow = row;
+            UpdatePreviewState();
+            return;
+        }
+        previewingRow = row;
         PreviewingUrl = url;
         try
         {
@@ -323,7 +334,7 @@ public sealed class StationEditorViewModel : EditorViewModel
         {
             // Nothing is playing after all: clear the flag (which refreshes every row's state) so the buttons return to
             // play instead of claiming a stop over silence. The failure is reported like any failed command.
-            if (string.Equals(previewingUrl, url, StringComparison.Ordinal)) PreviewingUrl = null;
+            if (ReferenceEquals(previewingRow, row)) ClearPreview();
             throw;
         }
     }
@@ -332,10 +343,17 @@ public sealed class StationEditorViewModel : EditorViewModel
     /// Fire and forget: the dialog is closing, and a failed stop is reported like any failed command.</summary>
     private async void StopPreview()
     {
-        if (previewingUrl == null) return;
-        PreviewingUrl = null;
+        if (previewingRow == null) return;
+        ClearPreview();
         try { await coordinator.StopAsync(); }
         catch (Exception ex) { onError(ex); }
+    }
+
+    /// <summary>Clears the preview state — the tracked row and its URL — and refreshes every row's buttons.</summary>
+    private void ClearPreview()
+    {
+        previewingRow = null;
+        PreviewingUrl = null;
     }
 
     /// <summary>
@@ -347,17 +365,18 @@ public sealed class StationEditorViewModel : EditorViewModel
     {
         foreach (var row in results)
         {
-            var previewing = string.Equals(row.Entry.StreamUrl, previewingUrl, StringComparison.Ordinal);
+            var previewing = ReferenceEquals(row, previewingRow);
             row.IsPreviewing = previewing;
             row.ShowPreview = previewing || ReferenceEquals(row, highlighted);
         }
         // The detail pane binds DetailRow (highlighted ?? selectedRow). A picked row survives a later search that
-        // replaced the list (D89), so it can be absent from results; point it at PreviewingUrl too, or a picked-but-
-        // not-listed station would preview with no visible stop. IndexOf is reference-based, so this only touches a
-        // detail row the loop above did not already reach — never the highlighted row, which must keep ShowPreview = true.
+        // replaced the list (D89), so it can be absent from results; point it at the previewing row too, or a
+        // picked-but-not-listed station would preview with no visible stop. IndexOf is reference-based, so this only
+        // touches a detail row the loop above did not already reach — never the highlighted row, which must keep
+        // ShowPreview = true.
         if (detailRow is { } detail && IndexOf(results, detail) < 0)
         {
-            var previewing = string.Equals(detail.Entry.StreamUrl, previewingUrl, StringComparison.Ordinal);
+            var previewing = ReferenceEquals(detail, previewingRow);
             detail.IsPreviewing = previewing;
             detail.ShowPreview = previewing;
         }

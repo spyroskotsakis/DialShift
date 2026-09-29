@@ -36,6 +36,7 @@ internal static class CatalogViewModelTests
         await VpnPickAndBadge();
         await ShowMorePaging();
         await QuickPlayPreview();
+        await DuplicateStreamUrlPreviewKeysOnRowNotUrl();
         await DetailPreviewOfPickedRowAbsentFromResults();
         await EditModeUnchanged();
         await DetailPlaceholders();
@@ -757,6 +758,49 @@ internal static class CatalogViewModelTests
         vm.HighlightedResult = null;
         Check("QM-01 the button goes with the highlight and nothing is left previewing",
             !melodia.ShowPreview && !vm.IsPreviewing && rig.Journal.Entries.All(e => !e.StartsWith("coordinator.PlayAsync", StringComparison.Ordinal)));
+    }
+
+    // ─── QM-01 regression: two rows sharing one stream URL preview one row, not the URL ───
+
+    /// <summary>
+    /// Two catalog entries can resolve to the same stream (regional affiliates of one network share a national URL). The
+    /// preview highlight used to key on <c>Entry.StreamUrl</c>, so playing one lit the stop icon on every row with the same
+    /// URL — the "stop icon appears on stations with different names" report. The fix keys the highlight on the row (its
+    /// reference), so only the clicked row flips, and playing a second same-URL row moves the highlight without restarting
+    /// the stream.
+    /// </summary>
+    private static async Task DuplicateStreamUrlPreviewKeysOnRowNotUrl()
+    {
+        const string sharedUrl = "https://streams.example.org/aegis-network";
+        var north = new StationCatalogEntry { Name = "Aegis FM North", Country = "GR", CountryLabel = "Greece", StreamUrl = sharedUrl, Votes = 5, Tag = "Regional" };
+        var south = new StationCatalogEntry { Name = "Aegis FM South", Country = "GR", CountryLabel = "Greece", StreamUrl = sharedUrl, Votes = 4, Tag = "Regional" };
+        var rig = new EditorRig(Loaded([north, south]));
+        await rig.Settled();
+        var vm = rig.Vm;
+        var northRow = vm.Results.Single(r => r.Entry == north);
+        var southRow = vm.Results.Single(r => r.Entry == south);
+
+        var mark = rig.Journal.Count;
+        await northRow.PreviewCommand.ExecuteAsync();
+        Check("QM-01 two same-URL rows: playing one calls PlayPreviewAsync once and lights ONLY that row (not the URL-twin)",
+            rig.Journal.Since(mark).SequenceEqual(["coordinator.PlayPreviewAsync:Aegis FM North:https://streams.example.org/aegis-network"])
+            && northRow.IsPreviewing && northRow.PreviewAutomationName == "Stop Aegis FM North"
+            && !southRow.IsPreviewing && southRow.PreviewAutomationName == "Listen Aegis FM South"
+            && vm.IsPreviewing && vm.PreviewingUrl == sharedUrl);
+
+        mark = rig.Journal.Count;
+        await southRow.PreviewCommand.ExecuteAsync();
+        Check("QM-01 playing the URL-twin moves the highlight to it without a second PlayPreviewAsync (no restart)",
+            rig.Journal.Count == mark
+            && southRow.IsPreviewing && southRow.PreviewAutomationName == "Stop Aegis FM South"
+            && !northRow.IsPreviewing && northRow.PreviewAutomationName == "Listen Aegis FM North"
+            && vm.IsPreviewing && vm.PreviewingUrl == sharedUrl);
+
+        mark = rig.Journal.Count;
+        await southRow.PreviewCommand.ExecuteAsync();
+        Check("QM-03 stopping the moved highlight calls StopAsync once and clears every row",
+            rig.Journal.Since(mark).SequenceEqual(["coordinator.StopAsync"])
+            && !southRow.IsPreviewing && !northRow.IsPreviewing && !vm.IsPreviewing && vm.PreviewingUrl == null);
     }
 
     // ─── QM-01/QM-03 + D89 regression: the detail pane's play/stop stays honest when the picked station left the list ───

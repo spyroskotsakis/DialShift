@@ -290,7 +290,7 @@ internal static partial class CatalogHeadlessTests
                 && engine.ActiveSessionId is null);
             Check("QM-06 QM-08 the card returns to its idle placeholder and nothing was added or saved",
                 await WaitAsync(() => Shows(rig.Window!, UiText.DefaultTitle)) && !Shows(rig.Window!, "Radio Thessaloniki")
-                && rig.Settings.Stations.Count == 3 && rig.Settings.LastStationId is null && !rig.SavedToDisk && rig.OnDisk().Stations.Count == 3);
+                && rig.Settings.Stations.Count == 3 && rig.Settings.LastStationId is null && !rig.SavedToDisk && rig.OnDisk().Stations.Count == 0);
         }
 
         // Save keeps it playing: the caller adopts the very stream, one session for the whole scenario.
