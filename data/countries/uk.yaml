@@ -227,9 +227,7 @@ curated:
   type: Music
   genre: Adult contemporary
   leaning: None
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: Large, established commercial music brand (Bauer). Stream geo-restricted outside the UK.
+  notes: Large, established commercial music brand (Bauer).
 - match:
   - greatest hits radio
   name: Greatest Hits Radio
@@ -238,9 +236,7 @@ curated:
   type: Music
   genre: Classic hits
   leaning: None
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: National Bauer nostalgia and classic-hits network (70s-00s). Stream geo-restricted outside the UK.
+  notes: National Bauer nostalgia and classic-hits network (70s-00s).
 - match:
   - absolute radio
   name: Absolute Radio
@@ -249,9 +245,7 @@ curated:
   type: Music
   genre: Rock / Indie
   leaning: None
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: Major UK rock and entertainment brand (Bauer). Stream geo-restricted outside the UK.
+  notes: Major UK rock and entertainment brand (Bauer).
 - match:
   - hits radio
   name: Hits Radio
@@ -261,9 +255,7 @@ curated:
   genre: Pop / Hits
   leaning: None
   url: https://stream-al.hellorayo.co.uk/key.aac?aw_0_1st.skey=1602676850&direct=true&rp_source=1
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: Major Bauer national pop network. Stream geo-restricted outside the UK.
+  notes: Major Bauer national pop network.
 - match:
   - jazz fm
   name: Jazz FM
@@ -273,7 +265,7 @@ curated:
   genre: Jazz / Soul / Blues
   leaning: None
   no_auto_stream: true
-  notes: The UK's leading jazz-oriented commercial brand (Bauer). Stream geo-restricted outside the UK.
+  notes: The UK's leading jazz-oriented commercial brand (Bauer).
 # ---------------------------------------------------------------- news / sports talk
 - match:
   - talksport
@@ -420,9 +412,7 @@ curated:
   type: Music
   genre: Rock
   leaning: None
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: Bauer's national rock network. Stream geo-restricted outside the UK.
+  notes: Bauer's national rock network.
 - match:
   - kisstory
   name: KISSTORY
@@ -431,9 +421,7 @@ curated:
   type: Music
   genre: Old skool / Anthems
   leaning: None
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: Kiss spin-off for old-skool and anthems (Bauer). Stream geo-restricted outside the UK.
+  notes: Kiss spin-off for old-skool and anthems (Bauer).
 - match:
   - kerrang radio
   name: Kerrang! Radio
@@ -442,6 +430,4 @@ curated:
   type: Music
   genre: Rock / Metal
   leaning: None
-  requires_vpn: true
-  vpn_region: United Kingdom
-  notes: Bauer's rock/metal brand. Stream geo-restricted outside the UK.
+  notes: Bauer's rock/metal brand.
