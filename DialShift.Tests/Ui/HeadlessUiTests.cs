@@ -43,6 +43,7 @@ public static class HeadlessUiTests
         await Headless.RunAsync(SettingsPageControls);
         await Headless.RunAsync(SettingsTransferControls);
         await Headless.RunAsync(VpnBadges);
+        await Headless.RunAsync(VpnBadgeCompactWidth);
         await AppLifecycleTests.RunAsync();
         await PlaybackLoopTests.RunAsync();
         await Headless.RunAsync(LongStationNameInPickers);
@@ -745,13 +746,23 @@ public static class HeadlessUiTests
     /// The Stations page draws the badge on a flagged row only, and the tray names a flagged station "Name · VPN"
     /// (<see cref="UiText.VpnTag"/>), with the region kept in the app; <c>VpnRegion</c> is part of the tray's rebuild
     /// signature, so clearing it rebuilds the menu and drops the suffix. The Add dialog's badges are in
-    /// <see cref="CatalogHeadlessTests"/>.
+    /// <see cref="CatalogHeadlessTests"/>; the four placements the design review flagged as uncovered — the Schedule
+    /// row, the Schedule editor's station picker, the Settings fallback picker and the now-playing badge — render here,
+    /// and <see cref="VpnBadgeCompactWidth"/> renders the badge at the smallest supported window.
     /// </summary>
     private static async Task VpnBadges()
     {
         var harbour = new Station { Name = "Harbour FM", Url = "https://streams.example.org/harbour", Tag = "Public · News", VpnRegion = "United Kingdom" };
         var anywhere = new Station { Name = "Melodia 99.2", Url = "https://streams.example.org/melodia", Tag = "Commercial · Pop" };
-        await using var rig = await UiRig.CreateHeadlessAsync(tray: true, seed: s => s.Stations = [harbour, anywhere]);
+        await using var rig = await UiRig.CreateHeadlessAsync(tray: true, seed: s =>
+        {
+            s.Stations = [harbour, anywhere];
+            s.Schedule =
+            [
+                new ScheduleEntry { StationId = harbour.Id, Time = "09:00", Days = [DayOfWeek.Monday] },
+                new ScheduleEntry { StationId = anywhere.Id, Time = "10:00", Days = [DayOfWeek.Monday] }
+            ];
+        });
         var window = rig.Window!;
 
         Check("CAT-21 VPN-04 the Stations page renders the badge on the flagged row only",
@@ -764,6 +775,64 @@ public static class HeadlessUiTests
         Check("CAT-21 VPN-08 the tray station item gets the \" · VPN\" suffix (the region stays in the app); the plain one keeps its name",
             StationItems().SequenceEqual(["Harbour FM · VPN", "Melodia 99.2"]));
 
+        // Placement 1: the Schedule page badge, before the flagged slot's station name and only on that row.
+        await ShowPage(rig, "Schedule");
+        Check("CAT-21 VPN-05 the Schedule page renders the badge on the flagged slot's row only",
+            Shows(window, "VPN · United Kingdom") && Find<Border>(window).Count(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible) == 1);
+        Console.WriteLine("  PNG: " + Screenshot(window, "schedule-vpn-badge"));
+
+        // Placement 2: the Schedule editor's station picker. Its items are Stations, so the badge rides the flagged
+        // item's template; the plain station's item draws none.
+        var count = OpenedWindows.Count;
+        _ = rig.ViewModel.Schedule.AddCommand.ExecuteAsync();
+        var slotEditor = await WaitForWindowAsync<ScheduleEditorDialog>(count);
+        var stationPicker = ByName<ComboBox>(slotEditor, ScheduleEditorViewModel.StationAutomationName);
+        await ClickAsync(stationPicker);
+        var pickerItems = PickerItems(stationPicker, slotEditor);
+        var pickerRows = Find<ComboBoxItem>(pickerItems).ToList();
+        var pickerBadges = pickerRows.Where(r => VisibleBadge(r) is not null).ToList();
+        Check("CAT-21 VPN-06 the Schedule editor's station picker shows the badge on the flagged station's item only",
+            pickerRows.Count == 2 && pickerBadges.Count == 1
+            && pickerBadges[0].DataContext is Station flagged && flagged.Id == harbour.Id
+            && Find<TextBlock>(pickerBadges[0]).Any(t => t.Text == "VPN · United Kingdom"));
+        Console.WriteLine("  PNG: " + Screenshot(slotEditor, "schedule-editor-vpn-badge"));
+        stationPicker.IsDropDownOpen = false;
+        await PumpAsync();
+        slotEditor.Close();
+        await PumpAsync();
+
+        // Placement 3: the Settings fallback picker, on the flagged option's item only ("No fallback" and the plain
+        // station's option draw none).
+        await ShowPage(rig, "Settings");
+        var fallback = ByName<ComboBox>(window, "Fallback station");
+        await ClickAsync(fallback);
+        var fallbackRows = Find<ComboBoxItem>(PickerItems(fallback, window)).ToList();
+        var fallbackBadges = fallbackRows.Where(r => VisibleBadge(r) is not null).ToList();
+        Check("CAT-21 VPN-07 the Settings fallback picker shows the badge on the flagged station's option only",
+            fallbackRows.Count == 3 && fallbackBadges.Count == 1
+            && fallbackBadges[0].DataContext is FallbackOption { Id: var flaggedId } && flaggedId == harbour.Id
+            && Find<TextBlock>(fallbackBadges[0]).Any(t => t.Text == "VPN · United Kingdom"));
+        Console.WriteLine("  PNG: " + Screenshot(window, "settings-vpn-badge"));
+        fallback.IsDropDownOpen = false;
+        await PumpAsync();
+
+        // Placement 4: now-playing. With nothing on air and the Settings page shown (its fallback picker idle on
+        // "No fallback"), no badge is visible; the flagged station on air draws one beside the player-card title.
+        Check("CAT-21 VPN-09 fixture: with nothing playing no badge is visible on the Settings page",
+            !Find<Border>(window).Any(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible));
+        rig.Fake!.Publish(new PlaybackSnapshot(PlaybackStatus.Playing, null, null, harbour.Id, harbour.Name, true, true, false, "Live broadcast", "", null, null, null, 60));
+        await WaitAsync(() => Find<Border>(window).Any(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible));
+        Layout(window);
+        var nowPlaying = Find<Border>(window).Single(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible);
+        Check("CAT-21 VPN-09 the player card shows the now-playing badge beside the title: \"VPN · United Kingdom\"",
+            Shows(window, harbour.Name) && Find<TextBlock>(nowPlaying).Single().Text == "VPN · United Kingdom");
+        Console.WriteLine("  PNG: " + Screenshot(window, "now-playing-vpn-badge"));
+        rig.Fake.Publish(new PlaybackSnapshot(PlaybackStatus.Playing, null, null, anywhere.Id, anywhere.Name, true, true, false, "Live broadcast", "", null, null, null, 60));
+        await WaitAsync(() => !Find<Border>(window).Any(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible));
+        Check("CAT-21 VPN-09 a station without a region drops the now-playing badge", !Shows(window, "VPN · United Kingdom"));
+
+        // Back to the Stations page for the in-place clearing checks.
+        await ShowPage(rig, "Stations");
         var rebuilds = tray.RebuildCount;
         harbour.VpnRegion = null;
         await rig.SettingsService.CommitAsync(SettingsChange.Stations);
@@ -773,6 +842,37 @@ public static class HeadlessUiTests
             tray.RebuildCount == rebuilds + 1 && StationItems().SequenceEqual(["Harbour FM", "Melodia 99.2"]));
         Check("CAT-21 VPN-04 clearing the region drops the Stations page badge too, in place",
             !Shows(window, "VPN · United Kingdom") && !Find<Border>(window).Any(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible));
+    }
+
+    /// <summary>
+    /// The drop-down content of an open picker: the <c>PART_Popup</c>'s child, whose item containers (and their badges) a
+    /// visual search reaches where the window's tree does not (the popup belongs to a separate root).
+    /// </summary>
+    private static Control PickerItems(ComboBox combo, Window window)
+    {
+        var items = (Control)Find<Popup>(combo).Single(p => p.Name == "PART_Popup").Child!;
+        Layout(window);
+        items.UpdateLayout();
+        return items;
+    }
+
+    /// <summary>The visible <c>vpnBadge</c> border under <paramref name="root"/>, or null when it draws none.</summary>
+    private static Border? VisibleBadge(Visual root) =>
+        Find<Border>(root).FirstOrDefault(b => b.Classes.Contains("vpnBadge") && b.IsEffectivelyVisible);
+
+    /// <summary>
+    /// D120: at the smallest supported window (780×650, BHV-24) the badge's longest catalog wording ("United Kingdom")
+    /// renders whole on the Stations row instead of clipping — the compact-width render gap the design review flagged.
+    /// </summary>
+    private static async Task VpnBadgeCompactWidth()
+    {
+        var harbour = new Station { Name = "Harbour FM", Url = "https://streams.example.org/harbour", Tag = "Public · News", VpnRegion = "United Kingdom" };
+        await using var rig = await UiRig.CreateHeadlessAsync(width: 780, height: 650, seed: s => s.Stations = [harbour]);
+        var window = rig.Window!;
+        Check("CAT-21 VPN-04 compact: the window is at its 780×650 minimum", window.ClientSize == new Size(780, 650));
+        Check("CAT-21 VPN-04 compact 780×650 the Stations row renders the whole \"VPN · United Kingdom\" badge with nothing trimmed or clipped",
+            Shows(window, "VPN · United Kingdom") && ClippedTexts(window).Count == 0);
+        Console.WriteLine("  PNG: " + Screenshot(window, "compact-vpn-badge"));
     }
 
     // ─── Settings page controls (BHV-59 inline diagnostic, BHV-60, BHV-61) ───
