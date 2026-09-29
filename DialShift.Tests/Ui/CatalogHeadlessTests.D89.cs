@@ -39,7 +39,8 @@ internal static partial class CatalogHeadlessTests
         public SteppedEditor(CatalogLoadResult result, TimeSpan searchDelay)
         {
             Catalog = new FakeCatalogProvider { Result = result };
-            Editor = new StationEditorViewModel(Settings, null, new RecordingDialogService(), Errors.Add, Catalog, new FakeLogoLoader(), Ui, searchDelay);
+            Editor = new StationEditorViewModel(Settings, null, new RecordingDialogService(), Errors.Add, Catalog, new FakeLogoLoader(), Ui,
+                new FakeCoordinator(new Journal()), searchDelay);
             Dialog = new StationEditorDialog(Editor);
         }
 

@@ -30,6 +30,7 @@ public static class ViewModelTests
         await CommandRouting();
         await VolumeRules();
         await StationEditorValidation();
+        await StationEditorQuickPlay();
         await StationDeleteFlow();
         await SlotEditorValidation();
         await SlotConflictAndEdit();
@@ -318,8 +319,9 @@ public static class ViewModelTests
         var added = rig.Settings.Stations[^1];
         Check("HS-02 BHV-52 save trims values and defaults the description to \"Internet radio\"",
             added is { Name: "Kosmos", Tag: "Internet radio", Url: "http://radio.example.org/kosmos" });
-        Check("HS-02 BHV-52 MX-01 add commits Stations (coordinator told), saves, and the page shows it",
-            rig.Since(mark) == "settings.commit:Stations > coordinator.NotifySettingsChangedAsync"
+        Check("HS-02 BHV-52 MX-01 add commits Stations (coordinator told), starts it, saves, and the page shows it",
+            // Adding a station starts playing it: the coordinator is handed the new id, then the settings are saved again.
+            rig.Since(mark) == $"settings.commit:Stations > coordinator.NotifySettingsChangedAsync > coordinator.PlayAsync:{added.Id} > settings.save"
             && rig.OnDisk().Stations.Any(s => s.Id == added.Id && s.Name == "Kosmos") && page.Rows[^1].Name == "Kosmos" && page.CountText == "04  SAVED FREQUENCIES");
 
         rec.StationScripts.Enqueue(editor =>
@@ -335,6 +337,115 @@ public static class ViewModelTests
             rig.Settings.Stations[^1].Id == added.Id && rig.OnDisk().Stations.Single(s => s.Id == added.Id).Name == "Kosmos 93.6" && page.Rows[^1].Name == "Kosmos 93.6");
         Check("HS-02 BHV-52 field limits: name 100, description 160, URL 2048",
             StationEditorViewModel.NameMaxLength == 100 && StationEditorViewModel.TagMaxLength == 160 && StationEditorViewModel.UrlMaxLength == 2048);
+    }
+
+    // ─── HS-02 / QM: the Add dialog's quick-play preview and what Add does with it ───
+
+    /// <summary>
+    /// The Add dialog's quick-play preview end to end through the Stations page (spec Feature 2; acceptance-matrix §15
+    /// QM-04..06): the editor plays a catalog stream through the coordinator and never its own engine; Cancel stops the
+    /// preview (nothing added, nothing saved); Save leaves it playing, so the caller's <c>PlayAsync(added.Id)</c> adopts the
+    /// very same stream without a restart (the real coordinator's seamless promote) and Add with no preview at all still
+    /// auto-starts the added station. Edit mode plays nothing.
+    /// </summary>
+    private static async Task StationEditorQuickPlay()
+    {
+        // Add with no preview: the editor starts nothing itself; the page commits the station, tells the coordinator, starts it and saves.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rec.StationScripts.Enqueue(editor =>
+            {
+                editor.Name = "Kosmos";
+                editor.Url = "https://streams.example.org/kosmos";
+                editor.SaveCommand.Execute(null);
+                return Task.CompletedTask;
+            });
+            var mark = rig.Journal.Count;
+            await page.AddCommand.ExecuteAsync();
+            var added = rig.Settings.Stations[^1];
+            Check("QM-05 Add with no preview starts the added station: the editor plays nothing, then commit(Stations), notify, PlayAsync(added.Id), save",
+                rig.Since(mark) == $"settings.commit:Stations > coordinator.NotifySettingsChangedAsync > coordinator.PlayAsync:{added.Id} > settings.save"
+                && added is { Name: "Kosmos", Url: "https://streams.example.org/kosmos" }
+                && rig.OnDisk().Stations.Any(s => s.Id == added.Id && s.Name == "Kosmos") && page.Rows[^1].Name == "Kosmos");
+
+            // Edit mode is the plain form: saving it plays nothing (AddedStation is null).
+            rec.StationScripts.Enqueue(editor =>
+            {
+                Check("QM-05 fixture: Edit mode has no AddedStation", editor.AddedStation == null && !editor.IsAddMode);
+                editor.Name = "Kosmos 93.6";
+                editor.SaveCommand.Execute(null);
+                return Task.CompletedTask;
+            });
+            mark = rig.Journal.Count;
+            await page.Rows[^1].EditCommand.ExecuteAsync();
+            Check("QM-05 editing a station plays nothing: one commit(Stations) and the notify, no PlayAsync and no save",
+                rig.Since(mark) == "settings.commit:Stations > coordinator.NotifySettingsChangedAsync" && page.Rows[^1].Name == "Kosmos 93.6");
+        }
+
+        // Cancel while a preview plays: the CloseRequested wiring stops it; nothing is added and nothing is committed.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rig.Catalog.Result = Loaded(Small);
+            rec.StationScripts.Enqueue(async editor =>
+            {
+                if (!await Wait.Until(() => editor.PendingSearch.IsCompleted)) throw new TimeoutException("The catalog search did not settle.");
+                await editor.Results.Single(r => r.Entry == Kosmos).PreviewCommand.ExecuteAsync();
+                Check("QM-06 fixture: the preview is on and the dialog knows the URL",
+                    editor.IsPreviewing && editor.PreviewingUrl == Kosmos.StreamUrl);
+                editor.CancelCommand.Execute(null);
+            });
+            var mark = rig.Journal.Count;
+            await page.AddCommand.ExecuteAsync();
+            Check("QM-06 Cancel while previewing stops the preview (PlayPreviewAsync then StopAsync) and adds nothing at all",
+                rig.Since(mark) == $"coordinator.PlayPreviewAsync:Kosmos 93.6:{Kosmos.StreamUrl} > coordinator.StopAsync"
+                && rig.Settings.Stations.Count == 3 && !rig.SavedToDisk && rig.Settings.Stations.All(s => s.Url != Kosmos.StreamUrl));
+        }
+
+        // Save while a preview plays, over the REAL coordinator: the stream keeps playing and the caller adopts it (one session).
+        await using (var rig = UiRig.CreateViewModels(realCoordinator: true))
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rig.Catalog.Result = Loaded(Small);
+            rec.StationScripts.Enqueue(async editor =>
+            {
+                if (!await Wait.Until(() => editor.PendingSearch.IsCompleted)) throw new TimeoutException("The catalog search did not settle.");
+                var row = editor.Results.Single(r => r.Entry == Kosmos);
+                editor.HighlightedResult = row;
+                editor.SelectEntryCommand.Execute(null); // the pick: the entry's name/tag/URL into the form
+                await row.PreviewCommand.ExecuteAsync(); // the quick listen on that same stream
+                Check("QM-04 fixture: the pick filled the form from the catalog entry and the preview is on its stream",
+                    editor.Name == Kosmos.Name && editor.Url == Kosmos.StreamUrl && editor.IsPreviewing && editor.PreviewingUrl == Kosmos.StreamUrl);
+                editor.SaveCommand.Execute(null);
+            });
+            await page.AddCommand.ExecuteAsync();
+            var added = rig.Settings.Stations[^1];
+            var engine = rig.Engine!;
+            var snapshot = rig.Real!.Snapshot;
+            Check("QM-04 Save while previewing leaves the stream playing (the editor never stops it: no Stop call, still session 1)",
+                engine.Starts.Count == 1 && engine.StopCount == 0 && engine.ActiveSessionId == 1 && engine.CallLog.SequenceEqual(["start:1"]));
+            Check("QM-04 Adding what is previewing adopts the station in place: the same session's snapshot is now the saved station and LastStationId reaches disk",
+                snapshot.CurrentStationId == added.Id && snapshot.DesiredStationId == added.Id
+                && rig.Settings.LastStationId == added.Id && rig.OnDisk().LastStationId == added.Id && added.Url == Kosmos.StreamUrl);
+            Check("QM-04 the adopted stream was never restarted (one engine start in the whole scenario) and nothing was reported",
+                engine.Starts.Count == 1 && engine.Starts[^1].Source.Url == new Uri(Kosmos.StreamUrl) && rig.Log.Entries.All(e => e.EventName != "playback.failed"));
+        }
+
+        // Cancel with no preview at all: no coordinator call whatsoever.
+        await using (var rig = UiRig.CreateViewModels())
+        {
+            var rec = rig.Recorder!;
+            var page = rig.ViewModel.Stations;
+            rec.StationScripts.Enqueue(editor => { editor.CancelCommand.Execute(null); return Task.CompletedTask; });
+            var mark = rig.Journal.Count;
+            await page.AddCommand.ExecuteAsync();
+            Check("QM-06 Cancel with nothing previewing makes no coordinator call and commits nothing",
+                rig.Journal.Count == mark && rig.Settings.Stations.Count == 3 && !rig.SavedToDisk);
+        }
     }
 
     private static async Task StationDeleteFlow()

@@ -110,6 +110,55 @@
       <Setter Property="Padding" Value="2"/>
     </Style>
 
+    <!-- Quick play: a small icon button on the rows the pointer or the keyboard is on, and one that stays in the detail
+         pane's top-right corner while it shows a station. No icon font: the glyph is inline PathIcon geometry in the app's
+         own inks (the secondary one at rest, the accent one on the pointer and while that stream is the one playing).
+         Both are pointed at and pressed, never tabbed to: the dialog's tab cycle is the search box, the filters and the
+         form's own fields and buttons (§5.5), and the results list and the detail pane never take focus (D85). -->
+    <Style Selector="Button.preview">
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="Width" Value="26"/>
+      <Setter Property="Height" Value="26"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.preview PathIcon">
+      <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
+    </Style>
+    <Style Selector="Button.preview:pointerover PathIcon, Button.preview.playing PathIcon">
+      <Setter Property="Foreground" Value="{StaticResource DsAccentBrush}"/>
+    </Style>
+    <Style Selector="Button.preview:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource DsTileBrush}"/>
+    </Style>
+    <!-- A row's play button sits left of the frequency column, clear of the scroll bar under it. -->
+    <Style Selector="Button.preview.inRow">
+      <Setter Property="Margin" Value="8,0,0,0"/>
+    </Style>
+
+    <!-- The footer's "Show more": a compact text control, so the footer and its count text keep their height. A resting
+         border keeps it reading as a control, not as the static count text beside it (QG-03). -->
+    <Style Selector="Button.showMore">
+      <Setter Property="Padding" Value="8,2"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{StaticResource DsSecondaryBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource DsInputBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.showMore:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderBrush" Value="{StaticResource DsAccentBrush}"/>
+    </Style>
+
     <!-- Detail pane -->
     <Style Selector="Border.detail">
       <Setter Property="Background" Value="{StaticResource DsCardBrush}"/>
@@ -149,6 +198,21 @@
         </Border>
         <TextBlock DockPanel.Dock="Right" Classes="resultFrequency" Text="{Binding FrequencyText}"
                    IsVisible="{Binding FrequencyText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <!-- Quick play: shown on the row the pointer or the keyboard is on, and on the row being previewed, so its stop
+             stays reachable; it sits left of the frequency column, clear of the scroll bar. The fixed-width slot holds the
+             button's place whether it shows or not, so the title's width is constant and hovering a row never re-trims it.
+             The stop glyph is a touch smaller than the play one so the two states weigh the same (the play path renders
+             wider than its box; the stop square stretches to fill it). -->
+        <Panel DockPanel.Dock="Right" Width="34" VerticalAlignment="Center">
+          <Button Classes="preview inRow" Classes.playing="{Binding IsPreviewing}" HorizontalAlignment="Right"
+                  IsVisible="{Binding ShowPreview}" Command="{Binding PreviewCommand}"
+                  AutomationProperties.Name="{Binding PreviewAutomationName}" ToolTip.Tip="{Binding PreviewAutomationName}">
+            <Panel>
+              <PathIcon Data="M8,5v14l11,-7z" Width="16" Height="16" IsVisible="{Binding ShowPlayIcon}" />
+              <PathIcon Data="M6,6h12v12H6z" Width="12" Height="12" IsVisible="{Binding IsPreviewing}" />
+            </Panel>
+          </Button>
+        </Panel>
         <StackPanel VerticalAlignment="Center">
           <!-- The Runs sit on one line with no whitespace between them: a line break between inline elements would add a
                " " run on each side of the dot ("Name  ·  Place"). -->
@@ -271,46 +335,58 @@
         <Panel>
           <TextBlock Classes="hint" Text="{Binding DetailPlaceholder}" VerticalAlignment="Center" TextAlignment="Center"
                      IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNull}}" />
-          <!-- Page Down / Page Up in the search box scroll it. The margin keeps the text clear of the scroll bar even when the
-               pointer expands it to its full width over the content (P9). -->
-          <ScrollViewer x:Name="DetailScroll" Focusable="False" IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <StackPanel Margin="0,0,20,0">
-              <DockPanel Margin="0,0,0,10">
-                <Border DockPanel.Dock="Left" Classes="tile" Classes.hasLogo="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNotNull}}"
-                        ClipToBounds="True" Margin="0,0,12,0" VerticalAlignment="Top">
-                  <Panel>
-                    <TextBlock Text="{Binding DetailRow.Monogram}" IsVisible="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNull}}" />
-                    <Image Source="{Binding DetailLogo}" IsVisible="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNotNull}}" Stretch="Uniform" />
-                  </Panel>
-                </Border>
-                <StackPanel VerticalAlignment="Center">
-                  <TextBlock Classes="detailName" Text="{Binding DetailRow.Name}" ToolTip.Tip="{Binding DetailRow.Name}"
-                             AutomationProperties.LiveSetting="Polite" />
-                  <TextBlock Classes="secondary" Text="{Binding DetailRow.Location}" Margin="0,2,0,0"
-                             IsVisible="{Binding DetailRow.Location, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                </StackPanel>
-              </DockPanel>
-              <WrapPanel Margin="0,0,0,4">
-                <!-- The VPN badge leads the chips, so a geo-restricted stream is the first thing the detail pane says. -->
-                <Border Classes="vpnBadge" Margin="0,0,6,6" IsVisible="{Binding DetailRow.HasVpn}">
-                  <TextBlock Text="{Binding DetailRow.VpnText}" />
-                </Border>
-                <Border Classes="chip" IsVisible="{Binding DetailRow.FrequencyText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                  <TextBlock Text="{Binding DetailRow.FrequencyText}" />
-                </Border>
-                <Border Classes="chip" IsVisible="{Binding DetailRow.Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                  <TextBlock Text="{Binding DetailRow.Kind}" />
-                </Border>
-                <Border Classes="chip" IsVisible="{Binding DetailRow.LanguageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                  <TextBlock Text="{Binding DetailRow.LanguageText}" />
-                </Border>
-                <Border Classes="chip" IsVisible="{Binding DetailRow.VotesText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                  <TextBlock Text="{Binding DetailRow.VotesText}" />
-                </Border>
-              </WrapPanel>
-              <TextBlock Classes="muted" FontSize="12" Text="{Binding DetailRow.Notes}" />
-            </StackPanel>
-          </ScrollViewer>
+          <DockPanel IsVisible="{Binding DetailRow, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <!-- Quick play for the station the pane shows, in the pane's top-right corner, for as long as it shows one. -->
+            <Button DockPanel.Dock="Top" Classes="preview" HorizontalAlignment="Right" Margin="0,0,0,8"
+                    Classes.playing="{Binding DetailRow.IsPreviewing}" Command="{Binding DetailRow.PreviewCommand}"
+                    AutomationProperties.Name="{Binding DetailRow.PreviewAutomationName}"
+                    ToolTip.Tip="{Binding DetailRow.PreviewAutomationName}">
+              <Panel>
+                <PathIcon Data="M8,5v14l11,-7z" Width="16" Height="16" IsVisible="{Binding DetailRow.ShowPlayIcon}" />
+                <PathIcon Data="M6,6h12v12H6z" Width="12" Height="12" IsVisible="{Binding DetailRow.IsPreviewing}" />
+              </Panel>
+            </Button>
+            <!-- Page Down / Page Up in the search box scroll it. The margin keeps the text clear of the scroll bar even when the
+                 pointer expands it to its full width over the content (P9). -->
+            <ScrollViewer x:Name="DetailScroll" Focusable="False">
+              <StackPanel Margin="0,0,20,0">
+                <DockPanel Margin="0,0,0,10">
+                  <Border DockPanel.Dock="Left" Classes="tile" Classes.hasLogo="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNotNull}}"
+                          ClipToBounds="True" Margin="0,0,12,0" VerticalAlignment="Top">
+                    <Panel>
+                      <TextBlock Text="{Binding DetailRow.Monogram}" IsVisible="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNull}}" />
+                      <Image Source="{Binding DetailLogo}" IsVisible="{Binding DetailLogo, Converter={x:Static ObjectConverters.IsNotNull}}" Stretch="Uniform" />
+                    </Panel>
+                  </Border>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Classes="detailName" Text="{Binding DetailRow.Name}" ToolTip.Tip="{Binding DetailRow.Name}"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Classes="secondary" Text="{Binding DetailRow.Location}" Margin="0,2,0,0"
+                               IsVisible="{Binding DetailRow.Location, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </StackPanel>
+                </DockPanel>
+                <WrapPanel Margin="0,0,0,4">
+                  <!-- The VPN badge leads the chips, so a geo-restricted stream is the first thing the detail pane says. -->
+                  <Border Classes="vpnBadge" Margin="0,0,6,6" IsVisible="{Binding DetailRow.HasVpn}">
+                    <TextBlock Text="{Binding DetailRow.VpnText}" />
+                  </Border>
+                  <Border Classes="chip" IsVisible="{Binding DetailRow.FrequencyText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding DetailRow.FrequencyText}" />
+                  </Border>
+                  <Border Classes="chip" IsVisible="{Binding DetailRow.Kind, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding DetailRow.Kind}" />
+                  </Border>
+                  <Border Classes="chip" IsVisible="{Binding DetailRow.LanguageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding DetailRow.LanguageText}" />
+                  </Border>
+                  <Border Classes="chip" IsVisible="{Binding DetailRow.VotesText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding DetailRow.VotesText}" />
+                  </Border>
+                </WrapPanel>
+                <TextBlock Classes="muted" FontSize="12" Text="{Binding DetailRow.Notes}" />
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
         </Panel>
       </Border>
 
@@ -321,9 +397,17 @@
               Height="{Binding #FormColumn.Bounds.Height}" IsVisible="{Binding IsResultsOpen}">
         <DockPanel>
           <!-- The rule above the footer marks a half-visible last row as scrolled content, not a cut one. -->
-          <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource DsDialRingBrush}" BorderThickness="0,1,0,0" Margin="6,2,6,0" Padding="4,6,4,4"
+          <Border x:Name="ResultsFooter" DockPanel.Dock="Bottom" BorderBrush="{StaticResource DsDialRingBrush}" BorderThickness="0,1,0,0" Margin="6,2,6,0" Padding="4,6,4,4"
                   IsVisible="{Binding TotalCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-            <TextBlock Classes="hint" Text="{Binding TotalCountText}" AutomationProperties.LiveSetting="Polite" />
+            <DockPanel>
+              <!-- The next page of the same query, appended to the list already shown; gone once all the matches are. It is
+                   not a Tab stop (the documented Tab order ends at the form), so keyboard users reach it with Ctrl+Down. -->
+              <Button DockPanel.Dock="Right" Classes="showMore" MinWidth="72" Margin="8,0,0,0" Focusable="False"
+                      Content="{x:Static vm:UiText.ShowMore}" IsVisible="{Binding HasMoreResults}"
+                      Command="{Binding ShowMoreCommand}" AutomationProperties.Name="{x:Static vm:UiText.ShowMoreAutomationName}"
+                      ToolTip.Tip="{x:Static vm:UiText.ShowMore}" />
+              <TextBlock Classes="hint" Text="{Binding TotalCountText}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
+            </DockPanel>
           </Border>
           <ListBox x:Name="ResultsList" ItemsSource="{Binding Results}" SelectedItem="{Binding HighlightedResult}"
                    ItemTemplate="{StaticResource CatalogResult}" VerticalAlignment="Top" Focusable="False"

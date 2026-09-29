@@ -37,6 +37,7 @@ public static class PlaybackLoopTests
         public PlaybackSnapshot Snapshot => inner.Snapshot;
         public event EventHandler<PlaybackSnapshot>? SnapshotChanged { add => inner.SnapshotChanged += value; remove => inner.SnapshotChanged -= value; }
         public Task PlayAsync(Guid stationId) => inner.PlayAsync(stationId);
+        public Task PlayPreviewAsync(string url, string displayName) => inner.PlayPreviewAsync(url, displayName);
         public Task ToggleAsync() => inner.ToggleAsync();
         public Task StopAsync() => inner.StopAsync();
         public Task NextStationAsync() => inner.NextStationAsync();

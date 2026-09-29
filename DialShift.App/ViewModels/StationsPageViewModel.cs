@@ -101,11 +101,18 @@ public sealed class StationsPageViewModel : PageViewModel
     private async Task EditAsync(Station? station)
     {
         var editor = new StationEditorViewModel(Services.Settings.Settings, station, Services.Dialogs, Services.ReportError,
-            Services.Catalog, Services.Logos, Services.Dispatcher, Services.CatalogSearchDelay);
+            Services.Catalog, Services.Logos, Services.Dispatcher, Services.Coordinator, Services.CatalogSearchDelay);
         switch (await Services.Editors.ShowStationEditorAsync(editor))
         {
             case EditorResult.Saved:
                 await Services.Settings.CommitAsync(SettingsChange.Stations);
+                // A station just added starts playing: a preview still playing that stream is adopted as it is (the
+                // coordinator's seamless promote), so adding what you are listening to never restarts it.
+                if (editor.AddedStation is { } added)
+                {
+                    await Services.Coordinator.PlayAsync(added.Id);
+                    await Services.Settings.SaveAsync();
+                }
                 break;
             case EditorResult.Deleted when station != null:
                 await DeleteAsync(station);

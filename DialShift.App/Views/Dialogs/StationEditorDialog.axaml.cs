@@ -18,10 +18,13 @@ namespace DialShift.App.Views.Dialogs;
 /// moves the highlight down in the open ones; Up moves it back; Enter picks the highlighted result while the results are
 /// open, and while a search the user asked for is still pending it runs that search at once and picks its first row, or
 /// nothing on no match, without saving (D87 item 6); otherwise (the results closed, or a pending search that would leave
-/// them closed, D89) it falls through to Save; Page Down and Page Up scroll the detail pane (its notes can be long).
+/// them closed, D89) it falls through to Save; Ctrl+Down loads the next page of the open results ("Show more", which has no
+/// Tab stop of its own); Page Down and Page Up scroll the detail pane (its notes can be long).
 /// Escape closes the open results wherever the focus is in the dialog, unless a filter drop-down is open and takes it
 /// first; with the results closed it is not handled, so the Cancel button's <c>IsCancel</c> closes the dialog. The
-/// results list never takes focus: pointing at a row highlights it, pressing it picks it.
+/// results list never takes focus: pointing at a row highlights it, pressing it picks it — unless the press is on the
+/// row's or the detail pane's quick-play button, which only previews (or stops) that stream and leaves the list open
+/// (a press on a quick-play button never closes the results, so the pane's stop stays reachable).
 /// </remarks>
 public partial class StationEditorDialog : Window
 {
@@ -59,7 +62,9 @@ public partial class StationEditorDialog : Window
         };
         ResultsList.AddHandler(TappedEvent, (_, e) =>
         {
-            if (RowAt(e.Source) is not { } row) return;
+            // A press on a row's quick-play button is only a press on that button: picking the row would close the
+            // results and fill the form with the station the user is merely listening to.
+            if (ButtonAt(e.Source) != null || RowAt(e.Source) is not { } row) return;
             editor.HighlightedResult = row;
             editor.SelectEntryCommand.Execute(null);
         }, handledEventsToo: true);
@@ -78,7 +83,16 @@ public partial class StationEditorDialog : Window
 
     private void OnSearchKeyDown(object? sender, KeyEventArgs e)
     {
-        if (editor == null || e.KeyModifiers != KeyModifiers.None) return;
+        if (editor == null) return;
+        // Ctrl+Down reaches the footer's "Show more" without a pointer and without a Tab stop of its own, so the documented
+        // Tab order (search box, filters, form) is untouched (QG-03).
+        if (e.Key == Key.Down && e.KeyModifiers == KeyModifiers.Control)
+        {
+            if (editor is { IsResultsOpen: true, HasMoreResults: true }) editor.ShowMoreCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+        if (e.KeyModifiers != KeyModifiers.None) return;
         switch (e.Key)
         {
             case Key.Down:
@@ -124,10 +138,14 @@ public partial class StationEditorDialog : Window
         if (editor is { Results.Count: > 0 }) editor.IsResultsOpen = true;
     }
 
-    /// <summary>A press anywhere but the overlay, the search box or the filters closes the results.</summary>
+    /// <summary>A press anywhere but the overlay, the search box, the filters or a quick-play button closes the results.</summary>
     private void OnWindowPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (editor is not { IsResultsOpen: true } || e.Source is not Visual source) return;
+        // A press on a quick-play button belongs to that button (the detail pane's, while the overlay is open, included).
+        // Closing the results here would drop the highlight and take the pane's stop control out from under the press,
+        // leaving the preview playing with no visible way to stop it.
+        if (ButtonAt(source) is { } button && button.Classes.Contains("preview")) return;
         if (source == ResultsOverlay || source == SearchBox || source == FilterRow
             || ResultsOverlay.IsVisualAncestorOf(source) || SearchBox.IsVisualAncestorOf(source) || FilterRow.IsVisualAncestorOf(source))
             return;
@@ -145,4 +163,8 @@ public partial class StationEditorDialog : Window
 
     private static CatalogResultRow? RowAt(object? source) =>
         (source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true)?.DataContext as CatalogResultRow;
+
+    /// <summary>The button a press started in, if any: a row's quick-play control, which handles its own press.</summary>
+    private static Button? ButtonAt(object? source) =>
+        (source as Visual)?.FindAncestorOfType<Button>(includeSelf: true);
 }

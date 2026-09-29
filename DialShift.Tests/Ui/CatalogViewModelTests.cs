@@ -34,6 +34,9 @@ internal static class CatalogViewModelTests
         await PickAndDetail();
         await NotesOnSave();
         await VpnPickAndBadge();
+        await ShowMorePaging();
+        await QuickPlayPreview();
+        await DetailPreviewOfPickedRowAbsentFromResults();
         await EditModeUnchanged();
         await DetailPlaceholders();
         await RealCatalog();
@@ -48,7 +51,8 @@ internal static class CatalogViewModelTests
             Catalog = new FakeCatalogProvider { Hold = hold, Fault = fault };
             if (result != null) Catalog.Result = result;
             Settings = settings ?? new Settings();
-            Vm = new StationEditorViewModel(Settings, original, Dialogs, Errors.Add, Catalog, Logos, Ui, delay ?? TimeSpan.Zero);
+            Coordinator = new FakeCoordinator(Journal);
+            Vm = new StationEditorViewModel(Settings, original, Dialogs, Errors.Add, Catalog, Logos, Ui, Coordinator, delay ?? TimeSpan.Zero);
             Vm.FocusRequested += (_, field) => Focus.Add(field);
             Vm.PropertyChanged += (_, e) => Changes.Add(e.PropertyName);
         }
@@ -58,6 +62,13 @@ internal static class CatalogViewModelTests
         public FakeCatalogProvider Catalog { get; }
         public FakeLogoLoader Logos { get; } = new();
         public RecordingDialogService Dialogs { get; } = new();
+
+        /// <summary>The quick-play preview's coordinator: the dialog plays a catalog stream through it and never its own engine.</summary>
+        public FakeCoordinator Coordinator { get; }
+
+        /// <summary>Its journal, so a check can see exactly which coordinator calls the dialog made (QM-01..06).</summary>
+        public Journal Journal { get; } = new();
+
         public List<Exception> Errors { get; } = [];
         public List<string> Focus { get; } = [];
         public List<string?> Changes { get; } = [];
@@ -634,6 +645,163 @@ internal static class CatalogViewModelTests
 
         Check("CAT-21 no errors were reported while picking",
             rig.Errors.Count == 0 && plainRig.Errors.Count == 0 && changed.Errors.Count == 0 && byHand.Errors.Count == 0);
+    }
+
+    // ─── "Show more" (spec Feature 1; acceptance-matrix §15 SM-01..05) ───
+
+    /// <summary>
+    /// The Add dialog's results footer and "Show more" paging (D122): the first page is 50 rows with the control offered,
+    /// each activation appends the next 50 of the same query without touching the overlay, the highlight or the rows
+    /// already listed (and fetches logos only for the rows it adds), the control disappears at the full total, and a new
+    /// query starts at 50 again. Scroll and rendering are the headless checks' half.
+    /// </summary>
+    private static async Task ShowMorePaging()
+    {
+        // Every entry has a logo, so the loader's request count is exactly the number of rows ever fetched.
+        var numbered = Numbered(120).Select((e, i) => e with { Logo = $"https://logos.example.org/station-{i + 1:00}.png" }).ToList();
+        var rig = new EditorRig(Loaded(numbered));
+        await rig.Settled();
+        var vm = rig.Vm;
+        Check("SM-01 a browse of 120 lists the first 50, the footer \"Top 50 of 120 stations by votes\" and HasMoreResults (the control shows)",
+            vm.Results.Count == 50 && vm.TotalCount == 120 && vm.TotalCountText == "Top 50 of 120 stations by votes" && vm.HasMoreResults
+            && rig.Shown.SequenceEqual(numbered.Take(50)) && !vm.IsResultsOpen);
+        Check("SM-05 the first page fetched the logos of exactly its own 50 rows", rig.Logos.Requests.Count == 50);
+
+        vm.IsResultsOpen = true;
+        var row = vm.Results[10];
+        vm.HighlightedResult = row;
+        var logos = rig.Logos.Requests.Count;
+        vm.ShowMoreCommand.Execute(null);
+        await rig.Settled();
+        Check("SM-02 SM-03 activating Show more appends the next 50 of the same query (100 rows, \"Top 100 of 120 stations by votes\"), the overlay stays open",
+            vm.Results.Count == 100 && vm.TotalCount == 120 && vm.TotalCountText == "Top 100 of 120 stations by votes" && vm.HasMoreResults && vm.IsResultsOpen
+            && rig.Shown.SequenceEqual(numbered.Take(100)));
+        Check("SM-02 the appended page leaves the rows already listed in place and the highlight untouched (same row objects, the highlighted one included)",
+            ReferenceEquals(vm.Results[10], row) && vm.HighlightedResult == row && vm.DetailRow == row);
+        Check("SM-02 SM-05 the appended page fetched logos only for the 50 rows it added (50 new requests: the 100 rows already listed were not re-fetched)",
+            rig.Logos.Requests.Count == logos + 50);
+
+        var afterSecondPage = rig.Logos.Requests.Count;
+        vm.ShowMoreCommand.Execute(null);
+        await rig.Settled();
+        Check("SM-03 the last page reaches all 120 (\"All 120 stations by votes\") and Show more goes away (HasMoreResults false)",
+            vm.Results.Count == 120 && vm.TotalCountText == "All 120 stations by votes" && !vm.HasMoreResults && vm.HighlightedResult == row);
+        Check("SM-05 the last page fetched only its 20 new rows", rig.Logos.Requests.Count == afterSecondPage + 20);
+        var mark = rig.Changes.Count;
+        vm.ShowMoreCommand.Execute(null);
+        Check("SM-03 with everything shown the control's command is a no-op: no search, no change",
+            rig.Changes.Count == mark && vm.Results.Count == 120 && vm.PendingSearch.IsCompleted);
+
+        vm.SearchText = "station";
+        await rig.Settled();
+        Check("SM-04 a new search text starts at the top 50 again (\"Showing 50 of 120 matches\")",
+            vm.Results.Count == 50 && vm.TotalCount == 120 && vm.TotalCountText == "Showing 50 of 120 matches" && vm.HasMoreResults && vm.SearchText == "station");
+        vm.ShowMoreCommand.Execute(null);
+        await rig.Settled();
+        Check("SM-04 fixture: the paged query is back to 100 rows", vm.Results.Count == 100 && vm.TotalCountText == "Showing 100 of 120 matches");
+        vm.SelectedCountry = vm.CountryOptions.Single(o => o.Value == "GR");
+        await rig.Settled();
+        Check("SM-04 a filter change is a new query too: it resets the page to 50",
+            vm.Results.Count == 50 && vm.TotalCountText == "Showing 50 of 120 matches" && vm.HasMoreResults);
+
+        var small = new EditorRig(Loaded(Small));
+        await small.Settled();
+        Check("SM-01 a catalog of 50 or fewer shows no control: 7 rows, \"All 7 stations by votes\", HasMoreResults false",
+            small.Vm.Results.Count == 7 && small.Vm.TotalCountText == "All 7 stations by votes" && !small.Vm.HasMoreResults);
+    }
+
+    // ─── quick play (spec Feature 2; acceptance-matrix §15 QM-01..06) ───
+
+    /// <summary>
+    /// The Add dialog's "listen before you add" toggle in the view model: a row's play calls
+    /// <c>PlayPreviewAsync(url, name)</c> once and nothing else, the row (and the editor) flip to stop, pressing stop calls
+    /// <c>StopAsync</c> and clears the flag, another row's play supersedes the first, and the button shows on the row the
+    /// pointer or the keyboard is on (or the one previewing) — the detail pane's half is the headless checks'. The dialog
+    /// never calls <c>PlayAsync</c> and never saves: a preview is transient by construction.
+    /// </summary>
+    private static async Task QuickPlayPreview()
+    {
+        var rig = new EditorRig(Loaded(Small));
+        await rig.Settled();
+        var vm = rig.Vm;
+        var kosmos = vm.Results.Single(r => r.Entry == Kosmos);
+        var melodia = vm.Results.Single(r => r.Entry == Melodia);
+        Check("QM-01 fixture: a row at rest shows the play icon under \"Listen Kosmos 93.6\" and no button (nothing is on that row)",
+            !kosmos.IsPreviewing && kosmos.ShowPlayIcon && kosmos.PreviewAutomationName == "Listen Kosmos 93.6" && !kosmos.ShowPreview);
+
+        var mark = rig.Journal.Count;
+        await kosmos.PreviewCommand.ExecuteAsync();
+        Check("QM-01 the row's play calls PlayPreviewAsync(url, name) and nothing else (no PlayAsync, no save)",
+            rig.Journal.Since(mark).SequenceEqual(["coordinator.PlayPreviewAsync:Kosmos 93.6:https://streams.example.org/kosmos"]));
+        Check("QM-01 the row flips to stop: IsPreviewing, the stop icon and the spoken name \"Stop Kosmos 93.6\"; the editor knows the URL and shows the button",
+            kosmos.IsPreviewing && !kosmos.ShowPlayIcon && kosmos.PreviewAutomationName == "Stop Kosmos 93.6" && kosmos.ShowPreview
+            && vm.IsPreviewing && vm.PreviewingUrl == "https://streams.example.org/kosmos");
+        Check("QM-02 the other rows are untouched and the editor reports no error", !melodia.IsPreviewing && melodia.PreviewAutomationName == "Listen Melodia 99.2" && rig.Errors.Count == 0);
+
+        mark = rig.Journal.Count;
+        await melodia.PreviewCommand.ExecuteAsync();
+        Check("QM-01 a second row's play supersedes the first (PlayPreviewAsync for it, no Stop), and only that row shows stop",
+            rig.Journal.Since(mark).SequenceEqual(["coordinator.PlayPreviewAsync:Melodia 99.2:https://streams.example.org/melodia"])
+            && melodia.IsPreviewing && !kosmos.IsPreviewing && !kosmos.ShowPreview && vm.PreviewingUrl == "https://streams.example.org/melodia");
+
+        mark = rig.Journal.Count;
+        await melodia.PreviewCommand.ExecuteAsync();
+        Check("QM-03 pressing stop calls StopAsync (and nothing else) and clears the state: both rows are back to play",
+            rig.Journal.Since(mark).SequenceEqual(["coordinator.StopAsync"])
+            && !melodia.IsPreviewing && melodia.ShowPlayIcon && melodia.PreviewAutomationName == "Listen Melodia 99.2"
+            && !kosmos.IsPreviewing && vm.PreviewingUrl == null && !vm.IsPreviewing);
+
+        vm.HighlightedResult = melodia;
+        Check("QM-01 QM-02 pointing at (or walking to) a row shows its play button; the highlighted row is the only one showing one while nothing previews",
+            melodia.ShowPreview && !kosmos.ShowPreview && melodia.PreviewAutomationName == "Listen Melodia 99.2");
+        vm.HighlightedResult = null;
+        Check("QM-01 the button goes with the highlight and nothing is left previewing",
+            !melodia.ShowPreview && !vm.IsPreviewing && rig.Journal.Entries.All(e => !e.StartsWith("coordinator.PlayAsync", StringComparison.Ordinal)));
+    }
+
+    // ─── QM-01/QM-03 + D89 regression: the detail pane's play/stop stays honest when the picked station left the list ───
+
+    /// <summary>
+    /// A picked row survives a later search that replaces the list (D89), so the detail pane's <c>DetailRow</c> can be a row
+    /// that is no longer in <c>Results</c>. <c>UpdatePreviewState</c> used to walk only <c>Results</c>, so toggling the preview
+    /// on that picked-but-unlisted row flagged the editor but left the detail row's own button claiming play — a preview with
+    /// no visible stop. The fix also points such a detail row (guarded by the reference-based <c>IndexOf(results, detail) &lt; 0</c>)
+    /// at <c>PreviewingUrl</c>; this pins that the pane flips to stop and back regardless of the list.
+    /// </summary>
+    private static async Task DetailPreviewOfPickedRowAbsentFromResults()
+    {
+        var rig = new EditorRig(Loaded(Small));
+        await rig.Settled();
+        var vm = rig.Vm;
+        vm.SearchText = "radio";
+        await rig.Settled();
+        Check("QM-01 D89 regression fixture: \"radio\" opens on the highlighted Radio Thessaloniki", vm.HighlightedResult?.Entry == Thessaloniki);
+        Pick(vm, Thessaloniki);
+        Check("QM-01 D89 regression fixture: the pick closes the overlay and leaves the detail pane on the picked row",
+            vm.SelectedEntry == Thessaloniki && !vm.IsResultsOpen && vm.DetailRow?.Entry == Thessaloniki);
+        var picked = vm.DetailRow!;
+
+        vm.SearchText = "koln";
+        await rig.Settled();
+        Check("QM-01 D89 regression fixture: the new search rebuilds the list without the picked row (Radio Köln AM only)",
+            vm.Results.Count == 1 && vm.Results[0].Entry == KolnAm);
+        vm.IsResultsOpen = false; // Escape's path: drop the highlight so DetailRow falls back to the picked row.
+        Check("QM-01 D89 regression: DetailRow is the picked Radio Thessaloniki and is not reference-equal to any row in Results",
+            vm.DetailRow == picked && vm.DetailRow.Entry == Thessaloniki && vm.Results.All(r => !ReferenceEquals(r, vm.DetailRow)));
+
+        var mark = rig.Journal.Count;
+        await vm.TogglePreviewAsync(vm.DetailRow!);
+        Check("QM-01 toggling the detail pane previews the picked-but-unlisted station through the coordinator and nothing else (no PlayAsync, no stop)",
+            rig.Journal.Since(mark).SequenceEqual([$"coordinator.PlayPreviewAsync:Radio Thessaloniki:{Thessaloniki.StreamUrl}"])
+            && vm.IsPreviewing && vm.PreviewingUrl == Thessaloniki.StreamUrl);
+        Check("QM-01 the detail row flips to stop even though it is absent from Results: IsPreviewing and \"Stop Radio Thessaloniki\"",
+            vm.DetailRow!.IsPreviewing && vm.DetailRow.PreviewAutomationName == "Stop Radio Thessaloniki");
+
+        mark = rig.Journal.Count;
+        await vm.TogglePreviewAsync(vm.DetailRow!);
+        Check("QM-03 toggling it again stops the preview exactly once and both the editor and the detail row return to play",
+            rig.Journal.Since(mark).SequenceEqual(["coordinator.StopAsync"]) && !vm.IsPreviewing
+            && vm.DetailRow!.IsPreviewing == false && vm.DetailRow.PreviewAutomationName == "Listen Radio Thessaloniki");
     }
 
     // ─── CAT-11: Edit mode is the plain form ───

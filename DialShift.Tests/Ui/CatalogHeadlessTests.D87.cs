@@ -28,8 +28,8 @@ internal static partial class CatalogHeadlessTests
     /// <summary>The results footer's text and the border that carries its top divider.</summary>
     private static (TextBlock Text, Border Box) Footer(Window dialog)
     {
-        var text = Find<TextBlock>(Overlay(dialog)).Single(t => t.GetVisualParent() is Border && t.Classes.Contains("hint"));
-        return (text, (Border)text.GetVisualParent()!);
+        var text = Find<TextBlock>(Overlay(dialog)).Single(t => t.Classes.Contains("hint") && t.FindAncestorOfType<Border>() is { Name: "ResultsFooter" });
+        return (text, text.FindAncestorOfType<Border>()!);
     }
 
     /// <summary>

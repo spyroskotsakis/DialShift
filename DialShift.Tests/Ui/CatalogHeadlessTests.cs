@@ -65,6 +65,10 @@ internal static partial class CatalogHeadlessTests
         await Headless.RunAsync(DetailPlaceholders);
         await Headless.RunAsync(FilterLabelInk);
         await Headless.RunAsync(VpnBadge);
+        await Headless.RunAsync(ShowMorePagesTheResults);
+        await Headless.RunAsync(QuickPlayFromTheRowAndTheDetailPane);
+        await Headless.RunAsync(QuickPlayFromTheDetailPaneWithTheResultsOpen);
+        await Headless.RunAsync(QuickPlayLifecycleOverTheRealCoordinator);
     }
 
     // ─── helpers ───

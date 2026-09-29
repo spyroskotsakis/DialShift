@@ -155,6 +155,12 @@ public static class UiText
         return shown >= total ? $"All {Stations(total)} by votes" : $"Top {Count(shown)} of {Stations(total)} by votes";
     }
 
+    /// <summary>The results footer's next-page control: the list shows fewer rows than the query matched (§ "Show more").</summary>
+    public const string ShowMore = "Show more";
+
+    /// <summary>The "Show more" button's automation name: the label without its space, as the headless tests address it.</summary>
+    public const string ShowMoreAutomationName = "ShowMore";
+
     /// <summary>A catalog count, grouped the invariant way whatever the computer's culture: "8,274".</summary>
     public static string Count(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
 
