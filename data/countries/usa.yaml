@@ -232,7 +232,9 @@ curated:
   genre: Technology
   leaning: None
   freq: '890'
-  no_auto_stream: true
+  url: https://playerservices.streamtheworld.com/api/livestream-redirect/WLSAMAAC.aac
+  requires_vpn: true
+  vpn_region: United States
   notes: Carries The Kim Komando Show and Daily Tech Update. Stream geo-restricted outside the US.
 - match:
   - wsb
@@ -767,7 +769,9 @@ curated:
   genre: News & Talk
   leaning: None
   freq: '820'
-  no_auto_stream: true
+  url: https://playerservices.streamtheworld.com/api/livestream-redirect/WBAPAMAAC.aac
+  requires_vpn: true
+  vpn_region: United States
   notes: Dallas-Fort Worth news/talk, 820 AM / 93.3 FM. Stream geo-restricted outside the US.
 - match:
   - wjr
